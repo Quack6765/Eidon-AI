@@ -19,10 +19,6 @@ export type PendingLocalSubmission = {
   serverMessageId: string | null;
 };
 
-export function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
-  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
-}
-
 export function isLooseImageActionMatch(
   left: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">,
   right: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">
@@ -112,15 +108,11 @@ function attachmentsAreSubset(
 }
 
 export function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
-  const signature = getActionSignature(action);
-
   for (let index = timeline.length - 1; index >= 0; index -= 1) {
     const item = timeline[index];
 
-    if (item.timelineKind === "action") {
-      if (getActionSignature(item) === signature || isLooseImageActionMatch(item, action)) {
-        return index;
-      }
+    if (item.timelineKind === "action" && isLooseImageActionMatch(item, action)) {
+      return index;
     }
   }
 
@@ -379,7 +371,17 @@ export function reconcileSnapshotMessages(
     return !isLegacyCompactionNotice(m);
   });
 
-  const nextMessages = [...merged, ...pendingLocalMessages];
+  const nextMessages = [...merged];
+  for (const message of pendingLocalMessages) {
+    const insertIndex = nextMessages.findIndex(
+      (candidate) => candidate.createdAt > message.createdAt
+    );
+    if (insertIndex === -1) {
+      nextMessages.push(message);
+    } else {
+      nextMessages.splice(insertIndex, 0, message);
+    }
+  }
   const unchanged =
     nextMessages.length === current.length &&
     nextMessages.every((message, index) => message === current[index]);

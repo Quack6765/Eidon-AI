@@ -164,7 +164,7 @@ describe("conversation helpers", () => {
     expect(messages.map((message) => message.content)).toEqual(["First", "Second"]);
   });
 
-  it("deletes only error-status assistant messages and their children", () => {
+  it("deletes only empty error shells and keeps failed messages that produced output", () => {
     const conversation = createConversation();
 
     const userMessage = createMessage({
@@ -172,10 +172,16 @@ describe("conversation helpers", () => {
       role: "user",
       content: "Run it"
     });
-    const errorMessage = createMessage({
+    const shellErrorMessage = createMessage({
       conversationId: conversation.id,
       role: "assistant",
       content: "Assistant exceeded the maximum number of tool steps",
+      status: "error"
+    });
+    const outputErrorMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Chat stream failed",
       status: "error"
     });
     const okMessage = createMessage({
@@ -186,26 +192,26 @@ describe("conversation helpers", () => {
     });
 
     createMessageAction({
-      messageId: errorMessage.id,
+      messageId: outputErrorMessage.id,
       kind: "mcp_tool_call",
       label: "web_search_exa"
     });
 
     const deletedIds = deleteFailedAssistantMessages(conversation.id);
 
-    expect(deletedIds).toEqual([errorMessage.id]);
+    expect(deletedIds).toEqual([shellErrorMessage.id]);
 
     const remaining = listMessages(conversation.id);
     expect(remaining.map((message) => message.id)).toEqual(
-      expect.arrayContaining([userMessage.id, okMessage.id])
+      expect.arrayContaining([userMessage.id, okMessage.id, outputErrorMessage.id])
     );
-    expect(remaining.find((message) => message.id === errorMessage.id)).toBeUndefined();
+    expect(remaining.find((message) => message.id === shellErrorMessage.id)).toBeUndefined();
 
     const db = getDb();
     const remainingActions = db
       .prepare("SELECT id FROM message_actions WHERE message_id = ?")
-      .all(errorMessage.id);
-    expect(remainingActions).toHaveLength(0);
+      .all(outputErrorMessage.id);
+    expect(remainingActions).toHaveLength(1);
   });
 
   it("hides background system prompts from visible message lists",  async () => {

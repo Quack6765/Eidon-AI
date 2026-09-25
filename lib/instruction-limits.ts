@@ -1,0 +1,1 @@
+export const MAX_INSTRUCTION_CHARS = 64_000;

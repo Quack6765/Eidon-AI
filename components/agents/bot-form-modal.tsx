@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import type { BotSummary, ProviderProfileSummary } from "@/lib/types";
 
@@ -203,7 +204,7 @@ export function BotFormModal({
             onChange={(event) => update("systemPrompt", event.target.value)}
             placeholder="Optional instructions that shape how this bot works."
             rows={10}
-            maxLength={8000}
+            maxLength={MAX_INSTRUCTION_CHARS}
           />
         </div>
         {error ? <p className="text-xs text-red-300">{error}</p> : null}

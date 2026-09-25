@@ -284,6 +284,25 @@ export function buildToolDefinitions(input: {
       }
     });
 
+    tools.push({
+      type: "function",
+      function: {
+        name: "update_own_instructions",
+        description:
+          "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
+        parameters: {
+          type: "object",
+          properties: {
+            instructions: {
+              type: "string",
+              description: "The complete new instructions that replace the current ones"
+            }
+          },
+          required: ["instructions"]
+        }
+      }
+    });
+
     if (input.botTeam.isChief) {
       tools.push(
         {
@@ -291,7 +310,7 @@ export function buildToolDefinitions(input: {
           function: {
             name: "create_bot",
             description:
-              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. After creation, send work to it with message_bot.",
+              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. Always write the bot's specific instructions in the same call — its identity, what it owns, how it should work, its quality bar, and what to avoid — never a generic placeholder. After creation, send work to it with message_bot.",
             parameters: {
               type: "object",
               properties: {
@@ -300,9 +319,14 @@ export function buildToolDefinitions(input: {
                 description: {
                   type: "string",
                   description: "What this bot owns and how it should work (optional)"
+                },
+                instructions: {
+                  type: "string",
+                  description:
+                    "The bot's specific instructions: its identity, what it owns, how it should work, its quality bar, and what to avoid"
                 }
               },
-              required: ["name"]
+              required: ["name", "instructions"]
             }
           }
         },
@@ -311,7 +335,7 @@ export function buildToolDefinitions(input: {
           function: {
             name: "update_bot",
             description:
-              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or system prompt. Prefer this over creating a duplicate bot.",
+              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or instructions. Prefer this over creating a duplicate bot.",
             parameters: {
               type: "object",
               properties: {
@@ -325,9 +349,9 @@ export function buildToolDefinitions(input: {
                   type: "string",
                   description: "New description of what this bot owns (optional)"
                 },
-                system_prompt: {
+                instructions: {
                   type: "string",
-                  description: "New base system prompt shaping how the bot works (optional)"
+                  description: "New instructions replacing how the bot works (optional)"
                 }
               },
               required: ["bot"]

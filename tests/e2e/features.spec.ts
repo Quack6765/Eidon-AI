@@ -39,6 +39,9 @@ async function signIn(page: import("@playwright/test").Page) {
     }
   ]);
 
+  const onboarding = await page.request.put("/api/onboarding", { data: { completed: true } });
+  expect(onboarding.ok()).toBeTruthy();
+
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }

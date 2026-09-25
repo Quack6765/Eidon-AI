@@ -354,10 +354,6 @@ type AssistantBlock =
   | Extract<MessageTimelineItem, { timelineKind: "action" }>
   | RenderedThinkingTimelineItem;
 
-function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "detail" | "toolName">) {
-  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
-}
-
 function isRunningActionBlock(
   item: AssistantBlock
 ): item is Extract<MessageTimelineItem, { timelineKind: "action" }> {
@@ -589,16 +585,6 @@ function MessageBubbleImpl({
         }
 
         appendBufferedText();
-        const previousBlock = assistantBlocks[assistantBlocks.length - 1];
-
-        if (
-          previousBlock?.timelineKind === "action" &&
-          getActionSignature(previousBlock) === getActionSignature(item)
-        ) {
-          assistantBlocks[assistantBlocks.length - 1] = item;
-          return;
-        }
-
         assistantBlocks.push(item);
         return;
       }
@@ -618,6 +604,7 @@ function MessageBubbleImpl({
     const normalizedConsumedText = normalizeRealLineBreaks(consumedText);
 
     if (
+      message.status !== "error" &&
       contentForComparison &&
       contentForComparison.length > normalizedConsumedText.length &&
       contentForComparison.startsWith(normalizedConsumedText)
@@ -1213,20 +1200,38 @@ function MessageBubbleImpl({
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-center">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
-                  {assistantBlocks
-                    .filter((item) => item.timelineKind !== "text")
-                    .map((item) =>
-                      item.timelineKind === "thinking"
-                        ? renderThinkingShell({
-                            id: item.id,
-                            content: item.content,
-                            status: item.status,
-                            duration: item.completedAt
-                              ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
-                              : undefined
-                          })
-                        : renderAssistantActionItem(item)
+                  <div className="flex w-full flex-col items-start gap-3">
+                    {assistantBlocks.map((item) =>
+                    item.timelineKind === "thinking" ? (
+                      renderThinkingShell({
+                        id: item.id,
+                        content: item.content,
+                        status: item.status,
+                        duration: item.completedAt
+                          ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
+                          : undefined
+                      })
+                    ) : item.timelineKind === "action" ? (
+                      renderAssistantActionItem(item)
+                    ) : item.content ? (
+                      <div
+                        key={item.id}
+                        className={ASSISTANT_CONTENT}
+                        data-testid="assistant-message-content"
+                      >
+                        <div className="markdown-body">
+                          <AssistantMarkdown
+                            content={renderedAssistantBlockContentById.get(item.id) ?? item.content}
+                            isAnimating={false}
+                            showCaret={false}
+                            isStatic={false}
+                            linkSafety={linkSafety}
+                          />
+                        </div>
+                      </div>
+                    ) : null
                     )}
+                  </div>
                   {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"

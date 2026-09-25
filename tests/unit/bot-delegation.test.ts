@@ -10,6 +10,7 @@ vi.mock("@/lib/chat-turn", () => ({
 
 import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { createMessage } from "@/lib/conversations";
 import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
 import { configureBotRunLimits, enqueueSerialTask, releaseBotUserSlot, resetBotRunLimiter, tryAcquireBotUserSlot } from "@/lib/bot-run-limiter";
@@ -26,7 +27,8 @@ import {
   deliverDelegationWake,
   executeCreateBotTool,
   executeMessageBot,
-  executeUpdateBotTool
+  executeUpdateBotTool,
+  executeUpdateOwnInstructionsTool
 } from "@/lib/bot-delegation";
 import type { PromptMessage } from "@/lib/types";
 
@@ -627,13 +629,19 @@ describe("bot-delegation", () => {
     ).toHaveLength(0);
   });
 
-  it("creates a bot via the create_bot tool and reports it", async () => {
+  it("creates a bot via the create_bot tool with its instructions and reports it", async () => {
     const user = await createLocalUser({ username: "createbotowner", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
 
-    const { context, calls, completions } = buildContext(user.id);
+    const { context, calls, completions } = buildContext(user.id, undefined, chief.homeConversationId);
     const result = await executeCreateBotTool(
       "call_5",
-      { name: "Scout", title: "Lookout", description: "Watches for changes." },
+      {
+        name: "Scout",
+        title: "Lookout",
+        description: "Watches for changes.",
+        instructions: "You watch for changes and report them."
+      },
       context
     );
 
@@ -643,17 +651,108 @@ describe("bot-delegation", () => {
     const created = listBots(user.id).find((bot) => bot.name === "Scout");
     expect(created).toBeTruthy();
     expect(created?.title).toBe("Lookout");
+    expect(created?.systemPrompt).toBe("You watch for changes and report them.");
     expect(result.promptMessages.at(-1)?.content).toContain("Scout");
+  });
+
+  it("requires specific instructions when creating a bot", async () => {
+    const user = await createLocalUser({ username: "createbotreq", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+
+    const missing = await executeCreateBotTool(
+      "call_r1",
+      { name: "Scout" },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+    expect(missing.promptMessages.at(-1)?.content).toContain("instructions are required");
+
+    const blank = await executeCreateBotTool(
+      "call_r2",
+      { name: "Scout", instructions: "   " },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+    expect(blank.promptMessages.at(-1)?.content).toContain("instructions are required");
+
+    const tooLong = await executeCreateBotTool(
+      "call_r3",
+      { name: "Scout", instructions: "x".repeat(MAX_INSTRUCTION_CHARS + 1) },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+    expect(tooLong.promptMessages.at(-1)?.content).toContain("instructions are too long");
+
+    expect(listBots(user.id).some((bot) => bot.name === "Scout")).toBe(false);
+  });
+
+  it("rejects create_bot and update_bot from a bot that is not the chief", async () => {
+    const user = await createLocalUser({ username: "botguard", password: "password-123", role: "user" as const });
+    ensureChiefBot(user.id);
+    const worker = createBot({ name: "Worker" }, user.id);
+    const other = createBot({ name: "Other" }, user.id);
+
+    const created = await executeCreateBotTool(
+      "call_g1",
+      { name: "Sneaky", instructions: "Do sneaky things." },
+      buildContext(user.id, undefined, worker.homeConversationId).context
+    );
+    expect(created.promptMessages.at(-1)?.content).toContain("only the chief of staff");
+    expect(listBots(user.id).some((bot) => bot.name === "Sneaky")).toBe(false);
+
+    const updated = await executeUpdateBotTool(
+      "call_g2",
+      { bot: other.id, instructions: "Rewritten by a worker." },
+      buildContext(user.id, undefined, worker.homeConversationId).context
+    );
+    expect(updated.promptMessages.at(-1)?.content).toContain("only the chief of staff");
+    expect(getBot(other.id, user.id)?.systemPrompt).toBe("");
+  });
+
+  it("lets a bot update its own instructions and nothing else", async () => {
+    const user = await createLocalUser({ username: "selfowner", password: "password-123", role: "user" as const });
+    ensureChiefBot(user.id);
+    const worker = createBot({ name: "Keeper" }, user.id);
+    const teammate = createBot({ name: "Teammate", systemPrompt: "Untouched." }, user.id);
+
+    const { context, calls, completions } = buildContext(user.id, undefined, worker.homeConversationId);
+    const result = await executeUpdateOwnInstructionsTool("call_s1", { instructions: "You keep the ledger." }, context);
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
+    expect(calls[0]).toEqual({ label: "Update own instructions", kind: "update_bot" });
+    expect(completions[0]).toContain("Keeper");
+    expect(getBot(worker.id, user.id)?.systemPrompt).toBe("You keep the ledger.");
+    expect(getBot(teammate.id, user.id)?.systemPrompt).toBe("Untouched.");
+
+    const outside = await executeUpdateOwnInstructionsTool(
+      "call_s2",
+      { instructions: "Whatever" },
+      buildContext(user.id, undefined, "conv_not_a_bot").context
+    );
+    expect(outside.promptMessages.at(-1)?.content).toContain("only available inside a bot's own thread");
+
+    const blank = await executeUpdateOwnInstructionsTool(
+      "call_s3",
+      {},
+      buildContext(user.id, undefined, worker.homeConversationId).context
+    );
+    expect(blank.promptMessages.at(-1)?.content).toContain("instructions are required");
+
+    const tooLong = await executeUpdateOwnInstructionsTool(
+      "call_s4",
+      { instructions: "x".repeat(MAX_INSTRUCTION_CHARS + 1) },
+      buildContext(user.id, undefined, worker.homeConversationId).context
+    );
+    expect(tooLong.promptMessages.at(-1)?.content).toContain("instructions are too long");
+    expect(getBot(worker.id, user.id)?.systemPrompt).toBe("You keep the ledger.");
   });
 
   it("updates and renames a bot via the update_bot tool", async () => {
     const user = await createLocalUser({ username: "updatebotowner", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
     const bot = createBot({ name: "Scout" }, user.id);
 
-    const { context, calls, completions, errors } = buildContext(user.id);
+    const { context, calls, completions, errors } = buildContext(user.id, undefined, chief.homeConversationId);
     const result = await executeUpdateBotTool(
       "call_u1",
-      { bot: "scout", name: "Lookout", description: "Watches the perimeter." },
+      { bot: "scout", name: "Lookout", description: "Watches the perimeter.", instructions: "Stay alert." },
       context
     );
 
@@ -666,6 +765,7 @@ describe("bot-delegation", () => {
     const updated = getBot(bot.id, user.id);
     expect(updated?.name).toBe("Lookout");
     expect(updated?.description).toBe("Watches the perimeter.");
+    expect(updated?.systemPrompt).toBe("Stay alert.");
     expect(listBots(user.id).some((entry) => entry.name === "Scout")).toBe(false);
 
     const toolMessage = result.promptMessages.at(-1);
@@ -677,22 +777,33 @@ describe("bot-delegation", () => {
     const chief = ensureChiefBot(user.id);
     const bot = createBot({ name: "Keeper" }, user.id);
 
-    const noFields = await executeUpdateBotTool("call_u2", { bot: bot.id }, buildContext(user.id).context);
+    const noFields = await executeUpdateBotTool(
+      "call_u2",
+      { bot: bot.id },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
     expect(noFields.promptMessages.at(-1)?.content).toContain("at least one of");
 
     const chiefTarget = await executeUpdateBotTool(
       "call_u3",
       { bot: chief.id, name: "Usurper" },
-      buildContext(user.id).context
+      buildContext(user.id, undefined, chief.homeConversationId).context
     );
     expect(chiefTarget.promptMessages.at(-1)?.content).toContain("no specialist bot");
 
     const unknown = await executeUpdateBotTool(
       "call_u4",
       { bot: "ghost", name: "Whatever" },
-      buildContext(user.id).context
+      buildContext(user.id, undefined, chief.homeConversationId).context
     );
     expect(unknown.promptMessages.at(-1)?.content).toContain("no specialist bot");
+
+    const tooLong = await executeUpdateBotTool(
+      "call_u5",
+      { bot: bot.id, instructions: "x".repeat(MAX_INSTRUCTION_CHARS + 1) },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+    expect(tooLong.promptMessages.at(-1)?.content).toContain("instructions are too long");
   });
 
   it("surfaces bot cap errors from the create_bot tool", async () => {
@@ -702,8 +813,12 @@ describe("bot-delegation", () => {
       createBot({ name: `Filler ${index}` }, user.id);
     }
 
-    const { context, errors } = buildContext(user.id);
-    const result = await executeCreateBotTool("call_6", { name: "Overflow" }, context);
+    const { context, errors } = buildContext(user.id, undefined, ensureChiefBot(user.id).homeConversationId);
+    const result = await executeCreateBotTool(
+      "call_6",
+      { name: "Overflow", instructions: "Overflow instructions." },
+      context
+    );
 
     expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(false);
     expect(result.promptMessages.at(-1)?.content).toContain("limit reached");

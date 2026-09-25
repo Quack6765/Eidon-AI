@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { createBot, ensureChiefBot, listBots, toBotSummary, MAX_BOTS_PER_USER } from "@/lib/bots";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { broadcastBotUpsert, listRecentBotRuns } from "@/lib/bot-runs";
 import { badRequest, ok } from "@/lib/http";
 import { getTurnActivity } from "@/lib/turn-activity";
@@ -11,7 +12,7 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(60),
   title: z.string().trim().max(120).default(""),
   description: z.string().trim().max(1000).default(""),
-  systemPrompt: z.string().trim().max(8000).optional()
+  systemPrompt: z.string().trim().max(MAX_INSTRUCTION_CHARS).optional()
 });
 
 export async function GET() {

@@ -2,6 +2,7 @@ import { getMessage, listMessages } from "@/lib/conversations";
 import { requestStop, waitForChatTurnRelease } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
 import { createBot, getBotByConversationId, getBotStatus, resolveBotByNameOrId, updateBot } from "@/lib/bots";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   broadcastBotRunUpdate,
   broadcastBotUpsert,
@@ -499,6 +500,8 @@ export async function executeCheckBot(
   );
 }
 
+const MAX_BOT_INSTRUCTIONS_CHARS = MAX_INSTRUCTION_CHARS;
+
 export async function executeUpdateBotTool(
   toolCallId: string,
   args: Record<string, unknown>,
@@ -509,24 +512,37 @@ export async function executeUpdateBotTool(
   const name = args.name !== undefined ? String(args.name).trim() : undefined;
   const title = args.title !== undefined ? String(args.title).trim() : undefined;
   const description = args.description !== undefined ? String(args.description).trim() : undefined;
-  const systemPrompt = args.system_prompt !== undefined ? String(args.system_prompt).trim() : undefined;
+  const instructions = args.instructions !== undefined ? String(args.instructions).trim() : undefined;
 
   const result = (content: string, sortOrder: number) => ({
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
   });
 
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
   if (!ownerUserId) {
     return result("Error: bot updates are not available in this conversation", context.timelineSortOrder);
+  }
+
+  if (!actingBot?.isChief) {
+    return result("Error: only the chief of staff can update bots.", context.timelineSortOrder + 1);
   }
 
   if (!botReference) {
     return result("Error: bot is required", context.timelineSortOrder + 1);
   }
 
-  if (name === undefined && title === undefined && description === undefined && systemPrompt === undefined) {
+  if (name === undefined && title === undefined && description === undefined && instructions === undefined) {
     return result(
-      "Error: provide at least one of name, title, description, or system_prompt to update",
+      "Error: provide at least one of name, title, description, or instructions to update",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions !== undefined && instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
       context.timelineSortOrder + 1
     );
   }
@@ -550,7 +566,7 @@ export async function executeUpdateBotTool(
       ...(name !== undefined ? { name } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(description !== undefined ? { description } : {}),
-      ...(systemPrompt !== undefined ? { system_prompt: systemPrompt } : {})
+      ...(instructions !== undefined ? { instructions } : {})
     }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
@@ -562,7 +578,7 @@ export async function executeUpdateBotTool(
         ...(name !== undefined ? { name } : {}),
         ...(title !== undefined ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
-        ...(systemPrompt !== undefined ? { systemPrompt } : {})
+        ...(instructions !== undefined ? { systemPrompt: instructions } : {})
       },
       ownerUserId
     );
@@ -599,18 +615,39 @@ export async function executeCreateBotTool(
   const name = String(args.name ?? "").trim();
   const title = String(args.title ?? "").trim();
   const description = String(args.description ?? "").trim();
+  const instructions = String(args.instructions ?? "").trim();
 
   const result = (content: string, sortOrder: number) => ({
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
   });
 
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
   if (!ownerUserId) {
     return result("Error: bot creation is not available in this conversation", context.timelineSortOrder);
   }
 
+  if (!actingBot?.isChief) {
+    return result("Error: only the chief of staff can create bots.", context.timelineSortOrder + 1);
+  }
+
   if (!name) {
     return result("Error: name is required", context.timelineSortOrder + 1);
+  }
+
+  if (!instructions) {
+    return result(
+      "Error: instructions are required — every bot needs specific instructions covering its identity, what it owns, how it should work, its quality bar, and what to avoid",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
+      context.timelineSortOrder + 1
+    );
   }
 
   const detail = name;
@@ -619,12 +656,12 @@ export async function executeCreateBotTool(
     label: "Create bot",
     detail,
     toolName: "create_bot",
-    arguments: { name, title, description }
+    arguments: { name, title, description, instructions }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const bot = createBot({ name, title, description }, ownerUserId);
+    const bot = createBot({ name, title, description, systemPrompt: instructions }, ownerUserId);
     broadcastBotUpsert(bot);
 
     await context.input.onActionComplete?.(actionHandle, {
@@ -642,6 +679,77 @@ export async function executeCreateBotTool(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create bot";
     await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    return { ...result(`Error: ${message}`, context.timelineSortOrder + 1), toolSucceeded: false };
+  }
+}
+
+export async function executeUpdateOwnInstructionsTool(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: BotToolContext
+) {
+  const ownerUserId = context.input.memoryUserId ?? null;
+  const instructions = String(args.instructions ?? "").trim();
+
+  const result = (content: string, sortOrder: number) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
+  });
+
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
+  if (!ownerUserId || !actingBot) {
+    return result(
+      "Error: updating your own instructions is only available inside a bot's own thread",
+      context.timelineSortOrder
+    );
+  }
+
+  if (!instructions) {
+    return result(
+      "Error: instructions are required — provide the complete new instructions",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
+      context.timelineSortOrder + 1
+    );
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "update_bot",
+    label: "Update own instructions",
+    detail: actingBot.name,
+    toolName: "update_own_instructions",
+    arguments: { instructions }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const updated = updateBot(actingBot.id, { systemPrompt: instructions }, ownerUserId);
+    if (!updated) {
+      throw new Error("Bot not found");
+    }
+    broadcastBotUpsert(updated);
+
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: actingBot.name,
+      resultSummary: `Updated own instructions for ${updated.name}`
+    });
+
+    return {
+      ...result(
+        "Your instructions have been updated and apply from your next message. Tell the user what you changed and why.",
+        context.timelineSortOrder + 1
+      ),
+      toolSucceeded: true
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update instructions";
+    await context.input.onActionError?.(actionHandle, { detail: actingBot.name, resultSummary: message });
     return { ...result(`Error: ${message}`, context.timelineSortOrder + 1), toolSucceeded: false };
   }
 }

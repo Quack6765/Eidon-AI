@@ -127,7 +127,7 @@ function buildBotSubtitle(bot: BotSummary) {
 function PanelSection({
   title,
   action,
-  defaultOpen = true,
+  defaultOpen = false,
   children
 }: {
   title: string;

@@ -116,6 +116,7 @@ function renderView(bot: BotSummary = buildBot()) {
     })
   );
   fireEvent.click(findDetailsToggle());
+  fireEvent.click(screen.getByRole("button", { name: "Conversation" }));
 }
 
 describe("bot detail clear conversation", () => {

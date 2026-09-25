@@ -1631,7 +1631,11 @@ export function deletePendingUserMessage(conversationId: string, messageId: stri
 
 export function deleteFailedAssistantMessages(conversationId: string): string[] {
   const failedMessages = listMessages(conversationId).filter(
-    (message) => message.role === "assistant" && message.status === "error"
+    (message) =>
+      message.role === "assistant" &&
+      message.status === "error" &&
+      (message.timeline ?? []).length === 0 &&
+      !message.thinkingContent?.trim()
   );
 
   if (failedMessages.length === 0) {

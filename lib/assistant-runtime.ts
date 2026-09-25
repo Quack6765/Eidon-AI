@@ -334,7 +334,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
       break;
     }
 
-    input.onEvent?.(next.value);
+    await input.onEvent?.(next.value);
   }
 
   if (!answer.trim()) {
@@ -622,7 +622,7 @@ export async function resolveAssistantTurn(input: {
         toolCalls = next.value.toolCalls ?? [];
         break;
       }
-      input.onEvent?.(next.value);
+      await input.onEvent?.(next.value);
     }
 
     assertRunning();
@@ -636,7 +636,7 @@ export async function resolveAssistantTurn(input: {
         hasUnfulfilledImageGenerationIntent(promptMessages)
       ) {
         imageGenerationIntentRetries += 1;
-        input.onEvent?.({ type: "answer_reset" });
+        await input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
         continue;
       }
@@ -644,7 +644,7 @@ export async function resolveAssistantTurn(input: {
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
         if (memoryIntentRetries < 1) {
           memoryIntentRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
             "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If the fact is durable and would still matter in an unrelated future conversation, call the memory tool now — the call is the offer, so do not ask for permission in words first. If it only matters in this conversation, drop the claim, propose nothing, and answer normally without mentioning memory."
@@ -656,7 +656,7 @@ export async function resolveAssistantTurn(input: {
       if (!answer.trim()) {
         if (emptyAnswerRetries < 1) {
           emptyAnswerRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
             "Your previous response was empty. Answer the user directly. Do not emit an empty response."

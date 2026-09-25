@@ -2404,6 +2404,71 @@ describe("chat-turn", () => {
     }
   });
 
+  it("keeps narration streamed before a stream retry as a timeline segment", async () => {
+    const { createLocalUser: createRetryUser } = await import("@/lib/users");
+    const user = await createRetryUser({
+      username: "route-retry-user",
+      password: "password-retry-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route retry", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text?: string }) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
+      }) => {
+        input.onEvent?.({ type: "answer_delta", text: "Let me check the docs." });
+        input.onEvent?.({ type: "stream_retry" });
+        input.onEvent?.({ type: "answer_delta", text: "Here are the results." });
+        await input.onAnswerSegment?.("Here are the results.");
+        return {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Find the docs", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      const segments = assistant?.textSegments ?? [];
+
+      expect(segments.map((segment) => segment.content)).toEqual([
+        "Let me check the docs.",
+        "Here are the results."
+      ]);
+      expect(assistant?.content).toContain("Let me check the docs.");
+      expect(assistant?.content).toContain("Here are the results.");
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
   it("broadcasts a context_usage event at turn end", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
