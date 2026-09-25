@@ -462,6 +462,10 @@ export type ToolApprovalProposalPayload = {
   resolution?: ToolApprovalResolution;
 };
 
+export type DelegationChain = {
+  messagesSent: number;
+};
+
 export type ToolApprovalContext = {
   userId: string | null;
   unattended: boolean;

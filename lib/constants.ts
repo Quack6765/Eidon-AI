@@ -1,5 +1,7 @@
 export const APP_NAME = "Eidon";
 
+export const RESTART_RESUME_NOTICE_HEADER = "[Resumed after a server restart]";
+
 export const GITHUB_RELEASES_URL = "https://github.com/Quack6765/Eidon-AI/releases";
 
 export function getAppVersion(): string {

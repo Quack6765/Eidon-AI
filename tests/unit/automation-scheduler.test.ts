@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  attachConversationToRun,
   createAutomation,
   createAutomationRun,
   getAutomation,
@@ -12,7 +13,9 @@ import {
   updateAutomationRunStatus
 } from "@/lib/automations";
 import { createConversationManager } from "@/lib/conversation-manager";
-import { getConversation } from "@/lib/conversations";
+import { createConversation, createMessage, getConversation } from "@/lib/conversations";
+import { RESTART_RESUME_NOTICE_HEADER } from "@/lib/constants";
+import { MAX_CONSECUTIVE_RESTART_RESUMES } from "@/lib/interrupted-work";
 import { getDb } from "@/lib/db";
 import { createPersona } from "@/lib/personas";
 import { createLocalUser } from "@/lib/users";
@@ -528,7 +531,7 @@ describe("automation scheduler", () => {
       "Run the shared pipeline",
       [],
       undefined,
-      { unattended: true }
+      { unattended: true, providerProfileId: "profile_scheduler", onMessagesCreated: expect.any(Function) }
     );
     expect(conversation).toMatchObject({
       automationId: automation.id,
@@ -589,7 +592,12 @@ describe("automation scheduler", () => {
       "Research heat pump subsidies",
       [],
       undefined,
-      { research: { deadlineMs: 5 * 60_000 - 30_000 }, unattended: true }
+      {
+        research: { deadlineMs: 5 * 60_000 - 30_000 },
+        unattended: true,
+        providerProfileId: "profile_scheduler",
+        onMessagesCreated: expect.any(Function)
+      }
     );
   });
 
@@ -1294,6 +1302,64 @@ describe("automation scheduler", () => {
     }
   });
 
+  it("resumes a paused routine at its next slot without backfilling the paused hours", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T08:00:30.000Z"));
+
+    try {
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      const automation = createAutomation({
+        name: "Hourly check",
+        prompt: "Check the queue",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 60,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      });
+      const lastRun = createAutomationRun({
+        automationId: automation.id,
+        scheduledFor: "2026-04-10T08:00:00.000Z",
+        triggerSource: "schedule"
+      });
+      updateAutomationRunStatus(lastRun.id, {
+        status: "completed",
+        startedAt: "2026-04-10T08:00:00.000Z",
+        finishedAt: "2026-04-10T08:00:20.000Z"
+      });
+      updateAutomation(automation.id, { enabled: false });
+
+      vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+      updateAutomation(automation.id, { enabled: true });
+      expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T14:00:00.000Z");
+
+      const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      const scheduler = createAutomationScheduler({
+        now: () => new Date("2026-04-10T13:04:00.000Z"),
+        timeZone: "UTC",
+        manager: createConversationManager(),
+        startChatTurn
+      });
+
+      await scheduler.runOnce();
+
+      expect(startChatTurn).not.toHaveBeenCalled();
+      expect(listAutomationRuns(automation.id).map((run) => run.id)).toEqual([lastRun.id]);
+      expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T14:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not schedule another timer after being stopped mid-cycle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
@@ -1564,6 +1630,79 @@ describe("automation scheduler", () => {
     expect(retriedRun).toMatchObject({
       status: "completed",
       triggerSource: "manual_retry"
+    });
+  });
+
+  it("resumes a run interrupted by a restart in its own conversation, unless it keeps crashing", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const automationInput = {
+      prompt: "Run the pipeline",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval" as const,
+      intervalMinutes: 30,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      enabled: false
+    };
+    const resumable = createAutomation({ name: "Resumable", ...automationInput });
+    const resumableConversation = createConversation("Resumable", null, { providerProfileId: "profile_scheduler" });
+    createMessage({ conversationId: resumableConversation.id, role: "user", content: "Run the pipeline" });
+    createMessage({ conversationId: resumableConversation.id, role: "assistant", status: "stopped", content: "Halfway" });
+    const resumableRun = createAutomationRun({
+      automationId: resumable.id,
+      scheduledFor: "2026-04-10T11:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    attachConversationToRun(resumableRun.id, resumableConversation.id);
+
+    const crashing = createAutomation({ name: "Crashing", ...automationInput });
+    const crashingConversation = createConversation("Crashing", null, { providerProfileId: "profile_scheduler" });
+    for (let index = 0; index < MAX_CONSECUTIVE_RESTART_RESUMES; index += 1) {
+      createMessage({ conversationId: crashingConversation.id, role: "user", content: `${RESTART_RESUME_NOTICE_HEADER}\nContinue` });
+    }
+    const crashingRun = createAutomationRun({
+      automationId: crashing.id,
+      scheduledFor: "2026-04-10T11:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    attachConversationToRun(crashingRun.id, crashingConversation.id);
+
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const manager = createConversationManager();
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      timeZone: "UTC",
+      manager,
+      startChatTurn,
+      pollIntervalMs: 60_000
+    });
+
+    await scheduler.runOnce();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    expect(startChatTurn).toHaveBeenCalledWith(
+      manager,
+      resumableConversation.id,
+      expect.stringContaining(RESTART_RESUME_NOTICE_HEADER),
+      [],
+      undefined,
+      expect.objectContaining({ unattended: true, providerProfileId: "profile_scheduler" })
+    );
+    expect(getAutomationRun(resumableRun.id)).toMatchObject({
+      status: "completed",
+      conversationId: resumableConversation.id
+    });
+    expect(getAutomationRun(crashingRun.id)).toMatchObject({
+      status: "failed",
+      errorMessage: "Automation run was interrupted by repeated server restarts"
     });
   });
 });

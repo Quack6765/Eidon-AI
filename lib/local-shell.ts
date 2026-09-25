@@ -98,6 +98,8 @@ export function resolveShellWorkspaceDir(conversationId?: string) {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const WEB_BROWSER_TIMEOUT_MS = 120_000;
+export const MAX_SHELL_TIMEOUT_MS = 600_000;
+const FORCE_KILL_DELAY_MS = 2_000;
 const MAX_OUTPUT_CHARS = 8_000;
 const SHELL_SEGMENT_SEPARATOR_PATTERN = /&&|\|\||[;|\n]/;
 const WEB_BROWSER_COMMAND_SEGMENT_PATTERN =
@@ -184,7 +186,7 @@ export async function executeLocalShellCommand(input: {
   abortSignal?: AbortSignal;
 }) {
   const command = validateCommand(input.command);
-  const timeoutMs = input.timeoutMs ?? getDefaultTimeoutMs(command);
+  const timeoutMs = Math.min(input.timeoutMs ?? getDefaultTimeoutMs(command), MAX_SHELL_TIMEOUT_MS);
   const cwd = input.cwd ?? resolveShellWorkspaceDir();
   const shellEnv = buildShellEnv(input.env);
 
@@ -205,7 +207,7 @@ export async function executeLocalShellCommand(input: {
     let stderrTruncated = false;
     let timedOut = false;
     let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let terminating = false;
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -232,23 +234,23 @@ export async function executeLocalShellCommand(input: {
       reject(createAbortError());
     };
 
-    const terminateForAbort = () => {
-      if (forceKillTimer) {
+    const terminate = () => {
+      if (terminating) {
         return;
       }
+      terminating = true;
       terminateProcessGroup(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => terminateProcessGroup(child, "SIGKILL"), 2_000);
-      forceKillTimer.unref();
+      setTimeout(() => terminateProcessGroup(child, "SIGKILL"), FORCE_KILL_DELAY_MS).unref();
     };
 
     const handleAbort = () => {
-      terminateForAbort();
+      terminate();
       rejectAborted();
     };
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate();
     }, timeoutMs);
     timer.unref();
     input.abortSignal?.addEventListener("abort", handleAbort, { once: true });
@@ -269,9 +271,6 @@ export async function executeLocalShellCommand(input: {
     });
 
     child.on("error", (error) => {
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
       finish({
         stdout: formatCapturedOutput(stdout, stdoutTruncated),
         stderr: truncateOutput(`${formatCapturedOutput(stderr, stderrTruncated)}${stderr ? "\n" : ""}${error.message}`),
@@ -282,9 +281,6 @@ export async function executeLocalShellCommand(input: {
     });
 
     child.on("close", (exitCode) => {
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
       finish({
         stdout: formatCapturedOutput(stdout, stdoutTruncated),
         stderr: formatCapturedOutput(stderr, stderrTruncated),
@@ -306,11 +302,7 @@ export function getShellCommandLabel(command: string) {
 }
 
 export function summarizeShellResult(result: ShellExecutionResult) {
-  if (result.timedOut) {
-    return "Command timed out";
-  }
-
-  const sections = [];
+  const sections = result.timedOut ? ["Command timed out"] : [];
 
   if (result.stdout) {
     sections.push(result.stdout);
