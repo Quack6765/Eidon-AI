@@ -312,6 +312,7 @@ describe("tool approval gate", () => {
     unattended?: boolean;
     timeoutMs?: number;
     abortSignal?: AbortSignal;
+    onWaitChange?: (waiting: boolean) => Promise<void> | void;
   }) {
     const payload = shellPayload(input.command);
     return requestToolExecutionApproval({
@@ -322,7 +323,8 @@ describe("tool approval gate", () => {
       unattended: input.unattended ?? false,
       onActionStart: input.onActionStart,
       timeoutMs: input.timeoutMs,
-      abortSignal: input.abortSignal
+      abortSignal: input.abortSignal,
+      onWaitChange: input.onWaitChange
     });
   }
 
@@ -505,6 +507,53 @@ describe("tool approval gate", () => {
 
     controller.abort();
     const outcome = await pending;
+
+    expect(outcome).toEqual({
+      approved: false,
+      message: "Denied: the approval request was stopped.",
+      promptActionId: started[0]
+    });
+    expect(readActionResolution(started[0])).toBe("stopped");
+  });
+
+  it("reports the wait around a pending request and not around standing rules", async () => {
+    const waits: boolean[] = [];
+    const { onActionStart, started } = makeActionStarter(messageId);
+    const pending = gateRequest({
+      command: "curl https://wait.example",
+      onActionStart,
+      onWaitChange: (waiting) => {
+        waits.push(waiting);
+      }
+    });
+    await vi.waitFor(() => expect(waits).toEqual([true]));
+
+    approveToolApproval(started[0], { allowAlways: true }, userId);
+    expect(await pending).toEqual({ approved: true });
+    expect(waits).toEqual([true, false]);
+
+    const again = await gateRequest({
+      command: "curl https://wait.example/again",
+      onActionStart,
+      onWaitChange: (waiting) => {
+        waits.push(waiting);
+      }
+    });
+    expect(again).toEqual({ approved: true });
+    expect(waits).toEqual([true, false]);
+  });
+
+  it("stops a request aborted while the wait hook runs", async () => {
+    const controller = new AbortController();
+    const { onActionStart, started } = makeActionStarter(messageId);
+    const outcome = await gateRequest({
+      command: "curl https://abort.example",
+      onActionStart,
+      abortSignal: controller.signal,
+      onWaitChange: async (waiting) => {
+        if (waiting) controller.abort();
+      }
+    });
 
     expect(outcome).toEqual({
       approved: false,

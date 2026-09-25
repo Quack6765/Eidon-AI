@@ -5,7 +5,8 @@ import {
   listRecentBotRuns,
   createBotRunRecord,
   updateBotRunStatus,
-  getBotRun
+  getBotRun,
+  setBotRunAwaitingApproval
 } from "@/lib/bot-runs";
 import { createBot } from "@/lib/bots";
 import { createMessage } from "@/lib/conversations";
@@ -39,6 +40,26 @@ describe("bot-runs", () => {
     expect(finished?.status).toBe("completed");
     expect(finished?.startedAt).toBe("2026-05-01T00:00:00.000Z");
     expect(getBotRun(run.id)?.id).toBe(run.id);
+  });
+
+  it("pauses only an active run for approval and flips it back to running", async () => {
+    const user = await createLocalUser({ username: "runpauser", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Pauser" }, user.id);
+    const run = createBotRunRecord({ botId: bot.id, conversationId: bot.homeConversationId, triggerSource: "dm" });
+
+    setBotRunAwaitingApproval(run.id, true);
+    expect(getBotRun(run.id)?.status).toBe("queued");
+
+    updateBotRunStatus(run.id, { status: "running" });
+    setBotRunAwaitingApproval(run.id, true);
+    expect(getBotRun(run.id)?.status).toBe("waiting_approval");
+    setBotRunAwaitingApproval(run.id, false);
+    expect(getBotRun(run.id)?.status).toBe("running");
+
+    updateBotRunStatus(run.id, { status: "stopped" });
+    setBotRunAwaitingApproval(run.id, false);
+    expect(getBotRun(run.id)?.status).toBe("stopped");
+    setBotRunAwaitingApproval("botrun_missing", true);
   });
 
   it("scopes recent runs to the owning user", async () => {

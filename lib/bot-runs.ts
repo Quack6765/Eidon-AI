@@ -115,6 +115,14 @@ export function updateBotRunStatus(
   return getBotRun(runId);
 }
 
+export function setBotRunAwaitingApproval(runId: string, awaitingApproval: boolean) {
+  const current = getBotRun(runId);
+  if (!current || (current.status !== "running" && current.status !== "waiting_approval")) return;
+  const updated = updateBotRunStatus(runId, { status: awaitingApproval ? "waiting_approval" : "running" });
+  if (!updated) return;
+  broadcastBotRunUpdate(updated);
+}
+
 export function getLatestBotRun(botId: string): BotRun | null {
   const row = getDb()
     .prepare(`SELECT ${BOT_RUN_COLUMNS} FROM bot_runs WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`)

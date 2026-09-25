@@ -829,7 +829,7 @@ export function updateMessage(
   return updated;
 }
 
-function listMessageActionsForMessageIds(messageIds: string[]) {
+export function listMessageActionsForMessageIds(messageIds: string[]) {
   if (!messageIds.length) {
     return [];
   }

@@ -888,7 +888,7 @@ export function reconcileInterruptedRuntimeState(
          SET status = 'failed',
              error_message = 'Bot run was interrupted by server restart',
              finished_at = COALESCE(finished_at, ?)
-         WHERE status IN ('queued', 'running')`
+         WHERE status IN ('queued', 'running', 'waiting_approval')`
       )
       .run(timestamp).changes;
     const delegationActions = db
@@ -900,6 +900,18 @@ export function reconcileInterruptedRuntimeState(
          WHERE status = 'pending' AND kind IN ('message_bot', 'delegate_task')`
       )
       .run(timestamp).changes;
+    const toolApprovals = db
+      .prepare(
+        `UPDATE message_actions
+         SET status = 'completed',
+             result_summary = 'Approval request stopped by a server restart',
+             completed_at = COALESCE(completed_at, ?),
+             proposal_state = 'dismissed',
+             proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
+             proposal_updated_at = ?
+         WHERE status = 'pending' AND kind = 'tool_approval' AND proposal_state = 'pending'`
+      )
+      .run(timestamp, timestamp).changes;
 
     db.prepare(
       `UPDATE automations
@@ -909,7 +921,17 @@ export function reconcileInterruptedRuntimeState(
        WHERE last_status = 'running'`
     ).run(timestamp, timestamp);
 
-    return { conversations, messages, actions, titles, queuedMessages, automationRuns, botRuns, delegationActions };
+    return {
+      conversations,
+      messages,
+      actions,
+      titles,
+      queuedMessages,
+      automationRuns,
+      botRuns,
+      delegationActions,
+      toolApprovals
+    };
   });
 
   return transaction.immediate();

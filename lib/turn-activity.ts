@@ -10,6 +10,7 @@ type TurnActivityEntry = {
   runningActions: Map<string, string>;
   onChange?: (activity: TurnActivity | null) => void;
   stopAfterStallMs: number | null;
+  awaitingApproval: boolean;
 };
 
 type TurnActivityState = {
@@ -53,7 +54,8 @@ export function beginTurnActivity(
     activity: { startedAt: now, lastActivityAt: now, currentAction: null, stalled: false },
     runningActions: new Map(),
     onChange: options.onChange,
-    stopAfterStallMs: state.stallStopPolicies.get(conversationId) ?? null
+    stopAfterStallMs: state.stallStopPolicies.get(conversationId) ?? null,
+    awaitingApproval: false
   };
   state.entries.set(conversationId, entry);
   state.stallStops.delete(conversationId);
@@ -101,6 +103,13 @@ export function setTurnStallStop(conversationId: string, stopAfterStallMs: numbe
   if (entry) entry.stopAfterStallMs = stopAfterStallMs;
 }
 
+export function setTurnAwaitingApproval(conversationId: string, awaitingApproval: boolean) {
+  const entry = getState().entries.get(conversationId);
+  if (!entry) return;
+  entry.awaitingApproval = awaitingApproval;
+  touchTurnActivity(conversationId);
+}
+
 export function endTurnActivity(conversationId: string) {
   const state = getState();
   const entry = state.entries.get(conversationId);
@@ -123,7 +132,7 @@ export function consumeStallStop(conversationId: string) {
 export function scanTurnActivity(now = Date.now()) {
   const state = getState();
   for (const [conversationId, entry] of state.entries) {
-    if (entry.runningActions.size > 0) continue;
+    if (entry.runningActions.size > 0 || entry.awaitingApproval) continue;
     const quietMs = now - Date.parse(entry.activity.lastActivityAt);
     if (quietMs >= TURN_STALL_AFTER_MS && !entry.activity.stalled) {
       entry.activity.stalled = true;

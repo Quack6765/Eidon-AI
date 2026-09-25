@@ -24,7 +24,7 @@ function runStatusClasses(status: BotRunStatus) {
   if (status === "failed") {
     return "border-red-500/20 bg-red-500/8 text-red-200";
   }
-  if (status === "running") {
+  if (status === "running" || status === "waiting_approval") {
     return "border-[var(--accent)]/20 bg-[var(--accent)]/8 text-[#c4b5fd]";
   }
   return "border-white/8 bg-white/[0.03] text-[#d4d4d8]";
@@ -220,7 +220,7 @@ export function AgentsWorkspace({
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium ${runStatusClasses(run.status)}`}>
-                      {run.status}
+                      {run.status === "waiting_approval" ? "needs approval" : run.status}
                     </span>
                     <span className="truncate text-sm text-[#f4f4f5]">
                       {botNameById.get(run.botId) ?? "Bot"}

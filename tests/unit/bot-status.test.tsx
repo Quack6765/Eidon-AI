@@ -29,6 +29,12 @@ describe("BotStatusDot", () => {
     expect(container.querySelector("span")?.className).not.toContain("bg-amber-400");
   });
 
+  it("renders the accent dot for a bot waiting on a tool approval", () => {
+    const { container } = render(<BotStatusDot status="waiting_approval" />);
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("span")?.className).toContain("bg-[var(--accent)]");
+  });
+
   it("still renders the running spinner when no input is pending", () => {
     const { container } = render(<BotStatusDot status="running" />);
     expect(container.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
@@ -46,6 +52,12 @@ describe("BotStatusChip", () => {
     render(<BotStatusChip status="queued" waitingForInput />);
     expect(screen.getByText("Waiting for input")).toBeInTheDocument();
     expect(screen.queryByText("Queued")).toBeNull();
+  });
+
+  it("labels a bot paused on a tool approval as needing approval", () => {
+    render(<BotStatusChip status="waiting_approval" waitingForInput />);
+    expect(screen.getByText("Needs approval")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for input")).toBeNull();
   });
 
   it("renders the queued chip when no input is pending", () => {

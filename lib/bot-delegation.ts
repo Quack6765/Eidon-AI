@@ -1,7 +1,14 @@
 import { getMessage, listMessages } from "@/lib/conversations";
 import { requestStop, waitForChatTurnRelease } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
-import { createBot, getBotByConversationId, getBotStatus, resolveBotByNameOrId, updateBot } from "@/lib/bots";
+import {
+  createBot,
+  getBotByConversationId,
+  getBotStatus,
+  listPendingBotApprovals,
+  resolveBotByNameOrId,
+  updateBot
+} from "@/lib/bots";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   broadcastBotRunUpdate,
@@ -9,8 +16,10 @@ import {
   createBotRunRecord,
   getBotRun,
   getLatestBotRun,
+  setBotRunAwaitingApproval,
   updateBotRunStatus
 } from "@/lib/bot-runs";
+import { createPausableTimeout } from "@/lib/pausable-timeout";
 import {
   DELEGATED_TURN_STALL_STOP_MS,
   consumeStallStop,
@@ -97,7 +106,9 @@ async function startTurnWhenIdle(input: {
   ownerUserId: string;
   maxWaitMs: number;
   busyErrorMessage: string;
+  unattended?: boolean;
   onTurnStarted?: () => void;
+  onApprovalWait?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ChatTurnResult> {
   const { startChatTurn } = await import("@/lib/chat-turn");
   const manager = getConversationManager();
@@ -107,6 +118,8 @@ async function startTurnWhenIdle(input: {
     const result = await startChatTurn(manager, input.conversationId, input.content, [], undefined, {
       botRun: { record: false },
       quietWhenBusy: true,
+      unattended: input.unattended,
+      onApprovalWait: input.onApprovalWait,
       onMessagesCreated: ({ userMessageId }) => {
         input.onTurnStarted?.();
         broadcastPersistedUserMessage(input.conversationId, userMessageId, input.ownerUserId);
@@ -144,6 +157,7 @@ async function runWorkerTurn(input: {
       };
     }
 
+    let slotHeld = true;
     try {
       const currentRun = getBotRun(runId);
       if (!currentRun || currentRun.status !== "queued") {
@@ -156,25 +170,39 @@ async function runWorkerTurn(input: {
       broadcastBotUpsert(target);
 
       let turnStarted = false;
+      let rejectDeadline: (error: Error) => void = () => {};
+      const deadline = new Promise<never>((_resolve, reject) => {
+        rejectDeadline = reject;
+      });
+      const timer = createPausableTimeout(() => {
+        if (turnStarted) requestStop(target.homeConversationId);
+        rejectDeadline(new BotRunDeadlineError());
+      }, DEFAULT_BOT_RUN_TIMEOUT_MS);
+
       const turn = startTurnWhenIdle({
         conversationId: target.homeConversationId,
         content: taskPrompt,
         ownerUserId,
         maxWaitMs: DEFAULT_BOT_RUN_TIMEOUT_MS,
         busyErrorMessage: `${target.name} stayed busy and never picked up the message`,
+        unattended: true,
         onTurnStarted: () => {
           turnStarted = true;
           setTurnStallStop(target.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
+        },
+        onApprovalWait: async (waiting) => {
+          setBotRunAwaitingApproval(runId, waiting);
+          if (waiting) {
+            timer.pause();
+            if (slotHeld) {
+              slotHeld = false;
+              releaseBotUserSlot(ownerUserId);
+            }
+            return;
+          }
+          timer.resume();
+          slotHeld = await acquireBotUserSlot(ownerUserId, timer.remainingMs());
         }
-      });
-
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const deadline = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          if (turnStarted) requestStop(target.homeConversationId);
-          reject(new BotRunDeadlineError());
-        }, DEFAULT_BOT_RUN_TIMEOUT_MS);
-        timeout.unref?.();
       });
 
       let turnResult: ChatTurnResult;
@@ -193,7 +221,7 @@ async function runWorkerTurn(input: {
           throw error;
         }
       } finally {
-        if (timeout) clearTimeout(timeout);
+        timer.clear();
       }
 
       if (consumeStallStop(target.homeConversationId)) {
@@ -215,7 +243,7 @@ async function runWorkerTurn(input: {
         summary: getLatestAssistantSummary(target.homeConversationId) || "The bot finished without a visible response."
       };
     } finally {
-      releaseBotUserSlot(ownerUserId);
+      if (slotHeld) releaseBotUserSlot(ownerUserId);
     }
   });
 }
@@ -281,7 +309,8 @@ export function deliverDelegationWake(input: {
       content: input.content,
       ownerUserId: input.ownerUserId,
       maxWaitMs: input.maxWaitMs ?? WAKE_MAX_WAIT_MS,
-      busyErrorMessage: "Recipient conversation stayed busy"
+      busyErrorMessage: "Recipient conversation stayed busy",
+      unattended: Boolean(getBotByConversationId(input.recipientConversationId))
     })
   );
 }
@@ -441,7 +470,7 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
   const status = getBotStatus(target);
   const run = getLatestBotRun(target.id);
   const activity = getTurnActivity(target.homeConversationId);
-  const lines = [`${target.name} is ${status}.`];
+  const lines = [`${target.name} is ${status === "waiting_approval" ? "waiting for approval" : status}.`];
 
   if (status === "running") {
     const since = activity?.startedAt ?? run?.startedAt ?? null;
@@ -452,6 +481,11 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
     } else if (activity) {
       lines.push(`Last activity ${formatElapsed(activity.lastActivityAt)} ago.`);
     }
+  } else if (status === "waiting_approval") {
+    for (const { action } of listPendingBotApprovals({ botId: target.id })) {
+      lines.push(`Blocked: waiting ${formatElapsed(action.startedAt)} for the user to answer "${action.label}" (${action.detail}).`);
+    }
+    lines.push(`It resumes once the user answers the approval card in ${target.name}'s conversation.`);
   } else if (status === "queued") {
     lines.push("Waiting for its turn — another task or a concurrency slot is ahead of it.");
   } else if (run) {

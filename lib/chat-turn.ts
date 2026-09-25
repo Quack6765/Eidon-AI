@@ -46,18 +46,21 @@ import {
   broadcastBotRunUpdate,
   createBotRunRecord,
   deleteBotRun,
+  setBotRunAwaitingApproval,
   updateBotRunStatus
 } from "@/lib/bot-runs";
+import { UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS } from "@/lib/tool-approvals";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
 import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
 import {
   beginTurnActivity,
   endTurnActivity,
   finishTurnAction,
+  setTurnAwaitingApproval,
   startTurnAction,
   touchTurnActivity
 } from "@/lib/turn-activity";
-import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
+import type { ChatResearchOptions, ChatStreamEvent, ToolApprovalContext } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -86,6 +89,7 @@ export type StartChatTurn = (
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -294,14 +298,11 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
+    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   const bot = getBotByConversationId(conversation.id);
-  const toolApproval = {
-    userId: conversationOwnerId ?? null,
-    unattended: Boolean(bot) || Boolean(options?.unattended)
-  };
   const botSystemPrompt = bot ? buildBotSystemPrompt(bot, appSettings.botSystemPrompt) : undefined;
   const botTeam = bot
     ? {
@@ -314,6 +315,17 @@ async function startAssistantTurn(
     const botOwnerUserId = bot.userId ?? conversationOwnerId ?? null;
     if (!botOwnerUserId) return;
     manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(bot) }, botOwnerUserId);
+  };
+  const toolApproval: ToolApprovalContext = {
+    userId: conversationOwnerId ?? null,
+    unattended: !bot && Boolean(options?.unattended),
+    timeoutMs: bot && options?.unattended ? UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS : undefined,
+    async onWaitChange(waiting) {
+      if (waiting) setTurnAwaitingApproval(conversationId, true);
+      await options?.onApprovalWait?.(waiting);
+      if (!waiting) setTurnAwaitingApproval(conversationId, false);
+      broadcastBotStatus();
+    }
   };
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
@@ -794,6 +806,7 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
@@ -864,7 +877,11 @@ export async function startChatTurn(
       assistantMessage,
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
-      unattended: options?.unattended
+      unattended: options?.unattended,
+      async onApprovalWait(waiting) {
+        if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
+        await options?.onApprovalWait?.(waiting);
+      }
     });
     finalizeBotRun(result);
     return result;

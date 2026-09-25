@@ -161,6 +161,7 @@ describe("Mobile API v1 contracts", () => {
       "/automations/{automationId}/runs",
       "/automation-runs/{runId}",
       "/bots",
+      "/bots/approvals",
       "/bots/{botId}",
       "/bots/{botId}/clear-context",
       "/bots/{botId}/memories",
@@ -203,6 +204,11 @@ describe("Mobile API v1 contracts", () => {
       parameters: [{ $ref: "#/components/parameters/speechAudioSampleRate" }],
       requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
       responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
+    });
+    expect(contract.paths["/bots/approvals"].get).toMatchObject({
+      operationId: "listPendingBotApprovals",
+      tags: ["Agents"],
+      responses: { "200": { $ref: "#/components/responses/PendingBotApprovalList" } }
     });
     expect(contract.paths["/bots/{botId}/clear-context"]).toMatchObject({
       parameters: [{ $ref: "#/components/parameters/botId" }]
@@ -291,7 +297,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(116);
+    expect(compileOpenApiJsonResponses()).toBe(117);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

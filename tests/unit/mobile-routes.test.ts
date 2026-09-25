@@ -9,7 +9,7 @@ import {
 } from "@/app/api/v1/[...path]/route";
 import { createAutomationRun } from "@/lib/automations";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
-import { createConversation, createMessage } from "@/lib/conversations";
+import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
 import { createToolApprovalRules } from "@/lib/tool-approvals";
 import { createLocalUser } from "@/lib/users";
@@ -179,7 +179,8 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(created.status).toBe(201);
     await assertResponseContract("/bots", "post", created);
-    const botId = ((await created.json()) as { data: { bot: { id: string } } }).data.bot.id;
+    const createdBot = ((await created.json()) as { data: { bot: { id: string; homeConversationId: string } } }).data.bot;
+    const botId = createdBot.id;
 
     const crossOwner = await mobileGet(
       request(["bots", botId], outsiderSession.token),
@@ -225,6 +226,54 @@ describe("Mobile API v1 REST adapter", () => {
     expect(seenInput.status).toBe(200);
     await assertResponseContract("/bots/{botId}/seen-input", "post", seenInput);
     await expect(seenInput.json()).resolves.toMatchObject({ data: { bot: { id: botId } } });
+
+    const approvalMessage = createMessage({
+      conversationId: createdBot.homeConversationId,
+      role: "assistant",
+      content: ""
+    });
+    const approvalAction = createMessageAction({
+      messageId: approvalMessage.id,
+      kind: "tool_approval",
+      status: "pending",
+      label: 'Allow "git" commands?',
+      detail: "git push",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
+    const pendingApprovals = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    expect(pendingApprovals.status).toBe(200);
+    await assertResponseContract("/bots/approvals", "get", pendingApprovals);
+    await expect(pendingApprovals.json()).resolves.toMatchObject({
+      data: {
+        approvals: [
+          {
+            botId,
+            botName: "Researcher",
+            conversationId: createdBot.homeConversationId,
+            action: { id: approvalAction.id, kind: "tool_approval", proposalState: "pending" }
+          }
+        ]
+      }
+    });
+    const outsiderApprovals = await mobileGet(
+      request(["bots", "approvals"], outsiderSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(outsiderApprovals.json()).resolves.toEqual({ data: { approvals: [] } });
+    const approved = await mobilePost(
+      request(["message-actions", approvalAction.id, "approve"], memberSession.token, { method: "POST", body: {} }),
+      context(["message-actions", approvalAction.id, "approve"])
+    );
+    expect(approved.status).toBe(200);
+    const afterApproval = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(afterApproval.json()).resolves.toEqual({ data: { approvals: [] } });
 
     const cleared = await mobilePost(
       request(["bots", botId, "clear-context"], memberSession.token, { method: "POST" }),

@@ -11,6 +11,7 @@ import {
   getTurnActivity,
   resetTurnActivityForTests,
   scanTurnActivity,
+  setTurnAwaitingApproval,
   setTurnStallStop,
   startTurnAction,
   touchTurnActivity
@@ -72,6 +73,29 @@ describe("turn-activity", () => {
 
     scanTurnActivity(startedAt + TURN_STALL_AFTER_MS * 5);
     expect(getTurnActivity("conv_c")?.stalled).toBe(false);
+  });
+
+  it("neither flags nor stops a turn that is waiting for a tool approval", () => {
+    const requestStopSpy = vi.fn();
+    const claimed = claimChatTurnStart("conv_w");
+    if (claimed.ok) {
+      claimed.control.requestStop = requestStopSpy;
+    }
+    setTurnStallStop("conv_w", DELEGATED_TURN_STALL_STOP_MS);
+    beginTurnActivity("conv_w");
+    setTurnAwaitingApproval("conv_w", true);
+    setTurnAwaitingApproval("conv_missing", true);
+    const waitingSince = Date.parse(getTurnActivity("conv_w")!.lastActivityAt);
+
+    scanTurnActivity(waitingSince + DELEGATED_TURN_STALL_STOP_MS * 10);
+    expect(getTurnActivity("conv_w")?.stalled).toBe(false);
+    expect(requestStopSpy).not.toHaveBeenCalled();
+
+    setTurnAwaitingApproval("conv_w", false);
+    const resumedAt = Date.parse(getTurnActivity("conv_w")!.lastActivityAt);
+    scanTurnActivity(resumedAt + DELEGATED_TURN_STALL_STOP_MS);
+    expect(requestStopSpy).toHaveBeenCalledTimes(1);
+    clearChatTurn("conv_w");
   });
 
   it("stops a delegated turn after the stall-stop window and records the reason once", () => {

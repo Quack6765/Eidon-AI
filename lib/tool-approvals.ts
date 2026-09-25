@@ -15,6 +15,7 @@ import type {
 import { nowIso } from "@/lib/utils";
 
 export const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60_000;
+export const UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS = 24 * 60 * 60_000;
 
 const USER_DENIED_MESSAGE = "Denied: the user declined this action.";
 const EXPIRED_MESSAGE = "Denied: the approval request expired before the user decided.";
@@ -618,6 +619,7 @@ export async function requestToolExecutionApproval(params: {
   abortSignal?: AbortSignal;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   timeoutMs?: number;
+  onWaitChange?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ToolApprovalGateOutcome> {
   const { payload, userId } = params;
 
@@ -660,7 +662,21 @@ export async function requestToolExecutionApproval(params: {
     return { approved: false, message: STOPPED_MESSAGE, promptActionId: actionId };
   }
 
-  return await new Promise<ToolApprovalGateOutcome>((resolve) => {
+  await params.onWaitChange?.(true);
+  try {
+    return await waitForToolApprovalDecision(actionId, payload, params.timeoutMs, params.abortSignal);
+  } finally {
+    await params.onWaitChange?.(false);
+  }
+}
+
+function waitForToolApprovalDecision(
+  actionId: string,
+  payload: ToolApprovalProposalPayload,
+  timeoutMs: number | undefined,
+  abortSignal: AbortSignal | undefined
+) {
+  return new Promise<ToolApprovalGateOutcome>((resolve) => {
     let settled = false;
 
     const finish = (outcome: ToolApprovalGateOutcome) => {
@@ -669,7 +685,7 @@ export async function requestToolExecutionApproval(params: {
       }
       settled = true;
       clearTimeout(timer);
-      params.abortSignal?.removeEventListener("abort", handleAbort);
+      abortSignal?.removeEventListener("abort", handleAbort);
       getPendingToolApprovals().delete(actionId);
       resolve(outcome);
     };
@@ -703,7 +719,7 @@ export async function requestToolExecutionApproval(params: {
       }
       resolvePendingToolApprovalAction(actionId, payload, "expired", "Approval request expired", false);
       finish({ approved: false, message: EXPIRED_MESSAGE, promptActionId: actionId });
-    }, params.timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS);
+    }, timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS);
     timer.unref?.();
 
     function handleAbort() {
@@ -715,7 +731,7 @@ export async function requestToolExecutionApproval(params: {
       finish({ approved: false, message: STOPPED_MESSAGE, promptActionId: actionId });
     }
 
-    params.abortSignal?.addEventListener("abort", handleAbort, { once: true });
+    abortSignal?.addEventListener("abort", handleAbort, { once: true });
 
     getPendingToolApprovals().set(actionId, {
       settle: (approved) => {
@@ -727,6 +743,8 @@ export async function requestToolExecutionApproval(params: {
       }
     });
 
-    adoptRecordedDecision();
+    if (!adoptRecordedDecision() && abortSignal?.aborted) {
+      handleAbort();
+    }
   });
 }
