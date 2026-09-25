@@ -36,6 +36,7 @@ import {
 } from "@/lib/bot-runs";
 import { runBotTurn } from "@/lib/bot-delegation";
 import { createPausableTimeout } from "@/lib/pausable-timeout";
+import { buildRestartResumeNotice } from "@/lib/interrupted-work";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import { requestStop } from "@/lib/chat-turn-control";
@@ -188,6 +189,19 @@ async function executeAutomationRun(
       return;
     }
 
+    const resumedConversation = run.conversationId
+      ? getConversation(run.conversationId, automationOwnerId ?? undefined)
+      : null;
+    const restartNotice = resumedConversation ? buildRestartResumeNotice(resumedConversation.id) : undefined;
+    if (restartNotice === null) {
+      updateAutomationRunStatus(runId, {
+        status: "failed",
+        errorMessage: "Automation run was interrupted by repeated server restarts",
+        finishedAt: dependencies.now().toISOString()
+      });
+      return;
+    }
+
     const setupTransaction = getDb().transaction((): { id: string } | null => {
       const startedAt = dependencies.now().toISOString();
       if (!claimAutomationRun(run.id, startedAt)) {
@@ -207,9 +221,9 @@ async function executeAutomationRun(
         const reusableConversationId = automation.continuePreviousConversation
           ? getReusableAutomationConversationId(automation.id, run.id)
           : null;
-        const reusableConversation = reusableConversationId
-          ? getConversation(reusableConversationId, automationOwnerId ?? undefined)
-          : null;
+        const reusableConversation =
+          resumedConversation ??
+          (reusableConversationId ? getConversation(reusableConversationId, automationOwnerId ?? undefined) : null);
 
         if (reusableConversation) {
           conversationId = reusableConversation.id;
@@ -254,7 +268,7 @@ async function executeAutomationRun(
       : undefined;
     const recordResultMessage = ({ assistantMessageId }: { assistantMessageId: string }) =>
       attachResultMessageToRun(run.id, assistantMessageId);
-    const prompt = renderAutomationPrompt({
+    const prompt = restartNotice ?? renderAutomationPrompt({
       prompt: automation.prompt,
       date: new Intl.DateTimeFormat("en-CA", {
         timeZone: dependencies.timeZone ?? env.TZ,
