@@ -127,18 +127,35 @@ function DraftPreview({ payload }: { payload: MessageDraftProposalPayload }) {
   );
 }
 
-type FieldControlProps = {
+function useViewportHeight() {
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerHeight
+  );
+
+  useEffect(() => {
+    const handleResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return viewportHeight;
+}
+
+function DraftTextarea({
+  id,
+  value,
+  autoFocus,
+  onChange
+}: {
   id: string;
   value: string;
   autoFocus: boolean;
-  describedBy?: string;
   onChange: (value: string) => void;
-};
-
-function DraftTextarea({ id, value, autoFocus, describedBy, onChange }: FieldControlProps) {
+}) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { height } = useAutoResize({ ref: textareaRef, value, minHeight: 120 });
-  const reachedCap = typeof window !== "undefined" && height >= window.innerHeight * 0.6;
+  const viewportHeight = useViewportHeight();
+  const reachedCap = height >= viewportHeight * 0.6;
 
   return (
     <Textarea
@@ -146,7 +163,6 @@ function DraftTextarea({ id, value, autoFocus, describedBy, onChange }: FieldCon
       id={id}
       value={value}
       autoFocus={autoFocus}
-      aria-describedby={describedBy}
       onChange={(event) => onChange(event.target.value)}
       className={`mt-1 max-h-[60vh] resize-none rounded-md border-white/8 bg-black/20 px-3 py-2 text-[16px] leading-6 text-white md:text-[12px] md:leading-5 ${reachedCap ? "overflow-y-auto" : "overflow-y-hidden"}`}
     />
@@ -220,6 +236,7 @@ export function MessageDraftCard({
   const [localError, setLocalError] = useState("");
   const [returnFocusToEdit, setReturnFocusToEdit] = useState(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
+  const requiredMessageId = useId();
   const extraArguments = getMessageDraftExtraArguments(payload);
   const emptyRequiredFields = isEditing
     ? getEmptyRequiredDraftFields(payload, applyMessageDraftFieldValues(payload, values))
@@ -294,7 +311,7 @@ export function MessageDraftCard({
               />
             ))}
             {emptyRequiredFields.length ? (
-              <p className="text-[11px] text-white/48">
+              <p id={requiredMessageId} role="status" className="text-[11px] text-white/48">
                 {emptyRequiredFields.map((field) => field.label).join(", ")} can&apos;t be empty.
               </p>
             ) : null}
@@ -314,7 +331,9 @@ export function MessageDraftCard({
             <p className="break-words text-[11px] text-red-300">
               {payload.mcpServerName} didn&apos;t send it: {payload.sendError}
             </p>
-            <p className="text-[11px] text-white/48">Edit the draft and send it again, or discard it.</p>
+            {isEditing ? null : (
+              <p className="text-[11px] text-white/48">Edit the draft and send it again, or discard it.</p>
+            )}
           </div>
         ) : null}
 
@@ -334,6 +353,7 @@ export function MessageDraftCard({
             type="button"
             onClick={() => void handleSend()}
             disabled={submissionState !== null || emptyRequiredFields.length > 0}
+            aria-describedby={emptyRequiredFields.length ? requiredMessageId : undefined}
             className={PRIMARY_BUTTON}
           >
             {submissionState === "send" ? "Sending..." : "Send"}

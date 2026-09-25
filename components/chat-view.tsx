@@ -1905,64 +1905,38 @@ export function ChatView({
     }
   }
 
-  async function sendMessageDraft(actionId: string, fields?: Record<string, string>) {
-    setError("");
+  async function postMessageDraftAction(
+    actionId: string,
+    endpoint: "approve" | "dismiss",
+    body: Record<string, unknown>,
+    fallbackError: string
+  ) {
+    const response = await fetch(`/api/message-actions/${actionId}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
 
-    try {
-      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(fields ? { fields } : {})
-      });
+    const result = (await response.json().catch(() => ({}))) as {
+      action?: MessageAction;
+      error?: string;
+    };
 
-      const result = (await response.json()) as {
-        action?: MessageAction;
-        error?: string;
-      };
-
-      if (!response.ok || !result.action) {
-        throw new Error(result.error ?? "Unable to send the draft");
-      }
-
-      setMessages((current) => replaceMessageAction(current, result.action!));
-    } catch (caughtError) {
-      const errorMessage =
-        caughtError instanceof Error ? caughtError.message : "Unable to send the draft";
-      setError(errorMessage);
-      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    if (!response.ok || !result.action) {
+      throw new Error(result.error ?? fallbackError);
     }
+
+    setMessages((current) => replaceMessageAction(current, result.action!));
+  }
+
+  async function sendMessageDraft(actionId: string, fields?: Record<string, string>) {
+    await postMessageDraftAction(actionId, "approve", fields ? { fields } : {}, "Unable to send the draft");
   }
 
   async function discardMessageDraft(actionId: string) {
-    setError("");
-
-    try {
-      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({})
-      });
-
-      const result = (await response.json()) as {
-        action?: MessageAction;
-        error?: string;
-      };
-
-      if (!response.ok || !result.action) {
-        throw new Error(result.error ?? "Unable to discard the draft");
-      }
-
-      setMessages((current) => replaceMessageAction(current, result.action!));
-    } catch (caughtError) {
-      const errorMessage =
-        caughtError instanceof Error ? caughtError.message : "Unable to discard the draft";
-      setError(errorMessage);
-      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
-    }
+    await postMessageDraftAction(actionId, "dismiss", {}, "Unable to discard the draft");
   }
 
   async function updateProviderProfile(nextProviderProfileId: string) {

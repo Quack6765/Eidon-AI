@@ -2,7 +2,7 @@
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import {
   getMessageDraftHeading,
@@ -224,6 +224,38 @@ describe("MessageDraftCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Edit" })).toHaveFocus();
+  });
+
+  it("links the empty-field explanation to Send and scrolls the body once the viewport caps it", () => {
+    const originalHeight = window.innerHeight;
+    render(<MessageDraftCard action={buildAction()} onSend={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "" } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("To can't be empty.");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAccessibleDescription("To can't be empty.");
+
+    const body = screen.getByRole("textbox", { name: "Body" });
+    expect(body).toHaveClass("overflow-y-hidden");
+    act(() => {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 150 });
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(body).toHaveClass("overflow-y-auto");
+
+    act(() => {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+      window.dispatchEvent(new Event("resize"));
+    });
+  });
+
+  it("drops the discard hint from a failed draft while it is being edited", () => {
+    render(<MessageDraftCard action={buildAction({ payload: { sendError: "Invalid recipient" } })} onSend={vi.fn()} />);
+    expect(screen.getByText("Edit the draft and send it again, or discard it.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Gmail didn't send it: Invalid recipient")).toBeInTheDocument();
+    expect(screen.queryByText("Edit the draft and send it again, or discard it.")).not.toBeInTheDocument();
   });
 
   it("keeps finished drafts at full contrast and drops stale request errors", async () => {
