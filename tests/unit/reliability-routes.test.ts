@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBot, getBot } from "@/lib/bots";
+import { createBot, ensureChiefBot, getBot } from "@/lib/bots";
 import { createConversation, getConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
@@ -179,24 +179,25 @@ describe("reliability route hardening", () => {
       password: "Password123!",
       role: "user"
     });
-    const bot = createBot({ name: "Protected" }, user.id);
     requireUserMock.mockResolvedValue(user);
 
     const { DELETE } = await import("@/app/api/conversations/[conversationId]/route");
-    for (const query of ["", "?onlyIfEmpty=1"]) {
-      const response = await DELETE(
-        new Request(`http://localhost/api/conversations/${bot.homeConversationId}${query}`, {
-          method: "DELETE"
-        }),
-        { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
-      );
+    for (const bot of [ensureChiefBot(user.id), createBot({ name: "Protected" }, user.id)]) {
+      for (const query of ["", "?onlyIfEmpty=1"]) {
+        const response = await DELETE(
+          new Request(`http://localhost/api/conversations/${bot.homeConversationId}${query}`, {
+            method: "DELETE"
+          }),
+          { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
+        );
 
-      expect(response.status).toBe(409);
-      await expect(response.json()).resolves.toEqual({
-        error: "A bot's conversation can't be deleted on its own"
-      });
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+          error: "A bot's conversation can't be deleted on its own"
+        });
+      }
+      expect(getBot(bot.id, user.id)?.homeConversationId).toBe(bot.homeConversationId);
     }
-    expect(getBot(bot.id, user.id)).not.toBeNull();
   });
 
   it("refuses to make a bot's home conversation temporary", async () => {
