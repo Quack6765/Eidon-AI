@@ -329,7 +329,7 @@ describe("conversation helpers", () => {
       sourceConversation.id
     );
 
-    const forkConversation = forkConversationFromMessage(branchAssistantMessage.id);
+    const { conversation: forkConversation } = forkConversationFromMessage(branchAssistantMessage.id);
     const conversationIds = listConversationsPage().conversations.map((conversation) => conversation.id);
 
     expect(conversationIds.slice(0, 2)).toEqual([forkConversation.id, sourceConversation.id]);
@@ -1076,7 +1076,7 @@ describe("conversation helpers", () => {
       "2026-04-11T10:02:30.000Z"
     );
 
-    const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+    const { conversation: forkConversation } = forkConversationFromMessage(assistantMessage.id, user.id);
 
     expect(forkConversation.id).not.toBe(sourceConversation.id);
     expect(forkConversation.folderId).toBe(sourceConversation.folderId);
@@ -1233,10 +1233,10 @@ describe("conversation helpers", () => {
     fs.unlinkSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath));
 
     const publication = observeArtifactPublication();
-    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>["conversation"];
 
     try {
-      forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+      forkConversation = forkConversationFromMessage(assistantMessage.id, user.id).conversation;
       publication.expectOneDurableArtifact();
     } finally {
       publication.restore();
@@ -1295,10 +1295,10 @@ describe("conversation helpers", () => {
     }) as typeof db.prepare);
 
     const publication = observeArtifactPublication();
-    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>["conversation"];
 
     try {
-      forkConversation = forkConversationFromMessage(assistantMessage.id);
+      forkConversation = forkConversationFromMessage(assistantMessage.id).conversation;
       publication.expectOneDurableArtifact();
     } finally {
       publication.restore();
@@ -1779,16 +1779,17 @@ describe("conversation helpers", () => {
     expect(() => forkConversationFromMessage("msg_missing")).toThrow("Message not found");
   });
 
-  it("rejects forking a non-assistant message", async () => {
+  it("rejects forking a system message", async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
-      role: "user",
-      content: "Nope"
+      role: "system",
+      content: "Compacted",
+      systemKind: "compaction_notice"
     });
 
     expect(() => forkConversationFromMessage(message.id)).toThrow(
-      "Only assistant messages can be forked"
+      "Only user and assistant messages can be forked"
     );
   });
 
@@ -2114,16 +2115,17 @@ describe("message fork routes", () => {
 
     expect(response.status).toBe(201);
 
-    const body = (await response.json()) as { conversation: { id: string; title: string } };
+    const body = (await response.json()) as { conversation: { id: string; title: string }; draft: unknown };
     expect(body.conversation.id).toBeTruthy();
     expect(body.conversation.title).toBe("Fork Forkable thread");
+    expect(body.draft).toBeNull();
     expect(listVisibleMessages(body.conversation.id).map((message) => message.content)).toEqual([
       "Start here",
       "Selected answer"
     ]);
   });
 
-  it("rejects forks for user messages", async () => {
+  it("rejects forks for system messages", async () => {
     const user = await createLocalUser({
       username: "fork-route-rejector",
       password: "Password123!",
@@ -2132,23 +2134,24 @@ describe("message fork routes", () => {
     requireUserMock.mockResolvedValueOnce(user);
 
     const conversation = createConversation("Forkable thread", null, undefined, user.id);
-    const userMessage = createMessage({
+    const systemMessage = createMessage({
       conversationId: conversation.id,
-      role: "user",
-      content: "Do not fork me"
+      role: "system",
+      content: "Compacted",
+      systemKind: "compaction_notice"
     });
 
     const { POST } = await import("@/app/api/messages/[messageId]/fork/route");
     const response = await POST(
-      new Request(`http://localhost/api/messages/${userMessage.id}/fork`, {
+      new Request(`http://localhost/api/messages/${systemMessage.id}/fork`, {
         method: "POST"
       }),
-      { params: Promise.resolve({ messageId: userMessage.id }) }
+      { params: Promise.resolve({ messageId: systemMessage.id }) }
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Only assistant messages can be forked"
+      error: "Only user and assistant messages can be forked"
     });
   });
 
