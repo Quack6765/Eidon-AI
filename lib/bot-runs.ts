@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { nowIso } from "@/lib/utils";
 import { getActiveChatTurn, requestStop } from "@/lib/chat-turn-control";
+import { updateMessageAction } from "@/lib/conversations";
 import { getBot, getBotByConversationId, toBotSummary } from "@/lib/bots";
 import { getConversationManager } from "@/lib/ws-singleton";
 import type { Bot, BotRun, BotRunStatus, BotRunTriggerSource } from "@/lib/types";
@@ -239,12 +240,29 @@ function isActiveBotRun(run: BotRun) {
   return run.status === "queued" || run.status === "running" || run.status === "waiting_approval";
 }
 
+function markHandOffStopped(runId: string) {
+  const delegation = getBotRunDelegation(runId);
+  if (!delegation?.replyActionId || !delegation.replyConversationId) return;
+  const action = updateMessageAction(delegation.replyActionId, {
+    status: "stopped",
+    resultSummary: "Stopped by you before it finished.",
+    completedAt: nowIso()
+  });
+  if (!action) return;
+  getConversationManager().broadcast(delegation.replyConversationId, {
+    type: "delta",
+    conversationId: delegation.replyConversationId,
+    event: { type: "action_complete", action }
+  });
+}
+
 function markBotRunStopped(runId: string) {
   const run = getBotRun(runId);
   if (!run || !isActiveBotRun(run)) return;
   if (run.triggerSource === "delegated") getUserStoppedBotRuns().add(run.id);
   const stopped = updateBotRunStatus(run.id, { status: "stopped", finishedAt: nowIso() });
   if (stopped) broadcastBotRunUpdate(stopped);
+  if (run.triggerSource === "delegated") markHandOffStopped(run.id);
 }
 
 export function stopBotRun(runId: string): BotRun | null {

@@ -335,9 +335,8 @@ function settleDelegationRun(input: {
   target: Bot;
   delegation: BotRunDelegation;
   outcome: DelegationOutcome;
-  stoppedByUser: boolean;
 }) {
-  const { runId, target, delegation, outcome, stoppedByUser } = input;
+  const { runId, target, delegation, outcome } = input;
   const isFailure = outcome.status === "failed";
   const { finishedRun, action } = getDb().transaction(() => {
     const finishedRun = updateBotRunStatus(runId, {
@@ -345,17 +344,15 @@ function settleDelegationRun(input: {
       finishedAt: new Date().toISOString(),
       errorMessage: outcome.errorMessage ?? null
     });
-    if (delegation.replyConversationId && !stoppedByUser) {
+    if (delegation.replyConversationId) {
       setBotRunPendingReply(runId, buildDelegationWakeContent(target.name, outcome));
     }
     const action = delegation.replyActionId
       ? updateMessageAction(delegation.replyActionId, {
-          status: stoppedByUser ? "stopped" : isFailure ? "error" : "completed",
-          resultSummary: stoppedByUser
-            ? "Stopped by you before it finished."
-            : isFailure
-              ? `The bot run failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.`
-              : outcome.summary || "Finished.",
+          status: isFailure ? "error" : "completed",
+          resultSummary: isFailure
+            ? `The bot run failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.`
+            : outcome.summary || "Finished.",
           completedAt: new Date().toISOString()
         })
       : null;
@@ -455,7 +452,7 @@ async function runDelegation(runId: string, delegationChain?: DelegationChain) {
   const taskPrompt = run.startedAt
     ? buildRestartResumeNotice(target.homeConversationId, delegation.prompt)
     : delegation.prompt;
-  const turnOutcome: DelegationOutcome = taskPrompt === null
+  const outcome: DelegationOutcome = taskPrompt === null
     ? { status: "failed", summary: "", errorMessage: `${target.name} was interrupted by repeated server restarts` }
     : await runWorkerTurn({ target, runId, taskPrompt, ownerUserId: target.userId, delegationChain }).catch(
         (error: unknown) => ({
@@ -464,11 +461,9 @@ async function runDelegation(runId: string, delegationChain?: DelegationChain) {
           errorMessage: error instanceof Error ? error.message : "Message delivery failed"
         })
       );
-  const stoppedByUser = consumeUserStoppedBotRun(runId);
-  const outcome: DelegationOutcome = stoppedByUser ? { status: "stopped", summary: "" } : turnOutcome;
+  if (consumeUserStoppedBotRun(runId)) return;
 
-  settleDelegationRun({ runId, target, delegation, outcome, stoppedByUser });
-  if (stoppedByUser) return;
+  settleDelegationRun({ runId, target, delegation, outcome });
   await deliverPendingReply(runId, delegationChain);
 }
 

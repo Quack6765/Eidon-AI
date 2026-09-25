@@ -604,7 +604,7 @@ export function BotDetailView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className={`${showPanel ? "hidden lg:flex" : "flex"} min-h-0 flex-1 flex-col`}>
+        <div className={`${showPanel ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
           <ChatView
             payload={conversationPayload}
             retainEmptyConversation

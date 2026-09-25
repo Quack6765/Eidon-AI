@@ -38,7 +38,14 @@ import {
   stopConversationWork,
   updateBotRunStatus
 } from "@/lib/bot-runs";
-import { createConversation, createMessage, listMessages, listQueuedMessages } from "@/lib/conversations";
+import {
+  createConversation,
+  createMessage,
+  createMessageAction,
+  getMessage,
+  listMessages,
+  listQueuedMessages
+} from "@/lib/conversations";
 import { createConversationManager } from "@/lib/conversation-manager";
 import { startChatTurn } from "@/lib/chat-turn";
 import {
@@ -288,5 +295,33 @@ describe("bot attention and control", () => {
     expect(getBotRun(waitingForThread.id)?.status).toBe("stopped");
     expect(stopBotRun("botrun-missing")).toBeNull();
     expect(stopBotRun(finished.id)?.status).toBe("completed");
+  });
+
+  it("marks the sender's hand-off line stopped as soon as a queued hand-off is stopped", async () => {
+    const user = await createLocalUser({ username: "stophandoffline", password: "password-123", role: "user" as const });
+    const chief = createBot({ name: "Sender" }, user.id);
+    const worker = createBot({ name: "Receiver" }, user.id);
+    const handoff = createMessage({ conversationId: chief.homeConversationId, role: "assistant", content: "" });
+    const action = createMessageAction({
+      messageId: handoff.id,
+      kind: "message_bot",
+      status: "pending",
+      label: "Messaged Receiver",
+      toolName: "message_bot"
+    });
+    const run = createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "delegated",
+      parentMessageId: handoff.id,
+      prompt: "Do the thing",
+      replyConversationId: chief.homeConversationId,
+      replyActionId: action.id
+    });
+
+    expect(stopBotRun(run.id)?.status).toBe("stopped");
+
+    const updated = getMessage(handoff.id)?.actions?.find((entry) => entry.id === action.id);
+    expect(updated).toMatchObject({ status: "stopped", resultSummary: "Stopped by you before it finished." });
   });
 });
