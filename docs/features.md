@@ -108,6 +108,7 @@ Which tools appear depends on your configuration. The full set:
 | `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace). Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
 | `create_automation` | Always | Proposes a scheduled automation for your approval |
+| `draft_message` | An enabled MCP server has a tool that is not read-only | Prepares an email, Slack message, reply, or post as a draft you edit and send from the chat |
 | `web_search` | Web search is configured | Searches with the selected provider. Accepts up to 5 parallel queries and up to 10 results each |
 | `search_workspace` | Semantic recall is available | Read-only semantic search over your memories, past conversations, summaries, and attachment text |
 | `generate_image` | Image generation is configured | Generates 1–4 images from a prompt, returned as attachments |

@@ -39,6 +39,10 @@ import {
   ToolApprovalCard
 } from "@/components/tool-approval-card";
 import {
+  isMessageDraftAction,
+  MessageDraftCard
+} from "@/components/message-draft-card";
+import {
   AttachmentTile,
   MessageAttachments,
   AssistantInlineImageAttachments
@@ -437,6 +441,8 @@ function MessageBubbleImpl({
   onDismissAutomationProposal,
   onApproveToolApproval,
   onDismissToolApproval,
+  onSendMessageDraft,
+  onDiscardMessageDraft,
   onPreviewAttachment,
   readOnly = false
 }: {
@@ -464,6 +470,8 @@ function MessageBubbleImpl({
     options?: { allowAlways?: boolean }
   ) => Promise<void>;
   onDismissToolApproval?: (actionId: string) => Promise<void>;
+  onSendMessageDraft?: (actionId: string, fields?: Record<string, string>) => Promise<void>;
+  onDiscardMessageDraft?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
@@ -580,7 +588,12 @@ function MessageBubbleImpl({
           return;
         }
 
-        if (isMemoryProposalAction(item) || isAutomationProposalAction(item) || isToolApprovalAction(item)) {
+        if (
+          isMemoryProposalAction(item) ||
+          isAutomationProposalAction(item) ||
+          isToolApprovalAction(item) ||
+          isMessageDraftAction(item)
+        ) {
           deferredProposalBlocks.push(item);
           return;
         }
@@ -826,6 +839,23 @@ function MessageBubbleImpl({
       );
     }
 
+    if (isMessageDraftAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <MessageDraftCard
+            action={item}
+            onSend={onSendMessageDraft}
+            onDiscard={onDiscardMessageDraft}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
     if (isToolApprovalAction(item)) {
       return (
         <div key={item.id} data-testid="assistant-actions-shell">
@@ -981,7 +1011,8 @@ function MessageBubbleImpl({
       (item.timelineKind === "action" &&
         !isMemoryProposalAction(item) &&
         !isAutomationProposalAction(item) &&
-        !isToolApprovalAction(item));
+        !isToolApprovalAction(item) &&
+        !isMessageDraftAction(item));
 
     return isActivity ? index + 1 : insertionIndex;
   }, 0);

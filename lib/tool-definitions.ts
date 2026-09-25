@@ -84,12 +84,16 @@ export function buildToolDefinitions(input: {
   }
 
   const tools: ToolDefinition[] = [];
+  let hasSendingMcpTool = false;
 
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
     if (server.isVisionMcp && input.effectiveVisionMode !== "mcp") {
       continue;
     }
     for (const tool of mcpTools) {
+      if (tool.annotations?.readOnlyHint !== true) {
+        hasSendingMcpTool = true;
+      }
       const enumHints = extractEnumHints(tool.inputSchema ?? {});
       tools.push({
         type: "function",
@@ -105,6 +109,36 @@ export function buildToolDefinitions(input: {
         }
       });
     }
+  }
+
+  if (hasSendingMcpTool) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "draft_message",
+        description:
+          "Prepare an outgoing message — an email, a Slack or chat message, a reply, a post, or a comment — as a draft the user reviews, edits, and sends from a card in this conversation. Use it instead of calling a connected tool that sends, posts, or replies on the user's behalf; call that tool directly only when the user explicitly asks to skip the draft. Nothing is sent until the user presses Send, which calls the tool you name with the arguments you give (after any edits). You can leave several drafts at once. To revise a draft that is still waiting, pass its id as replaces_draft_id so the old version is withdrawn. Never claim a message was sent — say the draft is ready for them to review and send.",
+        parameters: {
+          type: "object",
+          properties: {
+            tool: {
+              type: "string",
+              description: "Exact name of the connected tool that sends the message, as it appears in your tool list (for example mcp_gmail_send_message)"
+            },
+            arguments: {
+              type: "object",
+              additionalProperties: true,
+              description: "Complete arguments for that tool, exactly as its schema expects, including recipients and the full message text"
+            },
+            replaces_draft_id: {
+              type: "string",
+              description: "Optional id of an earlier draft that is still waiting; it is withdrawn and replaced by this one"
+            }
+          },
+          required: ["tool", "arguments"]
+        }
+      }
+    });
   }
 
   if (input.skills.length) {

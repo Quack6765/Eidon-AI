@@ -1905,6 +1905,66 @@ export function ChatView({
     }
   }
 
+  async function sendMessageDraft(actionId: string, fields?: Record<string, string>) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(fields ? { fields } : {})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to send the draft");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error ? caughtError.message : "Unable to send the draft";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function discardMessageDraft(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to discard the draft");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error ? caughtError.message : "Unable to discard the draft";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -2205,6 +2265,8 @@ export function ChatView({
   const onDismissToolApprovalStable = useStableHandler(dismissToolApproval);
   const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
   const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
+  const onSendMessageDraftStable = useStableHandler(sendMessageDraft);
+  const onDiscardMessageDraftStable = useStableHandler(discardMessageDraft);
   const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
   const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
   const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
@@ -2332,6 +2394,8 @@ export function ChatView({
                   onDismissToolApproval={onDismissToolApprovalStable}
                   onApproveAutomationProposal={onApproveAutomationProposalStable}
                   onDismissAutomationProposal={onDismissAutomationProposalStable}
+                  onSendMessageDraft={onSendMessageDraftStable}
+                  onDiscardMessageDraft={onDiscardMessageDraftStable}
                   onForkAssistantMessage={onForkAssistantMessageStable}
                   onRetryAssistantMessage={onRetryAssistantMessageStable}
                   onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}

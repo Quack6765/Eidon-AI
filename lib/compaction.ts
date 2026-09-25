@@ -24,6 +24,7 @@ import {
 } from "@/lib/compaction-turns";
 import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { buildToolResultMessage } from "@/lib/tool-executors";
+import { describeMessageDraftForPrompt } from "@/lib/message-draft-display";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { computeCompactionLimit, estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
@@ -221,11 +222,16 @@ function collectReplayableActions(actions: MessageAction[] | undefined): Message
   return (actions ?? [])
     .filter(
       (action) =>
-        REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
-        action.status === "completed" &&
-        action.resultSummary.trim().length > 0
+        action.kind === "draft_message" ||
+        (REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
+          action.status === "completed" &&
+          action.resultSummary.trim().length > 0)
     )
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function getReplayedToolResult(action: MessageAction) {
+  return action.kind === "draft_message" ? describeMessageDraftForPrompt(action) : action.resultSummary;
 }
 
 function toProviderToolCall(action: MessageAction): ProviderToolCall {
@@ -330,7 +336,7 @@ export function buildPromptMessages(input: {
 
       for (const action of replayableActions) {
         promptMessages.push(
-          buildToolResultMessage(action.id, truncateToolResult(action.resultSummary))
+          buildToolResultMessage(action.id, truncateToolResult(getReplayedToolResult(action)))
         );
       }
       return;
