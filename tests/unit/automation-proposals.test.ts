@@ -141,7 +141,7 @@ describe("create_automation tool executor", () => {
         kind: "create_automation",
         status: "pending",
         proposalState: "pending",
-        proposalPayload: buildAutomationPayload({ continuePreviousConversation: true })
+        proposalPayload: buildAutomationPayload({ continuePreviousConversation: true, botId: null })
       })
     );
     const toolResult = result.promptMessages.at(-1);
@@ -150,6 +150,66 @@ describe("create_automation tool executor", () => {
     expect(toolResult?.content).toContain("Morning brief");
     expect(result.nextSortOrder).toBe(4);
     expect(listAutomations()).toHaveLength(0);
+  });
+
+  it("links a routine proposed in a bot's thread to that bot and approves it as a bot routine", async () => {
+    registerProviderProfile();
+    const { createBot } = await import("@/lib/bots");
+    const user = await createLocalUser({
+      username: "auto-bot-proposer",
+      password: "Password123!",
+      role: "user"
+    });
+    const bot = createBot({ name: "Proposer Bot" }, user.id);
+    const { context, startedActions } = buildExecutorContext();
+
+    await executeCreateAutomationProposal(
+      "call_auto_bot",
+      {
+        name: "Morning brief",
+        prompt: "Summarize today's priorities for {{date}}.",
+        schedule_kind: "calendar",
+        calendar_frequency: "daily",
+        time_of_day: "08:30",
+        days_of_week: [],
+        continue_previous_conversation: true
+      },
+      { ...context, input: { ...context.input, conversationId: bot.homeConversationId } }
+    );
+
+    const proposalPayload = startedActions[0].proposalPayload as AutomationProposalPayload;
+    expect(proposalPayload).toEqual(buildAutomationPayload({ botId: bot.id }));
+
+    const message = createMessage({
+      conversationId: bot.homeConversationId,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 0
+    });
+    const approvable = createMessageAction({
+      messageId: message.id,
+      kind: "create_automation",
+      status: "pending",
+      label: "Automation proposal",
+      proposalState: "pending",
+      proposalPayload
+    });
+    const { automation } = approveAutomationProposal(approvable.id, undefined, user.id);
+    expect(automation.botId).toBe(bot.id);
+    expect(automation.personaId).toBeNull();
+
+    const orphaned = createMessageAction({
+      messageId: message.id,
+      kind: "create_automation",
+      status: "pending",
+      label: "Automation proposal",
+      proposalState: "pending",
+      proposalPayload: { ...proposalPayload, botId: "bot_missing" }
+    });
+    expect(() => approveAutomationProposal(orphaned.id, undefined, user.id)).toThrow("Bot not found");
+    expect(listAutomations(user.id)).toHaveLength(1);
   });
 
   it("rejects invalid schedules with an error tool result and creates no action", async () => {

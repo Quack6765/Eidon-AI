@@ -1,5 +1,6 @@
 import { createAutomation, type CreateAutomationInput } from "@/lib/automations";
 import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
+import { getBot } from "@/lib/bots";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
@@ -73,6 +74,7 @@ function parseAutomationProposalPayload(rawPayload: string | null): AutomationPr
         : [],
       providerProfileId: parsed.providerProfileId,
       personaId: typeof parsed.personaId === "string" ? parsed.personaId : null,
+      botId: typeof parsed.botId === "string" ? parsed.botId : null,
       continuePreviousConversation: parsed.continuePreviousConversation,
       automationId: typeof parsed.automationId === "string" ? parsed.automationId : null
     };
@@ -176,11 +178,16 @@ export function approveAutomationProposal(
     throw new Error("Persona not found");
   }
 
+  if (finalPayload.botId && !getBot(finalPayload.botId, userId)) {
+    throw new Error("Bot not found");
+  }
+
   const createInput: CreateAutomationInput = {
     name: finalPayload.name,
     prompt: finalPayload.prompt,
     providerProfileId: finalPayload.providerProfileId,
     personaId: finalPayload.personaId,
+    botId: finalPayload.botId,
     scheduleKind: finalPayload.scheduleKind,
     intervalMinutes: finalPayload.intervalMinutes,
     calendarFrequency: finalPayload.calendarFrequency,

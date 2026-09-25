@@ -401,6 +401,55 @@ describe("db", () => {
     }
   });
 
+  it("links existing routine runs to the answer they produced when adding the result column", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const automations = await import("@/lib/automations");
+    const conversations = await import("@/lib/conversations");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
+
+    const profile = createProviderProfileInput({ id: "profile_backfill", name: "Backfill", model: "gpt-backfill" });
+    updateProviderCatalog({ defaultProviderProfileId: profile.id, skillsEnabled: false, providerProfiles: [profile] });
+    const automation = automations.createAutomation({
+      name: "Digest",
+      prompt: "Digest",
+      providerProfileId: profile.id,
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 60,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      enabled: false
+    });
+    const conversation = conversations.createConversation("Shared thread", null, { providerProfileId: profile.id });
+    const run = automations.createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-10T08:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    automations.attachConversationToRun(run.id, conversation.id);
+    automations.updateAutomationRunStatus(run.id, {
+      status: "completed",
+      startedAt: "2026-04-10T08:00:00.000Z",
+      finishedAt: "2026-04-10T08:05:00.000Z"
+    });
+
+    const db = getDb();
+    const createAnswerAt = (content: string, createdAt: string) => {
+      const message = conversations.createMessage({ conversationId: conversation.id, role: "assistant", content });
+      db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(createdAt, message.id);
+    };
+    createAnswerAt("Earlier chat reply", "2026-04-10T07:59:00.000Z");
+    createAnswerAt("Routine answer", "2026-04-10T08:01:00.000Z");
+    createAnswerAt("Later chat reply", "2026-04-10T08:30:00.000Z");
+
+    db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
+    migrate(db);
+
+    expect(automations.getPreviousAutomationRunResult(automation.id, "run_next")).toBe("Routine answer");
+  });
+
   it("seeds new accounts with the running version so a fresh install is not announced", async () => {
     process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
     try {
