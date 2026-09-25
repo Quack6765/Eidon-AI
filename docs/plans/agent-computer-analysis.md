@@ -8,7 +8,12 @@ Reference product: xAI Grok Bot ([computer and apps](https://docs.x.ai/grok-bot/
 - **The live view and take control are already in the image.** The `agent-browser` binary we ship (0.27.0) starts a loopback WebSocket stream server for every session. The server sends CDP screencast JPEG frames plus `url`, `tabs` and `status` events, and it accepts `input_mouse`, `input_keyboard` and `input_touch` messages, which it forwards to `Input.dispatch*`. I measured this in the container. A click from the stream focused an input, typed keys landed, the wheel scrolled, and input reached the next frame in 41 ms.
 - **Recommended architecture: add no packages.** The Eidon server connects to each bot's loopback stream and relays it over one new authenticated WebSocket path on our existing server. The web app and the iOS app draw the JPEG frames and send input back. Take control and secret requests reuse the pause/resume gate from `bot-interactive-approvals`.
 - **Estimated image-size delta: +0 MB of apt packages.** Removing the six non-Linux `agent-browser` binaries we ship by accident saves about **60 MB**. An optional Landlock launcher, written in the `python3` we already ship, adds about 5 KB.
-- **The real constraint is RAM, not disk.** One headless Chromium session measured about 430–490 MB PSS, and four sessions about 1.25–1.45 GB. Idle Eidon measured about 1.0 GB. A 2 GB box can run **one** browser at a time, and a 4 GB box about three.
+- **The real constraint is RAM, not disk.** One headless Chromium session measured about 430–490 MB PSS, and four separate browsers about 1.25–1.45 GB. Idle Eidon measured about 1.0 GB.
+- **One shared browser per user, with a tab per bot, cuts that by about 43 %.** Four bots in one shared Chromium measured 821 MB, against 1,430 MB with a browser each. With it, a 2 GB box runs one user's browser with about three bot tabs instead of a single bot. Correct concurrent use depends on strict tab pinning (§7).
+- **Decisions recorded (2026-09-25):**
+  - Move the base image to **Node 24**, which unlocks agent-browser 0.38 and needs `better-sqlite3` 12.
+  - Use a generic **`waiting_user`** run status.
+  - **30-minute** handoff timeout.
 - **The measurements turned up four problems that exist today, separate from this feature:**
   - The image is silently pinned to agent-browser 0.27.0. Version 0.28 and later need Node 24 or newer, and npm quietly falls back.
   - Every bot of every user writes browser cookies to **one shared plaintext file**.
@@ -66,7 +71,7 @@ Sizes are Debian bookworm `Installed-Size` deltas on top of the packages the ima
 
 agent-browser's docs report 54 KB per frame at q80 on a busy 1280×720 page and about 9 KB at q20 at 640×360 ([streaming docs](https://github.com/vercel-labs/agent-browser/blob/main/docs/src/app/streaming/page.mdx)).
 
-**Bandwidth has to be capped in our relay.** Version 0.27 ignores `?maxFps=`, which I tested; that option, `pacing=ack` and `AGENT_BROWSER_STREAM_QUALITY/MAX_WIDTH` arrive in later versions ([docs](https://github.com/vercel-labs/agent-browser/blob/main/docs/src/app/streaming/page.mdx)). The relay should:
+**Bandwidth has to be capped.** Version 0.27 ignores `?maxFps=`, which I tested. With the Node 24 decision, 0.38 supports `?maxFps=`, `pacing=ack` and `AGENT_BROWSER_STREAM_QUALITY/MAX_WIDTH` ([docs](https://github.com/vercel-labs/agent-browser/blob/main/docs/src/app/streaming/page.mdx)), so the source can be throttled directly. The relay still has to handle viewers with different needs:
 - keep only the latest frame for each viewer;
 - skip sending while `ws.bufferedAmount` is above about 256 KB;
 - cap each viewer at a target fps (8 on mobile, 15 on web).
@@ -135,9 +140,13 @@ Take control should be **a second kind on the same gate**, not a second mechanis
 4. **Return control** (with an optional note) settles the gate. The tool result sent to the model is "User completed the step and returned control. Note: …", and the run continues. There is no need to "tell the bot to continue" as Grok does, because the run is already paused inside the tool call.
 5. Viewer input is accepted **only** from the bot's owner and **only** while `controlOwner === "user"`. Watching is read-only. This prevents stray clicks from disturbing the bot.
 
-**Timeouts.** A DM approval expires after 5 minutes, which is too short for someone who has to fetch a 2FA device. The unattended timeout of 24 h is too long to keep a Chromium alive. My suggestion is 30 minutes for handoffs, with the browser kept alive while a handoff is pending. The profile is on disk, so an expired handoff costs nothing to resume later.
+**Timeouts (decided): 30 minutes for handoffs and secret requests.** A DM approval expires after 5 minutes, which is too short for someone who has to fetch a 2FA device. The unattended 24 h timeout is too long to keep a browser alive. The bot's browser (or its tab, §7) stays alive while a handoff is pending. The profile is on disk, so an expired handoff costs nothing to resume later.
 
-**Status enum.** The approvals branch adds `waiting_approval` to the OpenAPI and WebSocket contracts. If handoffs and secrets reuse the gate, a generic `waiting_user` status (or `waiting_approval` plus a `waitReason`) avoids a second contract change later. This should be decided **before** the approvals branch merges (see Open questions).
+**Status enum (decided): rename to `waiting_user`.** The approvals branch adds `waiting_approval` to the OpenAPI and WebSocket contracts. Rename it to a generic `waiting_user` **before `bot-interactive-approvals` merges**, so tool approvals, handoffs and secret requests share one run status and one contract change. The card's `message_action.kind` already says what the wait is for, so no separate `waitReason` field is needed. Every place the branch touches needs the rename:
+- `lib/bot-runs.ts`, `lib/bots.ts`, `lib/bot-delegation.ts`
+- `components/agents/bot-status.tsx`, `hooks/use-delegation-status.ts`
+- `lib/db-migrations.ts`
+- both contract files and their tests.
 
 ## 5. Secure secret request
 
@@ -206,16 +215,49 @@ Not now. It would be a `profiles: ["computer"]` compose service (headless-shell 
 - Every bot uses `bot`/`bot`, and `HOME=/app/data/home` is shared. So **every bot of every user writes to the same plaintext file, `/app/data/home/.agent-browser/sessions/bot-bot.json` (mode 644)**, and any bot's shell can `cat` it.
 - Auto-restore did not bring the state back, neither for the same bot nor for another one. **Logins therefore don't survive `close`**, and the builtin skill tells the bot to close after every task.
 
-### Recommendation: one real Chromium profile directory per bot (default)
+### Either way: use a real Chromium profile directory
 
-Pass `--profile /app/data/agent-computer/<userSegment>/<botSegment>/profile`. A real profile persists cookies, localStorage, IndexedDB and service workers exactly as a normal browser does, with no state files. Drop `AGENT_BROWSER_SESSION_NAME`.
+Pass `--profile <dir>`. A real profile persists cookies, localStorage, IndexedDB and service workers exactly as a normal browser does, with no state files. Drop `AGENT_BROWSER_SESSION_NAME`. Keep the directory under `EIDON_DATA_DIR/agent-computer/…` with mode 700, outside `bot-workspaces/`, so it doesn't appear in the workspace tree. With Landlock, the "shell" profile gets no access to it. Add `--disk-cache-size` to keep it small.
 
-- **Per bot.** It matches the existing per-bot workspace, socket and reset model. A prompt injection in one bot is limited to that bot's logins, and two bots can browse at the same time. Chromium locks a profile directory, so a shared per-user profile means **one browser per user**.
-- **Per user, as Grok does it.** Sign in once and every bot has it. It also uses less RAM: one browser with a tab per bot instead of one browser per bot. But every bot then carries every login, including a bot built for low-trust web research. This needs agent-browser 0.38's `--cdp` plus `--pin-tab` to share one Chrome between sessions, and that needs the Node 24 base.
-- Suggested default: per bot, with an opt-in "share sign-ins across my bots" per user later.
-- **Layout:** `EIDON_DATA_DIR/agent-computer/<user>/<bot>/profile`, with mode 700. Keep it out of `bot-workspaces/`, so profile files don't appear in the workspace tree and the bot can't list or modify them as ordinary files. With Landlock, the "shell" profile gets no access to it.
-- Add `--disk-cache-size` to keep profiles small, and reuse the existing `reset-browser-session` route for "sign out everything".
-- Deleting a bot deletes its profile. Grok keeps profiles because they belong to the user; here they belong to the bot.
+### Can all bots share one profile to save RAM? Yes: one browser per user, one tab per bot
+
+**How it works.** Chromium locks a profile directory: a second Chromium on the same directory aborts with "Failed to create a ProcessSingleton for your profile directory… Aborting now to avoid profile corruption" (measured). Sharing a profile therefore means **one Chromium process shared by the bots, with a tab for each bot**:
+- The server launches that Chromium itself, headless, with `--user-data-dir=<profile>` and `--remote-debugging-port=0`, and reads the port from `DevToolsActivePort`.
+- Each bot's agent-browser session attaches with `--cdp <port> --pin-tab` (agent-browser 0.38, [CDP mode docs](https://github.com/vercel-labs/agent-browser/blob/v0.38.1/docs/src/app/cdp-mode/page.mdx)).
+- Each session still has its own daemon (about 10 MB), its own stream server and its own tab.
+
+**Scope: per user, never across users.** A single profile for *all* bots on the server would hand one user's logins to another user's bots. "One shared profile" therefore means one per user (`agent-computer/<user>/profile`), which is exactly Grok's model: "Every Bot on your account uses the same computer… Each Bot gets its own screen… The screens are separate work surfaces, not separate security boundaries." With several active users there is one Chromium per active user.
+
+**Memory measured** (agent-browser 0.38.1 on Node 24, Chromium 153, arm64, four bots each on GitHub):
+
+| Setup | PSS | Chromium processes |
+|---|---|---|
+| One Chromium per bot (4 profiles) | 1,430 MB | 44 |
+| One shared Chromium, one tab per bot | **821 MB (−43 %)** | 13 |
+
+A single browser with one tab is about 430–490 MB, so each additional bot tab costs roughly 110 MB instead of about 450 MB for another browser.
+
+**What happens when several bots use the browser at the same time** (measured):
+- **Navigation and actions:**
+  - With `--pin-tab` on each session's first command, **20 out of 20** concurrent navigations (4 bots × 5 rounds) landed in the right tab. Concurrent `snapshot` calls also returned each bot's own page.
+  - Without pinning, **9 out of 12** landed in another bot's tab. Unpinned sessions adopt whatever tab is currently active, and the docs keep that behaviour on purpose for compatibility.
+  - So the server must set `AGENT_BROWSER_PIN_TAB=1` in the bot's environment and create the binding itself. A bot must never be able to start an unpinned session.
+- **Rendering and live view:** in headless every tab reports `visibilityState: "visible"`, so background tabs are not throttled. Two bots streaming at once each got 51 frames in 5 s from their own stream servers. The live view and take control keep working per bot, and taking control of one bot's tab doesn't touch the others.
+- **Cookies and site storage are shared:**
+  - When bot 1 set `account=ALICE` and bot 2 then set `account=BOB` on the same site, bot 1 read `account=BOB`.
+  - So two bots can't be signed in to **different accounts on the same site** at once, and signing out in one bot signs out all of them.
+  - Downloads, permissions and saved site data are shared the same way.
+- **Shared fate:** if the shared Chromium crashes or is OOM-killed, every bot of that user loses its browser. The next command fails ("All CDP discovery methods failed"). The server has to supervise the process, restart it (about 0.4 s) and rebind tabs. Logins survive because they are in the profile, but open pages and form state are lost.
+- **Bots can reach each other's tabs:**
+  - Any bot shell can list, drive or close another bot's tab through the loopback CDP port. I closed bot 2's tab from outside, and bot 2's next command failed with `tab_gone`.
+  - It can also simply name another session: `agent-browser --session <other> …`.
+  - With a per-user profile, that is the same user's other bots. That matches Grok's "not separate security boundaries", but a prompt-injected research bot can then use the banking login another bot signed in with.
+  - Landlock's "shell" profile (TCP connect only to the proxy port, own socket dir only) closes the raw-CDP route. The shared login jar itself is inherent to sharing.
+- **Concurrency limit:** tabs share one browser process, so the global cap in §8 counts **browsers** (one per active user), plus a per-browser tab budget.
+
+**Recommendation.** Use a shared per-user browser as the default, since RAM is the main constraint on small boxes and it matches the reference product, and the Node 24 decision unlocks `--pin-tab`. If a bot needs its own logins, it could opt out into an isolated profile at the cost of a full browser (open question). Other consequences:
+- `reset-browser-session` becomes "sign out everywhere" for **all** of the user's bots. A per-bot reset only closes that bot's tab.
+- Deleting a bot closes its tab and keeps the user's profile, as Grok does.
 
 ## 8. Resource limits
 
@@ -231,13 +273,16 @@ Pass `--profile /app/data/agent-computer/<userSegment>/<botSegment>/profile`. A 
 Published reports agree with these: 300–500 MB per rendering instance ([crawlex](https://blog.crawlex.net/blog/headless-browser-tax/)), 100–300 MB baseline plus 50–150 MB per page ([webscraping.ai](https://webscraping.ai/faq/headless-chromium/how-can-i-make-headless-chromium-use-less-cpu-and-memory)). Cold start measured 400 ms. agent-browser passes `--disable-dev-shm-usage` itself, so Docker's 64 MB `/dev/shm` is not a problem.
 
 **Capacity on a typical self-host box:**
-- **2 GB:** Eidon about 1 GB plus one browser about 0.5 GB, so **one** concurrent browser. A second browser pushes the box into swap or the OOM killer.
-- **4 GB:** about **three** browsers, or four with the memory flags. The flags weaken site isolation, so they should only be used for low-trust browsing.
+
+| Box | One browser per bot | Shared browser per user (§7) |
+|---|---|---|
+| **2 GB** (Eidon about 1 GB) | **One** bot browsing at a time. A second browser pushes the box into swap or the OOM killer | One user's browser with about three bot tabs |
+| **4 GB** | About three browsers, or four with the memory flags (which weaken site isolation, so only for low-trust browsing) | Two or three active users, each with several bot tabs |
 
 **The existing limiter doesn't protect memory.** `DEFAULT_MAX_CONCURRENT_BOT_RUNS_PER_USER = 4` is per user. Every run can start its own Chromium, and each one stays alive for agent-browser's **1 h default idle timeout**. Two users running four bots each could try to hold eight Chromiums.
 
 **Recommendation:**
-1. A **global browser cap**, separate from the run limiter. The default would be `clamp(floor((os.totalmem() − 1.2 GB) / 0.5 GB), 1, 4)` with an env override. A run that needs a browser while at the cap waits for a slot, reusing the `acquireBotUserSlot` waiter pattern with a global key. If the wait is long, the bot is told "browser busy" instead of letting the kernel OOM-kill it.
+1. A **global memory budget**, separate from the run limiter. Charge about 0.5 GB for the first tab of a browser and about 0.12 GB for each further tab, against `os.totalmem() − 1.2 GB`, with an env override. A run that needs a browser while at the cap waits for a slot, reusing the `acquireBotUserSlot` waiter pattern with a global key. If the wait is long, the bot is told "browser busy" instead of letting the kernel OOM-kill it.
 2. **Idle stop after 10 minutes** (`AGENT_BROWSER_IDLE_TIMEOUT_MS=600000`, owned by the server). Because the profile persists, restarting costs about 0.4 s and loses nothing. A pending handoff or an open live view keeps its browser alive, and the least recently used idle browser is closed first.
 3. Change the builtin skill: drop "Always close the browser when done", since idle stop handles it. Add: "use `request_takeover` for passwords, 2FA, CAPTCHAs and payments; use `request_secret` for secrets; never ask for a password in chat".
 
@@ -261,10 +306,10 @@ Published reports agree with these: 300–500 MB per rendering instance ([crawle
 
 | Area | Change |
 |---|---|
-| `Dockerfile` | Pin `agent-browser@<exact>`. Delete `bin/agent-browser-{darwin,win32,linux-musl}*`, plus the other-arch Linux binary (−60 MB). Later, copy `scripts/landlock-exec.py`. **No new apt packages.** Optionally move the base to `node:24-bookworm-slim` to unlock agent-browser 0.28 and later (Open question 2). |
-| `lib/agent-computer.ts` (new) | Per-bot lifecycle (start, stream-port discovery, idle stop), global browser cap, relay hub (viewers, latest-frame fan-out, fps cap, backpressure), `controlOwner`, key-event normalisation (always set `code`), secret typing. |
-| `lib/bot-sandbox.ts` | Profile dir `agent-computer/<user>/<bot>/profile`. Replace `AGENT_BROWSER_SESSION_NAME` with `AGENT_BROWSER_PROFILE`. Add idle timeout and proxy. Remove the profile on bot delete and reset. |
-| `lib/local-shell.ts` | Allow `AGENT_BROWSER_PROFILE`, `AGENT_BROWSER_PROXY`, `AGENT_BROWSER_IDLE_TIMEOUT_MS`. Later, wrap the spawn in the Landlock "shell" launcher when available. |
+| `Dockerfile`, `package.json`, `.github/workflows/test.yml` | **Node 24 (decided):** base `node:24-bookworm-slim`, CI `node-version: 24`, `@types/node` 24. Bump `better-sqlite3` from 11.10.0 to **12.x**: 11.10.0 has no Node 24 prebuild, and on the slim image it falls back to a source build that fails. That was measured on both arm64 and amd64, and 12.11.1 installs on both. 12.0.0's only breaking change is dropping Node 18. `sharp` 0.34.5 and `onnxruntime-node` 1.24.3 load on Node 24 unchanged (measured). Pin `agent-browser@0.38.1` exactly. Delete `bin/agent-browser-{darwin,win32,linux-musl}*` and the other-arch Linux binary (−60 MB). Later, copy `scripts/landlock-exec.py`. **No new apt packages.** |
+| `lib/agent-computer.ts` (new) | Lifecycle of the shared per-user Chromium (launch with `--user-data-dir`, read `DevToolsActivePort`, supervise and restart, rebind tabs on `tab_gone`) and of per-bot pinned sessions (stream-port discovery, idle stop). Global memory budget, relay hub (viewers, latest-frame fan-out, fps cap, backpressure), `controlOwner`, key-event normalisation (always set `code`), secret typing. |
+| `lib/bot-sandbox.ts` | Per-user profile dir `agent-computer/<user>/profile`. Drop `AGENT_BROWSER_SESSION_NAME`. Give each bot `AGENT_BROWSER_CDP=<port>`, `AGENT_BROWSER_PIN_TAB=1` and a unique `AGENT_BROWSER_SESSION=<botId>`. Add idle timeout and proxy. On bot delete, close the bot's tab. |
+| `lib/local-shell.ts` | Allow `AGENT_BROWSER_CDP`, `AGENT_BROWSER_PIN_TAB`, `AGENT_BROWSER_PROXY`, `AGENT_BROWSER_IDLE_TIMEOUT_MS`. Later, wrap the spawn in the Landlock "shell" launcher when available. |
 | `lib/tool-approvals.ts` (from the approvals branch) | Extract the generic user gate (settle registry, timeout, abort, DB adoption) that `tool_approval`, `computer_handoff` and `secret_request` share. |
 | `lib/tool-definitions.ts`, `lib/tool-executors.ts` | New `request_takeover` and `request_secret` tools (later `use_credential`). Refuse `agent-browser` commands while the user holds control. Redact secrets from tool output. |
 | `lib/types.ts`, `lib/db-migrations.ts` | `MessageActionKind` gains `computer_handoff` and `secret_request`. Later, a `bot_credentials` table (values encrypted with `lib/crypto.ts`). |
@@ -274,10 +319,10 @@ Published reports agree with these: 300–500 MB per rendering instance ([crawle
 | `app/api/message-actions/[actionId]/secret/route.ts` (new) | `POST {value}`. Never logged, and never echoed back. |
 | `app/api/v1/[...path]/route.ts` | Mount the three new routes. |
 | `lib/db-builtin-skills.ts` | Skill text changes (§8, item 3). |
-| `lib/bot-run-limiter.ts` | Add a global browser-slot waiter next to the per-user run slots. |
+| `lib/bot-run-limiter.ts` | Add a global memory-budget waiter next to the per-user run slots. |
 | UI: `components/agents/agent-computer-panel.tsx` (new), `hooks/use-agent-computer.ts` (new) | The live view in the bot's conversation: frame canvas, status caption, Take/Return control, keyboard capture. |
 | UI: `components/computer-handoff-card.tsx`, `components/secret-request-card.tsx` (new) | Built alongside `components/tool-approval-card.tsx`, reusing its card anatomy. |
-| Contracts | `contracts/mobile-api-v1.openapi.json`: the four operations above, new action kinds, the status enum. `contracts/mobile-api-v1.websocket.schema.json` (or a new `…computer-websocket.schema.json`): frame, status, url, tabs, control and input messages. Update counts in `tests/unit/mobile-contracts.test.ts` and `tests/unit/mobile-routes.test.ts`. **The PR must say that native clients have to regenerate their derived specs.** |
+| Contracts | `contracts/mobile-api-v1.openapi.json`: the four operations above, new action kinds, and the status enum `waiting_user` (renamed from `waiting_approval` on the approvals branch before it merges). `contracts/mobile-api-v1.websocket.schema.json` (or a new `…computer-websocket.schema.json`): frame, status, url, tabs, control and input messages. Update counts in `tests/unit/mobile-contracts.test.ts` and `tests/unit/mobile-routes.test.ts`. **The PR must say that native clients have to regenerate their derived specs.** |
 | iOS | Draw JPEG frames, map touches to `input_mouse` (tap) and `input_touch` (scroll), send keys through a hidden text field, and show the masked secret sheet. All of it goes through the documented API. |
 
 UI work follows the design-direction gate when it is built. Nothing here chooses a visual direction.
@@ -285,11 +330,12 @@ UI work follows the design-direction gate when it is built. Nothing here chooses
 ## 11. Phased rollout
 
 0. **Hygiene.** Small PRs, worth doing even if Agent Computer never ships:
-   - Pin agent-browser and trim its binaries (−60 MB).
-   - Fix the shared cookie file with a per-bot `--profile`.
+   - **Node 24 base.** Includes the `better-sqlite3` 12 bump, CI and `@types/node`. Pin `agent-browser@0.38.1` and trim its binaries (−60 MB).
+   - Fix the shared cookie file: a real `--profile`, per user if the recommendation in §7 is accepted, with a unique `AGENT_BROWSER_SESSION` per bot. Then delete `bot-bot.json`.
    - Server-owned idle stop at 10 minutes.
-   - Global browser cap.
+   - Global memory budget.
    - Update the skill text.
+   - **On the approvals branch, before it merges:** rename `waiting_approval` to `waiting_user`.
 1. **Live view, read-only, web.** `lib/agent-computer.ts` relay, `/ws/computer`, and the panel in the bot conversation with the status caption.
 2. **Take control / return control, web.** Extract the generic gate from the approvals branch, add `computer_handoff` and `request_takeover`, user-initiated takeover, and the executor guard.
 3. **Secure secret request (fill).** `secret_request`, the POST route, origin pinning, stream typing, redaction. Then 3b: encrypted stored credentials.
@@ -301,19 +347,22 @@ UI work follows the design-direction gate when it is built. Nothing here chooses
    - Optionally, the root-entrypoint uid split.
 6. **Later.**
    - Teach a task: record the relay's input events plus url and tab events and a sampled frame per step, for up to 10 minutes, then draft a skill. Do **not** add `ffmpeg`, which is +141 MB and 89 packages, measured.
-   - Optional per-user shared browser.
+   - Optional isolated profile for individual bots.
    - Optional browser sidecar compose profile.
 
-## 12. Open questions for the user
+## 12. Decisions and open questions
 
-1. **Browser profile scope:** per bot (recommended: least privilege, matches today's model) or per user like Grok (sign in once, less RAM, but every bot carries every login)?
-2. **Node 24 base image:** move from `node:22-bookworm-slim` to `node:24` so agent-browser can go past 0.27? That unlocks the `maxFps`/quality stream config, `--pin-tab`, `--allowed-domains`, `--action-policy`/`--confirm-actions` and `--content-boundaries`. The alternative is pinning 0.27.0 deliberately and doing throttling in our relay.
-3. **Wait status:** rename `waiting_approval` to a generic `waiting_user` (or add a `waitReason`) **before** `bot-interactive-approvals` merges, so handoffs and secrets don't need a second contract change?
-4. **Handoff timeout:** 30 minutes, or something else? And should the browser stay alive the whole time?
-5. **Stored credentials:** include "save for next time" in phase 3, or later? And may a bot reuse a stored credential without asking each time?
-6. **Isolation depth:** is the root-entrypoint uid split acceptable? It changes `USER` in the Dockerfile and needs a volume-ownership migration for existing installs. Or is Landlock alone enough, and should Agent Computer be refused, or only warned about, on hosts without Landlock?
-7. **Availability:** should Agent Computer be a per-bot toggle, off by default, given that a 2 GB box can run one browser at a time?
-8. **Scope of the view:** browser only for v1 (the terminal and files are already visible through shell actions and the workspace tree), or a terminal pane too?
+**Decided (2026-09-25):**
+- **Node 24 base image.** Unlocks agent-browser 0.38: `--pin-tab`, stream `maxFps`/quality, `--allowed-domains`, `--action-policy`, `--confirm-actions`, `--content-boundaries`. Needs `better-sqlite3` 12.
+- **`waiting_user`** replaces `waiting_approval`, before the approvals branch merges.
+- **Handoff and secret-request timeout: 30 minutes.** The bot's browser or tab stays alive meanwhile.
+
+**Open:**
+1. **Browser profile scope:** a shared per-user browser with a tab per bot is recommended (−43 % RAM, measured in §7). The cost is one login jar for all of a user's bots: one account per site, and a prompt-injected bot can use every login. Accept this, and should individual bots be able to opt out into an isolated profile, at the cost of a full browser each?
+2. **Stored credentials:** include "save for next time" in phase 3, or later? And may a bot reuse a stored credential without asking each time?
+3. **Isolation depth:** is the root-entrypoint uid split acceptable? It changes `USER` in the Dockerfile and needs a volume-ownership migration for existing installs. Or is Landlock alone enough, and should Agent Computer be refused, or only warned about, on hosts without Landlock?
+4. **Availability:** should Agent Computer be a per-bot toggle, off by default?
+5. **Scope of the view:** browser only for v1 (the terminal and files are already visible through shell actions and the workspace tree), or a terminal pane too?
 
 ## Method and cleanup
 
@@ -325,6 +374,8 @@ UI work follows the design-direction gate when it is built. Nothing here chooses
   - PSS sums from `/proc/<pid>/smaps_rollup`.
   - bwrap, unshare, Chromium-sandbox and Landlock probes.
   - Two cookie-file reproduction runs.
+  - Shared-browser runs on Node 24 with agent-browser 0.38.1: memory, profile lock, pinned and unpinned concurrency, cookie sharing, per-tab streams, cross-tab close, crash.
+  - Native-module installs on `node:24-bookworm-slim` (arm64 and amd64).
 - **Sources:** agent-browser npm, source and docs; the CDP protocol definitions and Chromium source; Debian package pages; the kernel Landlock docs.
 - All scratch containers, images, build intermediates and scripts were deleted.
 - The Colima VM was restarted because its Docker socket was dead.
