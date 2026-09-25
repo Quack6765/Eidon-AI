@@ -82,6 +82,24 @@ describe("bots", () => {
     expect(rosterPrompt).toContain("title, description, or instructions");
   });
 
+  it("builds the chief prompt from its current name and its own instructions", async () => {
+    const user = await createLocalUser({ username: "chiefidentity", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt, updateBot } = await import("@/lib/bots");
+    const chief = ensureChiefBot(user.id);
+
+    const defaultPrompt = buildBotSystemPrompt(chief);
+    expect(defaultPrompt).toContain("You are Chief of Staff, the user's primary assistant");
+    expect(defaultPrompt).toContain("the user's primary assistant coordinating a team of specialist bots.\n\nHow you work:");
+
+    const customized = updateBot(chief.id, { name: "Jarvis", systemPrompt: "Always answer in English." }, user.id)!;
+    const prompt = buildBotSystemPrompt(customized);
+    expect(prompt).toContain("You are Jarvis, the user's primary assistant");
+    expect(prompt).not.toContain("Chief of Staff");
+    expect(prompt).toContain("Always answer in English.");
+    expect(prompt.indexOf("Always answer in English.")).toBeLessThan(prompt.indexOf("How you work:"));
+    expect(prompt).toContain("wait for their explicit confirmation");
+  });
+
   it("composes worker prompts from the base, identity, and communication context", async () => {
     const user = await createLocalUser({ username: "botprompt", password: "password-123", role: "user" as const });
     const { buildBotSystemPrompt, DEFAULT_BOT_BASE_SYSTEM_PROMPT } = await import("@/lib/bots");
