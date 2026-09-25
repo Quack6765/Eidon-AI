@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { join } from "node:path";
 
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
@@ -15,7 +16,14 @@ import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-contro
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
-import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
+import { formatMarkdownFileLink } from "@/lib/assistant-local-attachments";
+import {
+  ensureBotWorkspace,
+  getBotWorkspaceDir,
+  getSharedBotWorkspaceDir,
+  removeBotBrowserSession,
+  removeBotWorkspace
+} from "@/lib/bot-sandbox";
 import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
 import type { Bot, BotStatus, BotSummary, PendingBotApproval } from "@/lib/types";
@@ -181,12 +189,26 @@ function buildChiefPolicyBlock(bot: Bot) {
   ].join("\n");
 }
 
+function buildFilesBlock(bot: Bot) {
+  const workspaceDir = getBotWorkspaceDir(bot);
+  const exampleLink = formatMarkdownFileLink("report.csv", join(workspaceDir, "report.csv"));
+  return [
+    "Files and results:",
+    `- Your workspace is ${workspaceDir}, the working directory of your shell commands. Keep your files there in project folders with descriptive names.`,
+    `- The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}. Every bot on the team can read and write it: save files another bot needs there, and give that bot the exact path.`,
+    `- To deliver a file, save it in either workspace and link it by its absolute path inside a sentence of your reply, for example "The summary is in ${exampleLink}." It appears in the conversation as a file card the user can preview and download. Only files in your team's workspaces can be delivered.`,
+    "- The file card shows the delivered file, so refer to it by name in your reply. Do not paste its absolute path into the text unless the user asks for it.",
+    "- When asked to change a file you already delivered, edit that same file in place and link it again. Never save a copy or a renamed version.",
+    "- When a teammate's reply links files, link them again in your answer to pass them on."
+  ].join("\n");
+}
+
 export function buildBotSystemPrompt(bot: Bot, basePrompt?: string) {
   const base = basePrompt?.trim() || DEFAULT_BOT_BASE_SYSTEM_PROMPT;
   if (bot.isChief) {
-    return [base, buildChiefIdentityBlock(bot), buildChiefPolicyBlock(bot)].join("\n\n");
+    return [base, buildChiefIdentityBlock(bot), buildChiefPolicyBlock(bot), buildFilesBlock(bot)].join("\n\n");
   }
-  return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot)].join("\n\n");
+  return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot), buildFilesBlock(bot)].join("\n\n");
 }
 
 function countBots(userId?: string) {

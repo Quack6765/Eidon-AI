@@ -80,7 +80,8 @@ function mockDetailEndpoints(options: { failClear?: boolean } = {}) {
       return {
         ok: true,
         json: async () => ({
-          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
+          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
       } as Response;
     }

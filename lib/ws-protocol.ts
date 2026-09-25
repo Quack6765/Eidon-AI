@@ -13,7 +13,7 @@ import type {
   TurnActivity
 } from "@/lib/types";
 
-export type MobileAttachmentDto = Omit<MessageAttachment, "relativePath" | "extractedText">;
+export type MobileAttachmentDto = Omit<MessageAttachment, "relativePath" | "extractedText" | "sourcePath">;
 export type MobileMessageDto = Omit<Message, "attachments"> & {
   attachments?: MobileAttachmentDto[];
 };

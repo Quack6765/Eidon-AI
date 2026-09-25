@@ -69,13 +69,19 @@ type AttachmentRow = {
   relative_path: string;
   kind: AttachmentKind;
   extracted_text: string;
+  source_path: string | null;
   created_at: string;
 };
+
+const ATTACHMENT_COLUMNS =
+  "id, conversation_id, message_id, filename, mime_type, byte_size, sha256, relative_path, kind, extracted_text, source_path, created_at";
+const PREFIXED_ATTACHMENT_COLUMNS = `a.${ATTACHMENT_COLUMNS.split(", ").join(", a.")}`;
 
 type CreateAttachmentInput = {
   filename: string;
   mimeType: string;
   bytes: Buffer;
+  sourcePath?: string | null;
 };
 
 export type AttachmentArtifactPublication = {
@@ -110,6 +116,7 @@ function rowToAttachment(row: AttachmentRow): MessageAttachment {
     relativePath: row.relative_path,
     kind: row.kind,
     extractedText: row.extracted_text,
+    sourcePath: row.source_path,
     createdAt: row.created_at
   };
 }
@@ -138,7 +145,7 @@ function sanitizeFilename(filename: string) {
   return base || "attachment";
 }
 
-function normalizeAttachmentKind(filename: string, mimeType: string): {
+export function normalizeAttachmentKind(filename: string, mimeType: string): {
   kind: AttachmentKind;
   mimeType: string;
 } {
@@ -172,7 +179,7 @@ function normalizeAttachmentKind(filename: string, mimeType: string): {
   };
 }
 
-async function extractText(bytes: Buffer, filename: string) {
+export async function extractFileText(bytes: Buffer, filename: string) {
   const extension = getExtension(filename);
 
   if (extension === ".pdf") {
@@ -355,6 +362,7 @@ export function copyAttachmentsForConversationFork(input: {
         ),
         kind: attachment.kind,
         extractedText: attachment.extractedText,
+        sourcePath: attachment.sourcePath ?? null,
         createdAt: attachment.createdAt,
         bytes
       };
@@ -368,8 +376,8 @@ export function copyAttachmentsForConversationFork(input: {
     const insert = getDb().prepare(`
       INSERT INTO message_attachments (
         id, conversation_id, message_id, filename, mime_type, byte_size,
-        sha256, relative_path, kind, extracted_text, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sha256, relative_path, kind, extracted_text, source_path, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     records.forEach((record) => insert.run(
       record.id,
@@ -382,6 +390,7 @@ export function copyAttachmentsForConversationFork(input: {
       record.relativePath,
       record.kind,
       record.extractedText,
+      record.sourcePath,
       record.createdAt
     ));
     records.forEach((record) => {
@@ -425,38 +434,14 @@ export function getAttachment(attachmentId: string, userId?: string) {
   const row = (userId
     ? getDb()
         .prepare(
-          `SELECT
-            a.id,
-            a.conversation_id,
-            a.message_id,
-            a.filename,
-            a.mime_type,
-            a.byte_size,
-            a.sha256,
-            a.relative_path,
-            a.kind,
-            a.extracted_text,
-            a.created_at
-           FROM message_attachments a
+          `SELECT ${PREFIXED_ATTACHMENT_COLUMNS} FROM message_attachments a
            JOIN conversations c ON c.id = a.conversation_id
            WHERE a.id = ? AND c.user_id = ?`
         )
         .get(attachmentId, userId)
     : getDb()
         .prepare(
-          `SELECT
-            id,
-            conversation_id,
-            message_id,
-            filename,
-            mime_type,
-            byte_size,
-            sha256,
-            relative_path,
-            kind,
-            extracted_text,
-            created_at
-           FROM message_attachments
+          `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
            WHERE id = ?`
         )
         .get(attachmentId)) as AttachmentRow | undefined;
@@ -472,19 +457,7 @@ export function listAttachmentsForMessageIds(messageIds: string[]) {
   const placeholders = messageIds.map(() => "?").join(", ");
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE message_id IN (${placeholders})
        ORDER BY created_at ASC`
     )
@@ -496,19 +469,7 @@ export function listAttachmentsForMessageIds(messageIds: string[]) {
 export function listAttachmentsForConversation(conversationId: string) {
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE conversation_id = ?
        ORDER BY created_at ASC`
     )
@@ -531,8 +492,9 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       relative_path,
       kind,
       extracted_text,
+      source_path,
       created_at
-    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const records: {
@@ -545,6 +507,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     relativePath: string;
     kind: AttachmentKind;
     extractedText: string;
+    sourcePath: string | null;
     createdAt: string;
     bytes: Buffer;
   }[] = [];
@@ -567,7 +530,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     const id = createId("att");
     const relativePath = path.join(conversationId, `${id}_${filename}`);
     const sha256 = createHash("sha256").update(file.bytes).digest("hex");
-    const extractedText = normalized.kind === "text" ? await extractText(file.bytes, filename) : "";
+    const extractedText = normalized.kind === "text" ? await extractFileText(file.bytes, filename) : "";
 
     records.push({
       id,
@@ -579,6 +542,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       relativePath,
       kind: normalized.kind,
       extractedText,
+      sourcePath: file.sourcePath ?? null,
       createdAt: nowIso(),
       bytes: file.bytes
     });
@@ -606,6 +570,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
           record.relativePath,
           record.kind,
           record.extractedText,
+          record.sourcePath,
           record.createdAt
         );
       });
@@ -627,6 +592,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       relativePath: record.relativePath,
       kind: record.kind,
       extractedText: record.extractedText,
+      sourcePath: record.sourcePath,
       createdAt: record.createdAt
     }));
   } catch (error) {
@@ -665,7 +631,8 @@ export async function importAttachmentFromLocalFile(conversationId: string, sour
       {
         filename: path.basename(sourcePath),
         mimeType: "",
-        bytes
+        bytes,
+        sourcePath
       }
     ]);
 
@@ -683,19 +650,7 @@ export function bindAttachmentsToMessage(conversationId: string, messageId: stri
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE id IN (${placeholders})`
     )
     .all(...attachmentIds) as AttachmentRow[];

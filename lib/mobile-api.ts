@@ -43,6 +43,7 @@ const blockedResponseKeys = new Set([
   "relativePath",
   "refreshToken",
   "shareToken",
+  "sourcePath",
   "tavilyApiKey",
   "token",
   "env"

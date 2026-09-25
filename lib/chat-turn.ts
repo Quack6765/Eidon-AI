@@ -51,6 +51,7 @@ import {
   recordBotResult,
   toBotSummary
 } from "@/lib/bots";
+import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
@@ -369,7 +370,11 @@ async function startAssistantTurn(
         estimatedTokens: 0
       });
     assistantMessageId = assistantMessage.id;
-    contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
+    contentPersistence = createAssistantContentPersistenceTracker(
+      conversationId,
+      assistantMessageId,
+      bot ? [getBotTeamWorkspacesDir(bot)] : []
+    );
 
     if (options?.userMessageId && options.onMessagesCreated) {
       options.onMessagesCreated({
