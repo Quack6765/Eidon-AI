@@ -113,6 +113,25 @@ describe("bots", () => {
     expect(curated).toContain("always tell the user what you changed");
   });
 
+  it("tells every bot where its workspace and the shared workspace are and how to deliver files", async () => {
+    const user = await createLocalUser({ username: "botfiles", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    const { getBotWorkspaceDir, getSharedBotWorkspaceDir } = await import("@/lib/bot-sandbox");
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Analyst" }, user.id);
+
+    for (const bot of [chief, worker]) {
+      const prompt = buildBotSystemPrompt(bot);
+      expect(prompt).toContain(`Your workspace is ${getBotWorkspaceDir(bot)}`);
+      expect(prompt).toContain(`The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}`);
+      expect(prompt).toMatch(/\[report\.csv\]\(<?\S*report\.csv>?\)/);
+      expect(prompt).toContain("edit that same file in place and link it again");
+      expect(prompt).toContain("Do not paste its absolute path into the text unless the user asks for it");
+      expect(prompt).toContain("link them again in your answer to pass them on");
+    }
+    expect(getSharedBotWorkspaceDir(chief)).toBe(getSharedBotWorkspaceDir(worker));
+  });
+
   it("builds the chief prompt with a cautious creation policy requiring confirmation", async () => {
     const user = await createLocalUser({ username: "chiefpolicy", password: "password-123", role: "user" as const });
     const { buildBotSystemPrompt } = await import("@/lib/bots");

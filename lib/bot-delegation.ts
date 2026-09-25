@@ -1,3 +1,4 @@
+import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
 import { getMessage, listMessages } from "@/lib/conversations";
 import { requestStop, waitForChatTurnRelease } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
@@ -68,8 +69,10 @@ function getLatestAssistantSummary(conversationId: string) {
   const messages = listMessages(conversationId);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.role === "assistant" && message.content.trim()) {
-      return truncateText(message.content.trim(), MAX_RUNTIME_TOOL_RESULT_CHARS);
+    if (message.role !== "assistant") continue;
+    const content = message.content.trim();
+    if (content || message.attachments?.some((attachment) => attachment.sourcePath)) {
+      return appendDeliveredFileLinks(truncateText(content, MAX_RUNTIME_TOOL_RESULT_CHARS), message.attachments);
     }
   }
   return "";

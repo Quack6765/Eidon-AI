@@ -41,6 +41,8 @@ describe("mobile API conventions", () => {
       password_hash: "database-hash",
       relativePath: "private/path",
       relative_path: "database/path",
+      sourcePath: "/server/bot-workspaces/report.csv",
+      source_path: "/server/bot-workspaces/report.csv",
       shareToken: "share-token",
       token: "raw-token",
       debug: { rowCount: 10 },

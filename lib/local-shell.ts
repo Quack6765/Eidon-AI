@@ -55,7 +55,7 @@ function resolveExistingPath(target: string) {
   }
 }
 
-function isPathInsideRoot(candidatePath: string, rootPath: string) {
+export function isPathInsideRoot(candidatePath: string, rootPath: string) {
   const relativePath = relative(rootPath, candidatePath);
   return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }

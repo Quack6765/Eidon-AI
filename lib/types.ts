@@ -517,6 +517,7 @@ export type MessageAttachment = {
   relativePath: string;
   kind: AttachmentKind;
   extractedText: string;
+  sourcePath?: string | null;
   createdAt: string;
 };
 

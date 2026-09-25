@@ -11,6 +11,7 @@ vi.mock("@/lib/chat-turn", () => ({
 import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createMessage } from "@/lib/conversations";
 import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
 import { configureBotRunLimits, enqueueSerialTask, releaseBotUserSlot, resetBotRunLimiter, tryAcquireBotUserSlot } from "@/lib/bot-run-limiter";
@@ -606,6 +607,40 @@ describe("bot-delegation", () => {
     const runs = listRecentBotRuns({ userId: user.id });
     expect(runs[0].status).toBe("completed");
     expect(runs[0].triggerSource).toBe("delegated");
+  });
+
+  it("hands the files a worker delivered to the bot that messaged it", async () => {
+    const user = await createLocalUser({ username: "fileshandoff", password: "password-123", role: "user" as const });
+    ensureChiefBot(user.id);
+    const worker = createBot({ name: "Analyst" }, user.id);
+    const sourcePath = "/workspaces/shared/q3 revenue.csv";
+
+    const chiefWakeCalls: string[] = [];
+    startChatTurnMock.mockImplementation(
+      async (_manager: unknown, conversationId: string, content: string) => {
+        if (conversationId === worker.homeConversationId) {
+          createMessage({ conversationId, role: "user", content: "task" });
+          const reply = createMessage({ conversationId, role: "assistant", content: "" });
+          const [attachment] = await createAttachments(conversationId, [
+            { filename: "q3 revenue.csv", mimeType: "text/csv", bytes: Buffer.from("q,rev"), sourcePath }
+          ]);
+          bindAttachmentsToMessage(conversationId, reply.id, [attachment.id]);
+          return { status: "completed" as const };
+        }
+        chiefWakeCalls.push(content);
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id);
+    await executeMessageBot("call_files", { bot: "Analyst", message: "build the Q3 sheet" }, context);
+    await vi.waitFor(() => {
+      if (chiefWakeCalls.length === 0) throw new Error("not woken yet");
+    }, { timeout: 5_000, interval: 10 });
+
+    expect(chiefWakeCalls[0]).toContain("[Message from Analyst]");
+    expect(chiefWakeCalls[0]).toContain(`[Message from Analyst]\n[q3 revenue.csv](<${sourcePath}>)`);
+    expect(chiefWakeCalls[0]).not.toContain("finished without a visible response");
   });
 
   it("wakes the chief with a failure notice when an async delegation fails", async () => {

@@ -19,6 +19,7 @@ type UseWebSocketReturn = {
 };
 
 const globalListeners = new Set<(msg: ServerMessage) => void>();
+const reconnectListeners = new Set<() => void>();
 let singletonWs: WebSocket | null = null;
 let singletonRefCount = 0;
 let singletonReconnectTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -37,6 +38,7 @@ function singletonConnect() {
   singletonWs = ws;
 
   ws.addEventListener("open", () => {
+    const isReconnect = singletonHasOpened;
     singletonHasOpened = true;
     singletonReconnectAttempts = 0;
     for (const cb of singletonOnOpenCbs) cb();
@@ -48,6 +50,9 @@ function singletonConnect() {
       const message = pendingMessages.shift();
       if (!message) continue;
       ws.send(serializeClientMessage(message));
+    }
+    if (isReconnect) {
+      for (const listener of reconnectListeners) listener();
     }
   });
 
@@ -163,9 +168,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   return { send, subscribe, unsubscribe, connected, failed };
 }
 
-export function addGlobalWsListener(listener: (msg: ServerMessage) => void) {
+export function addGlobalWsListener(
+  listener: (msg: ServerMessage) => void,
+  options?: { onReconnect?: () => void }
+) {
+  const onReconnect = options?.onReconnect;
   globalListeners.add(listener);
-  return () => { globalListeners.delete(listener); };
+  if (onReconnect) reconnectListeners.add(onReconnect);
+  return () => {
+    globalListeners.delete(listener);
+    if (onReconnect) reconnectListeners.delete(onReconnect);
+  };
 }
 
 export function useGlobalWebSocket(): { connected: boolean } {

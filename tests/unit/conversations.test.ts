@@ -789,7 +789,8 @@ describe("conversation helpers", () => {
       {
         filename: "notes.txt",
         mimeType: "text/plain",
-        bytes: Buffer.from("source attachment", "utf8")
+        bytes: Buffer.from("source attachment", "utf8"),
+        sourcePath: "/work/bot/notes.txt"
       }
     ]);
     bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
@@ -1111,7 +1112,8 @@ describe("conversation helpers", () => {
       conversationId: forkConversation.id,
       messageId: forkAssistantMessage?.id,
       filename: "notes.txt",
-      extractedText: "source attachment"
+      extractedText: "source attachment",
+      sourcePath: "/work/bot/notes.txt"
     }));
     expect(forkUserMessage?.id).not.toBe(userMessage.id);
     expect(forkAssistantMessage?.id).not.toBe(assistantMessage.id);

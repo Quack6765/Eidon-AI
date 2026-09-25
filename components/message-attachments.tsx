@@ -48,7 +48,9 @@ export function AttachmentTile({
         <FileText className="h-4 w-4" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-white">{attachment.filename}</span>
+        <span className="block truncate text-sm font-medium text-white" title={attachment.filename}>
+          {attachment.filename}
+        </span>
         <span className="block truncate text-xs text-white/60">{attachment.mimeType}</span>
       </span>
     </button>
