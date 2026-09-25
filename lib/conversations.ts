@@ -571,18 +571,13 @@ export function createConversation(
 }
 
 function deleteConversationRecord(conversationId: string) {
-  const isChiefHome = getDb()
-    .prepare("SELECT 1 FROM bots WHERE home_conversation_id = ? AND is_chief = 1")
-    .get(conversationId);
-  if (isChiefHome) {
-    return { deleted: false, relativePaths: [] };
-  }
-
   const relativePaths = listAttachmentsForConversation(conversationId).map(
     (attachment) => attachment.relativePath
   );
-  const deleted = getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
-  return { deleted, relativePaths };
+  const deleted = getDb()
+    .prepare("DELETE FROM conversations WHERE id = ? AND id NOT IN (SELECT home_conversation_id FROM bots)")
+    .run(conversationId).changes > 0;
+  return { deleted, relativePaths: deleted ? relativePaths : [] };
 }
 
 export function deleteConversation(conversationId: string, userId?: string) {

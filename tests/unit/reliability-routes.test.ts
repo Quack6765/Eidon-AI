@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createConversation } from "@/lib/conversations";
+import { createBot, ensureChiefBot, getBot } from "@/lib/bots";
+import { createConversation, getConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
 const { requireUserMock } = vi.hoisted(() => ({
@@ -172,32 +173,56 @@ describe("reliability route hardening", () => {
     });
   });
 
-  it("refuses to delete the chief of staff through its home conversation", async () => {
+  it("refuses to delete a bot's home conversation and keeps the bot", async () => {
     const user = await createLocalUser({
-      username: "delete-chief-conversation-user",
+      username: "delete-bot-thread-user",
       password: "Password123!",
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
 
-    const { ensureChiefBot, getBot } = await import("@/lib/bots");
-    const chief = ensureChiefBot(user.id);
-
     const { DELETE } = await import("@/app/api/conversations/[conversationId]/route");
-    for (const query of ["", "?onlyIfEmpty=1"]) {
-      const response = await DELETE(
-        new Request(`http://localhost/api/conversations/${chief.homeConversationId}${query}`, {
-          method: "DELETE"
-        }),
-        { params: Promise.resolve({ conversationId: chief.homeConversationId }) }
-      );
+    for (const bot of [ensureChiefBot(user.id), createBot({ name: "Protected" }, user.id)]) {
+      for (const query of ["", "?onlyIfEmpty=1"]) {
+        const response = await DELETE(
+          new Request(`http://localhost/api/conversations/${bot.homeConversationId}${query}`, {
+            method: "DELETE"
+          }),
+          { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
+        );
 
-      expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({
-        error: "The chief of staff bot cannot be deleted"
-      });
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+          error: "A bot's conversation can't be deleted on its own"
+        });
+      }
+      expect(getBot(bot.id, user.id)?.homeConversationId).toBe(bot.homeConversationId);
     }
+  });
 
-    expect(getBot(chief.id, user.id)?.homeConversationId).toBe(chief.homeConversationId);
+  it("refuses to make a bot's home conversation temporary", async () => {
+    const user = await createLocalUser({
+      username: "temporary-bot-thread-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const bot = createBot({ name: "Persistent" }, user.id);
+    requireUserMock.mockResolvedValue(user);
+
+    const { PATCH } = await import("@/app/api/conversations/[conversationId]/route");
+    const response = await PATCH(
+      new Request(`http://localhost/api/conversations/${bot.homeConversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isTemporary: true })
+      }),
+      { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Only regular chats can be made temporary"
+    });
+    expect(getConversation(bot.homeConversationId, user.id)?.isTemporary).toBe(false);
   });
 });

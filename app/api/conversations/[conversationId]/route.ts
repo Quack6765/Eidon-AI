@@ -64,8 +64,8 @@ export async function DELETE(
     return badRequest("Conversation not found", 404);
   }
 
-  if (getBotByConversationId(conversation.id)?.isChief) {
-    return badRequest("The chief of staff bot cannot be deleted");
+  if (getBotByConversationId(conversation.id)) {
+    return badRequest("A bot's conversation can't be deleted on its own", 409);
   }
 
   const deleted = onlyIfEmpty
@@ -122,6 +122,10 @@ export async function PATCH(
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
+  }
+
+  if (body.data.isTemporary && conversation.conversationOrigin !== "manual") {
+    return badRequest("Only regular chats can be made temporary", 409);
   }
 
   if (body.data.folderId !== undefined) {
