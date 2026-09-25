@@ -202,6 +202,11 @@ app.prepare().then(async () => {
   }
 
   automationScheduler?.start?.();
+
+  const { resumeRuntimeWork } = require("./ws-handler-compiled.cjs");
+  resumeRuntimeWork?.().catch((err) => {
+    console.error("[resume] Failed to resume interrupted work:", err.message);
+  });
 }).catch((err) => {
   console.error("[server] Next.js prepare failed:", err);
   process.exit(1);
