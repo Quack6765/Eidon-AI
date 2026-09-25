@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createConversation } from "@/lib/conversations";
+import { createBot, getBot } from "@/lib/bots";
+import { createConversation, getConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
 const { requireUserMock } = vi.hoisted(() => ({
@@ -170,5 +171,57 @@ describe("reliability route hardening", () => {
       success: true,
       deleted: false
     });
+  });
+
+  it("refuses to delete a bot's home conversation and keeps the bot", async () => {
+    const user = await createLocalUser({
+      username: "delete-bot-thread-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const bot = createBot({ name: "Protected" }, user.id);
+    requireUserMock.mockResolvedValue(user);
+
+    const { DELETE } = await import("@/app/api/conversations/[conversationId]/route");
+    for (const query of ["", "?onlyIfEmpty=1"]) {
+      const response = await DELETE(
+        new Request(`http://localhost/api/conversations/${bot.homeConversationId}${query}`, {
+          method: "DELETE"
+        }),
+        { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: "A bot's conversation can't be deleted on its own"
+      });
+    }
+    expect(getBot(bot.id, user.id)).not.toBeNull();
+  });
+
+  it("refuses to make a bot's home conversation temporary", async () => {
+    const user = await createLocalUser({
+      username: "temporary-bot-thread-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const bot = createBot({ name: "Persistent" }, user.id);
+    requireUserMock.mockResolvedValue(user);
+
+    const { PATCH } = await import("@/app/api/conversations/[conversationId]/route");
+    const response = await PATCH(
+      new Request(`http://localhost/api/conversations/${bot.homeConversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isTemporary: true })
+      }),
+      { params: Promise.resolve({ conversationId: bot.homeConversationId }) }
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Only regular chats can be made temporary"
+    });
+    expect(getConversation(bot.homeConversationId, user.id)?.isTemporary).toBe(false);
   });
 });

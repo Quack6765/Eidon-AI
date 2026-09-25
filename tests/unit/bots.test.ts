@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createLocalUser } from "@/lib/users";
 import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots, toBotSummary } from "@/lib/bots";
-import { getConversation, createConversation, createMessage, createMessageAction } from "@/lib/conversations";
+import {
+  getConversation,
+  createConversation,
+  createMessage,
+  createMessageAction,
+  deleteConversation,
+  deleteConversationIfEmpty
+} from "@/lib/conversations";
 
 describe("bots", () => {
   it("creates a bot with a home conversation and generated identity", async () => {
@@ -63,6 +70,22 @@ describe("bots", () => {
     expect(ensureChiefBot(user.id).id).toBe(chief.id);
 
     expect(() => deleteBot(chief.id, user.id)).toThrow(/cannot be deleted/i);
+  });
+
+  it("keeps a bot when its home thread is deleted like a regular conversation", async () => {
+    const user = await createLocalUser({ username: "threadkeeper", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Keeper" }, user.id);
+    createMessage({ conversationId: worker.homeConversationId, role: "user", content: "hello" });
+
+    expect(deleteConversationIfEmpty(chief.homeConversationId, user.id)).toBe(false);
+    expect(deleteConversation(chief.homeConversationId, user.id)).toBe(false);
+    expect(deleteConversation(worker.homeConversationId, user.id)).toBe(false);
+
+    for (const bot of [chief, worker]) {
+      expect(getBot(bot.id, user.id)).not.toBeNull();
+      expect(getConversation(bot.homeConversationId, user.id)).not.toBeNull();
+    }
   });
 
   it("builds the chief prompt with the current roster", async () => {
