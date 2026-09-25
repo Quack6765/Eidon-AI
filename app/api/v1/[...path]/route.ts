@@ -17,6 +17,7 @@ import * as botSeenInputRoute from "@/app/api/bots/[botId]/seen-input/route";
 import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
 import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
+import * as botWorkspaceFileRoute from "@/app/api/bots/[botId]/workspace/file/route";
 import * as botsRoute from "@/app/api/bots/route";
 import * as conversationRoute from "@/app/api/conversations/[conversationId]/route";
 import * as conversationChatRoute from "@/app/api/conversations/[conversationId]/chat/route";
@@ -107,6 +108,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["bots", ":botId", "seen-input"], module: botSeenInputRoute },
   { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
   { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
+  { pattern: ["bots", ":botId", "workspace", "file"], module: botWorkspaceFileRoute },
   { pattern: ["bots", ":botId", "workspace"], module: botWorkspaceRoute },
   { pattern: ["bots", ":botId"], module: botRoute },
   { pattern: ["bots"], module: botsRoute },

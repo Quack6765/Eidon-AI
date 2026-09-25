@@ -118,6 +118,45 @@ describe("bot chat turns", () => {
     expect(getTurnActivity(bot.homeConversationId)).toBeNull();
   });
 
+  it("delivers files a bot links from its team workspaces as message attachments", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { getBotWorkspaceDir, getSharedBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const { listMessages } = await import("@/lib/conversations");
+    const user = await createLocalUser({ username: "fileowner", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Analyst" }, user.id);
+    const other = createBot({ name: "Writer" }, user.id);
+    resolveBotSandbox(bot);
+    resolveBotSandbox(other);
+    const ownFile = path.join(getBotWorkspaceDir(bot), "q3.csv");
+    const sharedFile = path.join(getSharedBotWorkspaceDir(bot), "brief.md");
+    const teammateFile = path.join(getBotWorkspaceDir(other), "draft.txt");
+    const appData = path.join(process.env.EIDON_DATA_DIR!, "private.txt");
+    fs.writeFileSync(ownFile, "q,rev");
+    fs.writeFileSync(sharedFile, "# Brief");
+    fs.writeFileSync(teammateFile, "draft");
+    fs.writeFileSync(appData, "private");
+    stubStream(
+      `Results: [q3](${ownFile}) [brief](${sharedFile}) [draft](${teammateFile}) [private](${appData})`
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(createConversationManager(), bot.homeConversationId, "Build it", []);
+    expect(result.status).toBe("completed");
+
+    const reply = listMessages(bot.homeConversationId).filter((message) => message.role === "assistant").at(-1);
+    expect(reply?.attachments?.map((attachment) => attachment.filename).sort()).toEqual([
+      "brief.md",
+      "draft.txt",
+      "q3.csv"
+    ]);
+    expect(reply?.attachments?.find((attachment) => attachment.filename === "q3.csv")?.sourcePath).toBe(
+      fs.realpathSync(ownFile)
+    );
+    expect(reply?.content).toContain("Results:");
+    expect(reply?.content).toContain("I couldn't attach `private.txt`");
+  });
+
   it("uses the bot system prompt and records a dm run", async () => {
     const user = await createLocalUser({ username: "dmowner", password: "password-123", role: "user" as const });
     const bot = createBot({ name: "Keeper", title: "Records" }, user.id);

@@ -74,7 +74,7 @@ export function AgentsNav({
       if (msg.type === "bot_run_updated") {
         scheduleRefresh();
       }
-    });
+    }, { onReconnect: scheduleRefresh });
   }, []);
 
   function handleNavigate(href: string) {

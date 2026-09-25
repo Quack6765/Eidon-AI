@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -9,6 +12,8 @@ import {
 } from "@/app/api/v1/[...path]/route";
 import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
+import { getSharedBotWorkspaceDir, resolveBotSandbox } from "@/lib/bot-sandbox";
+import { getBot } from "@/lib/bots";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
@@ -220,6 +225,36 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
+
+    const workspaceBot = getBot(botId)!;
+    fs.writeFileSync(path.join(resolveBotSandbox(workspaceBot).workspaceDir, "notes.md"), "# Notes");
+    fs.writeFileSync(path.join(getSharedBotWorkspaceDir(workspaceBot), "handoff.bin"), Buffer.from([1, 2, 3]));
+
+    const filePreview = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, { query: "?path=notes.md&format=text" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(filePreview.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/workspace/file", "get", filePreview);
+    await expect(filePreview.json()).resolves.toEqual({
+      data: { filename: "notes.md", mimeType: "text/markdown", content: "# Notes" }
+    });
+
+    const sharedDownload = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, {
+        query: "?path=handoff.bin&scope=shared&download=1"
+      }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(sharedDownload.status).toBe(200);
+    expect(sharedDownload.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await sharedDownload.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
+
+    const outsiderFile = await mobileGet(
+      request(["bots", botId, "workspace", "file"], outsiderSession.token, { query: "?path=notes.md" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(outsiderFile.status).toBe(404);
     const seenInput = await mobilePost(
       request(["bots", botId, "seen-input"], memberSession.token, { method: "POST" }),
       context(["bots", botId, "seen-input"])
