@@ -1454,8 +1454,11 @@ export function migrate(db: Database.Database) {
   }
 
   const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
-  if (!botCols.some((col) => col.name === "pending_input_seen_at")) {
-    db.exec("ALTER TABLE bots ADD COLUMN pending_input_seen_at TEXT");
+  if (!botCols.some((col) => col.name === "last_read_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN last_read_at TEXT");
+  }
+  if (!botCols.some((col) => col.name === "last_result_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN last_result_at TEXT");
   }
 
   db.exec(`

@@ -43,13 +43,14 @@ function buildContext(botId: string) {
   return { params: Promise.resolve({ botId }) };
 }
 
-describe("POST /api/bots/:botId/seen-input", () => {
+describe("POST /api/bots/:botId/read", () => {
   beforeEach(() => {
     requireUserMock.mockReset();
   });
 
-  it("marks pending input seen, broadcasts the update, and returns the summary", async () => {
+  it("marks the bot read without clearing unresolved input, broadcasts, and returns the summary", async () => {
     const { getConversationManager } = await import("@/lib/ws-singleton");
+    const { recordBotResult } = await import("@/lib/bots");
     const manager = getConversationManager();
     const events: unknown[] = [];
     const original = manager.broadcastAll;
@@ -60,21 +61,22 @@ describe("POST /api/bots/:botId/seen-input", () => {
     };
 
     try {
-      const user = await createLocalUser({ username: "seeninput", password: "password-123", role: "user" as const });
-      const bot = createBot({ name: "Seen Bot" }, user.id);
+      const user = await createLocalUser({ username: "readbot", password: "password-123", role: "user" as const });
+      const bot = createBot({ name: "Read Bot" }, user.id);
       await createPendingProposalInBotConversation(bot.homeConversationId, "Likes tea");
+      recordBotResult(bot.id);
       requireUserMock.mockResolvedValue(user);
 
-      const { POST } = await import("@/app/api/bots/[botId]/seen-input/route");
+      const { POST } = await import("@/app/api/bots/[botId]/read/route");
       const response = await POST(new Request("http://localhost/", { method: "POST" }), buildContext(bot.id));
-      const payload = (await response.json()) as { bot?: { waitingForInput: boolean; id: string } };
+      const payload = (await response.json()) as { bot?: { waitingForInput: boolean; unread: boolean; id: string } };
 
       expect(response.ok).toBe(true);
-      expect(payload.bot).toMatchObject({ id: bot.id, waitingForInput: false });
-      expect(getBot(bot.id, user.id)?.pendingInputSeenAt).toBeTruthy();
+      expect(payload.bot).toMatchObject({ id: bot.id, waitingForInput: true, unread: false });
+      expect(getBot(bot.id, user.id)?.lastReadAt).toBeTruthy();
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
-        event: { type: "bot_updated", bot: { id: bot.id, waitingForInput: false } },
+        event: { type: "bot_updated", bot: { id: bot.id, waitingForInput: true, unread: false } },
         userId: user.id
       });
     } finally {
@@ -83,10 +85,10 @@ describe("POST /api/bots/:botId/seen-input", () => {
   });
 
   it("returns 404 for an unknown bot", async () => {
-    const user = await createLocalUser({ username: "seenmissing", password: "password-123", role: "user" as const });
+    const user = await createLocalUser({ username: "readmissing", password: "password-123", role: "user" as const });
     requireUserMock.mockResolvedValue(user);
 
-    const { POST } = await import("@/app/api/bots/[botId]/seen-input/route");
+    const { POST } = await import("@/app/api/bots/[botId]/read/route");
     const response = await POST(new Request("http://localhost/", { method: "POST" }), buildContext("bot-missing"));
 
     expect(response.status).toBe(404);

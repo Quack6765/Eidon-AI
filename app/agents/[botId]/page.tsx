@@ -4,6 +4,7 @@ import { BotDetailView } from "@/components/agents/bot-detail-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getBot, listBots, toBotSummary } from "@/lib/bots";
+import { listRecentBotRuns } from "@/lib/bot-runs";
 import { listAutomations } from "@/lib/automations";
 import { getConversation, listConversationsPage } from "@/lib/conversations";
 import { buildConversationViewPayload } from "@/lib/conversation-view";
@@ -32,13 +33,15 @@ export default async function BotPage({
     notFound();
   }
 
+  const bots = listBots(user.id);
+
   return (
     <Shell
       currentUser={user}
       passwordLoginEnabled={isPasswordLoginEnabled()}
       conversationPage={listConversationsPage({ userId: user.id })}
       folders={listFolders(user.id)}
-      bots={listBots(user.id).map(toBotSummary)}
+      bots={bots.map(toBotSummary)}
       currentConversation={conversation}
     >
       <BotDetailView
@@ -50,6 +53,8 @@ export default async function BotPage({
           getSanitizedSettings(user.id)
         )}
         routines={listAutomations(user.id).filter((automation) => automation.botId === bot.id)}
+        runs={listRecentBotRuns({ userId: user.id, botId: bot.id, limit: 30 })}
+        botNames={Object.fromEntries(bots.map((entry) => [entry.id, entry.name]))}
       />
     </Shell>
   );

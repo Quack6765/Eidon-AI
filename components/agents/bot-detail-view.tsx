@@ -15,6 +15,7 @@ import {
   PanelRight,
   Pencil,
   RotateCcw,
+  Square,
   Trash2
 } from "lucide-react";
 import type { BotWorkspaceNode } from "@/lib/bot-sandbox";
@@ -23,13 +24,14 @@ import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip } from "@/components/agents/bot-status";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
 import { BotSkillModal } from "@/components/agents/bot-skill-modal";
+import { BotRunList, isActiveBotRun } from "@/components/agents/bot-runs";
 import { ChatView } from "@/components/chat-view";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/settings/badge";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
-import type { Automation, BotSummary, Skill, UserMemory } from "@/lib/types";
+import type { Automation, BotRun, BotSummary, Skill, UserMemory } from "@/lib/types";
 
 function scheduleSummary(automation: Automation) {
   if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
@@ -45,6 +47,13 @@ const headerControlButton =
   "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.03] px-3 text-sm font-medium transition-colors";
 
 const BOT_SUBTITLE_DESCRIPTION_MAX_CHARS = 90;
+const MAX_VISIBLE_RUNS = 30;
+
+function upsertRun(current: BotRun[], run: BotRun) {
+  const next = [run, ...current.filter((entry) => entry.id !== run.id)];
+  next.sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0));
+  return next.slice(0, MAX_VISIBLE_RUNS);
+}
 
 function WorkspaceTreeNode({
   node,
@@ -163,15 +172,24 @@ export function BotDetailView({
   bot: initialBot,
   systemPrompt,
   conversationPayload,
-  routines
+  routines,
+  runs: initialRuns,
+  botNames: initialBotNames
 }: {
   bot: BotSummary;
   systemPrompt: string;
   conversationPayload: ConversationViewPayload;
   routines: Automation[];
+  runs: BotRun[];
+  botNames: Record<string, string>;
 }) {
   const router = useRouter();
   const [bot, setBot] = useState(initialBot);
+  const [runs, setRuns] = useState(initialRuns);
+  const [botNames, setBotNames] = useState(initialBotNames);
+  const [stoppingRunIds, setStoppingRunIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [isStoppingAll, setIsStoppingAll] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isResetOpen, setIsResetOpen] = useState(false);
@@ -202,9 +220,12 @@ export function BotDetailView({
       if (!response.ok) {
         return;
       }
-      const payload = (await response.json()) as { bot?: BotSummary };
+      const payload = (await response.json()) as { bot?: BotSummary; runs?: BotRun[] };
       if (payload.bot) {
         setBot(payload.bot);
+      }
+      if (Array.isArray(payload.runs)) {
+        setRuns(payload.runs);
       }
     } catch {
       return;
@@ -261,9 +282,19 @@ export function BotDetailView({
   }, [initialBot]);
 
   useEffect(() => {
-    if (!bot.waitingForInput) return;
-    void fetch(`/api/bots/${bot.id}/seen-input`, { method: "POST" }).catch(() => {});
-  }, [bot.id, bot.waitingForInput]);
+    setRuns(initialRuns);
+  }, [initialRuns]);
+
+  useEffect(() => {
+    if (!bot.unread) return;
+    const markRead = () => {
+      if (document.visibilityState !== "visible") return;
+      void fetch(`/api/bots/${bot.id}/read`, { method: "POST" }).catch(() => {});
+    };
+    markRead();
+    document.addEventListener("visibilitychange", markRead);
+    return () => document.removeEventListener("visibilitychange", markRead);
+  }, [bot.id, bot.unread]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -283,15 +314,23 @@ export function BotDetailView({
 
   useEffect(() => {
     return addGlobalWsListener((msg) => {
-      if (msg.type === "bot_updated" && msg.bot.id === initialBot.id) {
-        setBot(msg.bot);
+      if (msg.type === "bot_updated") {
+        setBotNames((current) =>
+          current[msg.bot.id] === msg.bot.name ? current : { ...current, [msg.bot.id]: msg.bot.name }
+        );
+        if (msg.bot.id === initialBot.id) setBot(msg.bot);
         return;
       }
       if (msg.type === "bot_deleted" && msg.botId === initialBot.id) {
         router.push("/agents");
         return;
       }
+      if (msg.type === "bot_run_updated" && msg.run.requestedByBotId === initialBot.id) {
+        setRuns((current) => upsertRun(current, msg.run));
+        return;
+      }
       if (msg.type === "bot_run_updated" && msg.run.botId === initialBot.id) {
+        setRuns((current) => upsertRun(current, msg.run));
         if (refreshTimerRef.current !== null) {
           return;
         }
@@ -303,6 +342,47 @@ export function BotDetailView({
       }
     });
   }, [initialBot.id, loadSkills, refreshBot, router]);
+
+  async function handleStopRun(run: BotRun) {
+    setRunsError(null);
+    setStoppingRunIds((current) => new Set(current).add(run.id));
+    try {
+      const response = await fetch(`/api/bots/${bot.id}/runs/${run.id}/stop`, { method: "POST" });
+      const payload = (await response.json().catch(() => null)) as { run?: BotRun; error?: string } | null;
+      if (!response.ok || !payload?.run) {
+        setRunsError(payload?.error ?? "Could not stop the run");
+        return;
+      }
+      setRuns((current) => upsertRun(current, payload.run as BotRun));
+    } catch {
+      setRunsError("Could not stop the run");
+    } finally {
+      setStoppingRunIds((current) => {
+        const next = new Set(current);
+        next.delete(run.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleStopAll() {
+    setRunsError(null);
+    setIsStoppingAll(true);
+    try {
+      const response = await fetch(`/api/bots/${bot.id}/stop`, { method: "POST" });
+      const payload = (await response.json().catch(() => null)) as { bot?: BotSummary; error?: string } | null;
+      if (!response.ok || !payload?.bot) {
+        setRunsError(payload?.error ?? "Could not stop this bot's work");
+        return;
+      }
+      setBot(payload.bot);
+      await refreshBot();
+    } catch {
+      setRunsError("Could not stop this bot's work");
+    } finally {
+      setIsStoppingAll(false);
+    }
+  }
 
   async function handleEdit(values: {
     name: string;
@@ -449,6 +529,9 @@ export function BotDetailView({
     }
   }
 
+  const activeRunCount = runs.filter(isActiveBotRun).length;
+  const hasActiveWork = activeRunCount > 0 || bot.status !== "idle";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-white/4 px-4 py-3 md:px-6">
@@ -491,6 +574,12 @@ export function BotDetailView({
               <PanelRight className={`h-3.5 w-3.5 transition-transform duration-200 ${showPanel ? "scale-95" : ""}`} />
               <span className="lg:hidden">{showPanel ? "Chat" : "Details"}</span>
               <span className="hidden lg:inline">{showPanel ? "Hide details" : "Details"}</span>
+              {!showPanel && activeRunCount > 0 ? (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-semibold text-[#f4f4f5]">
+                  {activeRunCount}
+                  <span className="sr-only">{` active run${activeRunCount === 1 ? "" : "s"}`}</span>
+                </span>
+              ) : null}
             </button>
             <button
               type="button"
@@ -531,9 +620,52 @@ export function BotDetailView({
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-              className="flex min-h-0 w-full shrink-0 flex-col overflow-y-auto border-t border-white/4 bg-[#101012] lg:w-[320px] lg:border-l lg:border-t-0"
+              className="flex min-h-0 w-full shrink-0 flex-col overflow-y-auto border-t border-white/4 bg-[#101012] md:max-lg:pt-12 lg:w-[320px] lg:border-l lg:border-t-0"
               aria-label="Bot details"
             >
+          <PanelSection
+            title="Runs"
+            defaultOpen
+            action={
+              hasActiveWork ? (
+                <button
+                  type="button"
+                  onClick={() => void handleStopAll()}
+                  disabled={isStoppingAll}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-[#cbd5e1] transition-colors hover:border-red-500/30 hover:bg-red-500/[0.08] hover:text-red-200 disabled:cursor-not-allowed disabled:text-[#71717a]"
+                >
+                  {isStoppingAll ? (
+                    <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Square className="h-3 w-3 fill-current" aria-hidden="true" />
+                  )}
+                  Stop all
+                </button>
+              ) : null
+            }
+          >
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Recent runs of this bot and the work it handed to teammates. Stopping a run also stops
+              what it handed off.
+            </p>
+            {runsError ? <p className="mt-2 text-xs text-red-200">{runsError}</p> : null}
+            <div className="mt-3">
+              {runs.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">
+                  No runs yet. Messages, hand-offs, and routines appear here.
+                </p>
+              ) : (
+                <BotRunList
+                  botId={bot.id}
+                  runs={runs}
+                  botNames={botNames}
+                  stoppingRunIds={stoppingRunIds}
+                  onStopAction={(run) => void handleStopRun(run)}
+                />
+              )}
+            </div>
+          </PanelSection>
+
           <PanelSection title="Conversation">
             <p className="text-xs leading-5 text-[var(--muted)]">
               Clear this bot&apos;s thread and start fresh. Its files, skills, memories, and browser

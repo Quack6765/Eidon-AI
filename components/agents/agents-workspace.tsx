@@ -7,37 +7,10 @@ import { Bot, Crown, Plus } from "lucide-react";
 
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip, formatBotActivity } from "@/components/agents/bot-status";
+import { BotRunStatusChip, describeBotRunTrigger, formatBotRunTime } from "@/components/agents/bot-runs";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
 import { useBots } from "@/hooks/use-bots";
-import type { BotRun, BotRunStatus, BotRunTriggerSource, BotSummary } from "@/lib/types";
-
-const TRIGGER_LABELS: Record<BotRunTriggerSource, string> = {
-  dm: "Direct message",
-  delegated: "Delegated",
-  routine: "Routine"
-};
-
-function runStatusClasses(status: BotRunStatus) {
-  if (status === "completed") {
-    return "border-emerald-500/20 bg-emerald-500/8 text-emerald-300";
-  }
-  if (status === "failed") {
-    return "border-red-500/20 bg-red-500/8 text-red-200";
-  }
-  if (status === "running" || status === "waiting_approval") {
-    return "border-[var(--accent)]/20 bg-[var(--accent)]/8 text-[#c4b5fd]";
-  }
-  return "border-white/8 bg-white/[0.03] text-[#d4d4d8]";
-}
-
-function formatRunTime(value: string) {
-  return new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
-}
+import type { BotRun, BotSummary } from "@/lib/types";
 
 function sortBots(bots: BotSummary[]) {
   return [...bots].sort((left, right) => {
@@ -85,7 +58,7 @@ function BotCard({ bot }: { bot: BotSummary }) {
         <p className="line-clamp-2 text-xs leading-5 text-[#71717a]">{bot.description}</p>
       ) : null}
       <div className="mt-auto flex items-center justify-between gap-2">
-        <BotStatusChip status={bot.status} waitingForInput={bot.waitingForInput} />
+        <BotStatusChip status={bot.status} waitingForInput={bot.waitingForInput} unread={bot.unread} />
         <span className="truncate text-[11px] text-[#52525b]">{formatBotActivity(bot.lastRunAt)}</span>
       </div>
     </Link>
@@ -219,17 +192,15 @@ export function AgentsWorkspace({
                   className="flex items-center justify-between gap-4 rounded-xl border border-white/6 bg-white/[0.02] px-4 py-3"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium ${runStatusClasses(run.status)}`}>
-                      {run.status === "waiting_approval" ? "needs approval" : run.status}
-                    </span>
+                    <BotRunStatusChip status={run.status} />
                     <span className="truncate text-sm text-[#f4f4f5]">
                       {botNameById.get(run.botId) ?? "Bot"}
                     </span>
                     <span className="hidden truncate text-xs text-[#71717a] sm:inline">
-                      {TRIGGER_LABELS[run.triggerSource]}
+                      {describeBotRunTrigger(run, (id) => botNameById.get(id))}
                     </span>
                   </div>
-                  <span className="shrink-0 text-xs text-[#71717a]">{formatRunTime(run.createdAt)}</span>
+                  <span className="shrink-0 text-xs text-[#71717a]">{formatBotRunTime(run.createdAt)}</span>
                 </div>
               ))}
             </div>

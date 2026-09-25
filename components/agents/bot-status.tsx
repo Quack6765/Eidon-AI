@@ -1,6 +1,6 @@
 import { LoaderCircle } from "lucide-react";
 
-import type { BotStatus } from "@/lib/types";
+import type { BotStatus, BotSummary } from "@/lib/types";
 
 const STATUS_CHIP_CLASSES: Partial<Record<BotStatus, string>> = {
   idle: "border-white/8 bg-white/[0.03] text-[#d4d4d8]",
@@ -22,16 +22,28 @@ const STATUS_LABELS: Record<BotStatus, string> = {
 const WAITING_FOR_INPUT_CHIP_CLASSES =
   "border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[#c4b5fd]";
 
+const UNREAD_LABEL = "Unread";
+
 export function botStatusLabel(status: BotStatus) {
   return STATUS_LABELS[status];
 }
 
+export function botAttentionLabel(bot: Pick<BotSummary, "status" | "waitingForInput">, unread: boolean) {
+  if (bot.status === "waiting_approval") return STATUS_LABELS.waiting_approval;
+  if (bot.waitingForInput) return "Waiting for input";
+  if (bot.status === "queued") return STATUS_LABELS.queued;
+  if (bot.status === "idle" && unread) return UNREAD_LABEL;
+  return null;
+}
+
 export function BotStatusChip({
   status,
-  waitingForInput = false
+  waitingForInput = false,
+  unread = false
 }: {
   status: BotStatus;
   waitingForInput?: boolean;
+  unread?: boolean;
 }) {
   if (waitingForInput || status === "waiting_approval") {
     return (
@@ -45,7 +57,13 @@ export function BotStatusChip({
   }
 
   if (status === "idle") {
-    return null;
+    if (!unread) return null;
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-white/12 bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-[#f4f4f5]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#f4f4f5]" aria-hidden="true" />
+        {UNREAD_LABEL}
+      </span>
+    );
   }
 
   if (status === "running") {
@@ -64,17 +82,22 @@ export function BotStatusChip({
 
 export function BotStatusDot({
   status,
-  waitingForInput = false
+  waitingForInput = false,
+  unread = false
 }: {
   status: BotStatus;
   waitingForInput?: boolean;
+  unread?: boolean;
 }) {
   if (waitingForInput || status === "waiting_approval") {
     return <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />;
   }
 
   if (status === "idle") {
-    return null;
+    if (!unread) return null;
+    return (
+      <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[#f4f4f5]" aria-hidden="true" />
+    );
   }
 
   if (status === "running") {

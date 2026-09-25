@@ -8,6 +8,7 @@ import {
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
 import { createAutomationRun } from "@/lib/automations";
+import { createBotRunRecord } from "@/lib/bot-runs";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
@@ -219,13 +220,38 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
-    const seenInput = await mobilePost(
-      request(["bots", botId, "seen-input"], memberSession.token, { method: "POST" }),
-      context(["bots", botId, "seen-input"])
+    const read = await mobilePost(
+      request(["bots", botId, "read"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "read"])
     );
-    expect(seenInput.status).toBe(200);
-    await assertResponseContract("/bots/{botId}/seen-input", "post", seenInput);
-    await expect(seenInput.json()).resolves.toMatchObject({ data: { bot: { id: botId } } });
+    expect(read.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/read", "post", read);
+    await expect(read.json()).resolves.toMatchObject({ data: { bot: { id: botId, unread: false } } });
+
+    const queuedRun = createBotRunRecord({
+      botId,
+      conversationId: createdBot.homeConversationId,
+      triggerSource: "delegated"
+    });
+    const crossOwnerRunStop = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], outsiderSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(crossOwnerRunStop.status).toBe(404);
+    const stoppedRun = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(stoppedRun.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/runs/{runId}/stop", "post", stoppedRun);
+    await expect(stoppedRun.json()).resolves.toMatchObject({ data: { run: { id: queuedRun.id, status: "stopped" } } });
+    const stoppedBot = await mobilePost(
+      request(["bots", botId, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "stop"])
+    );
+    expect(stoppedBot.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/stop", "post", stoppedBot);
+    await expect(stoppedBot.json()).resolves.toMatchObject({ data: { bot: { id: botId, status: "idle" } } });
 
     const approvalMessage = createMessage({
       conversationId: createdBot.homeConversationId,

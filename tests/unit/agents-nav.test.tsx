@@ -51,6 +51,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -66,6 +67,14 @@ describe("AgentsNav", () => {
     const dot = row.querySelector("span.bg-\\[var\\(--accent\\)\\]");
     expect(dot).not.toBeNull();
     expect(dot?.className).toContain("h-2 w-2");
+  });
+
+  it("marks a bot with a new result as unread", () => {
+    render(<AgentsNav bots={[buildBot({ unread: true })]} onCloseAction={() => {}} />);
+
+    const row = screen.getByRole("link", { name: /Research Bot/ });
+    expect(row).toHaveTextContent("Unread");
+    expect(row.querySelector("span.bg-\\[\\#f4f4f5\\]")).not.toBeNull();
   });
 
   it("renders no indicator for an idle bot without pending input", () => {

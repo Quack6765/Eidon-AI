@@ -61,6 +61,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -112,7 +113,9 @@ function renderView(bot: BotSummary = buildBot()) {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
   fireEvent.click(findDetailsToggle());

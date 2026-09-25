@@ -262,7 +262,7 @@ async function executeAutomationRun(
       unattended: true,
       ...(bot && botRunId
         ? {
-            botRun: { record: false as const },
+            botRun: { record: false as const, runId: botRunId },
             onApprovalWait: (waiting: boolean) => {
               setBotRunAwaitingApproval(botRunId, waiting);
               if (waiting) deadlineTimer.pause();

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Bot } from "lucide-react";
 
 import { BotAvatar } from "@/components/agents/bot-avatar";
-import { BotStatusDot, botStatusLabel } from "@/components/agents/bot-status";
+import { BotStatusDot, botAttentionLabel } from "@/components/agents/bot-status";
 import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { BotSummary } from "@/lib/types";
@@ -112,6 +112,8 @@ export function AgentsNav({
 
           {sortBots(bots).map((bot) => {
             const isActive = pathname === `/agents/${bot.id}`;
+            const unread = bot.unread && !isActive;
+            const attentionLabel = botAttentionLabel(bot, unread);
 
             return (
               <Link
@@ -121,19 +123,19 @@ export function AgentsNav({
                 className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-300 ${
                   isActive
                     ? "bg-white/[0.05] font-semibold text-white"
-                    : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
+                    : unread
+                      ? "font-medium text-white/80 hover:bg-white/[0.03] hover:text-white"
+                      : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
                 }`}
               >
                 <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{bot.name}</div>
-                  {bot.status === "queued" || bot.status === "waiting_approval" ? (
-                    <div className="truncate text-[11px] text-[#71717a]">
-                      {botStatusLabel(bot.status)}
-                    </div>
+                  {attentionLabel ? (
+                    <div className="truncate text-[11px] text-[#71717a]">{attentionLabel}</div>
                   ) : null}
                 </div>
-                <BotStatusDot status={bot.status} waitingForInput={bot.waitingForInput} />
+                <BotStatusDot status={bot.status} waitingForInput={bot.waitingForInput} unread={unread} />
               </Link>
             );
           })}

@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { nowIso } from "@/lib/utils";
+import { getActiveChatTurn, requestStop } from "@/lib/chat-turn-control";
 import { getBot, getBotByConversationId, toBotSummary } from "@/lib/bots";
 import { getConversationManager } from "@/lib/ws-singleton";
 import type { Bot, BotRun, BotRunStatus, BotRunTriggerSource } from "@/lib/types";
@@ -14,11 +15,18 @@ type BotRunRow = {
   started_at: string | null;
   finished_at: string | null;
   parent_message_id: string | null;
+  requested_by_bot_id: string | null;
   error_message: string | null;
   created_at: string;
 };
 
-const BOT_RUN_COLUMNS = `id, bot_id, conversation_id, trigger_source, status, started_at, finished_at, parent_message_id, error_message, created_at`;
+const BOT_RUN_SELECT = `SELECT r.id, r.bot_id, r.conversation_id, r.trigger_source, r.status, r.started_at, r.finished_at,
+    r.parent_message_id, pb.id AS requested_by_bot_id, r.error_message, r.created_at
+  FROM bot_runs r
+  LEFT JOIN messages pm ON pm.id = r.parent_message_id
+  LEFT JOIN bots pb ON pb.home_conversation_id = pm.conversation_id`;
+
+const ACTIVE_BOT_RUN_STATUSES = "('queued', 'running', 'waiting_approval')";
 
 function rowToBotRun(row: BotRunRow): BotRun {
   return {
@@ -30,6 +38,7 @@ function rowToBotRun(row: BotRunRow): BotRun {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     parentMessageId: row.parent_message_id,
+    requestedByBotId: row.requested_by_bot_id,
     errorMessage: row.error_message,
     createdAt: row.created_at
   };
@@ -41,7 +50,7 @@ export function createBotRunRecord(input: {
   triggerSource: BotRunTriggerSource;
   parentMessageId?: string | null;
 }): BotRun {
-  const run: BotRun = {
+  const run: Omit<BotRun, "requestedByBotId"> = {
     id: createId("botrun"),
     botId: input.botId,
     conversationId: input.conversationId,
@@ -73,12 +82,12 @@ export function createBotRunRecord(input: {
       run.createdAt
     );
 
-  return run;
+  return getBotRun(run.id) ?? { ...run, requestedByBotId: null };
 }
 
 export function getBotRun(runId: string): BotRun | null {
   const row = getDb()
-    .prepare(`SELECT ${BOT_RUN_COLUMNS} FROM bot_runs WHERE id = ?`)
+    .prepare(`${BOT_RUN_SELECT} WHERE r.id = ?`)
     .get(runId) as BotRunRow | undefined;
   return row ? rowToBotRun(row) : null;
 }
@@ -125,7 +134,7 @@ export function setBotRunAwaitingApproval(runId: string, awaitingApproval: boole
 
 export function getLatestBotRun(botId: string): BotRun | null {
   const row = getDb()
-    .prepare(`SELECT ${BOT_RUN_COLUMNS} FROM bot_runs WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`)
+    .prepare(`${BOT_RUN_SELECT} WHERE r.bot_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1`)
     .get(botId) as BotRunRow | undefined;
   return row ? rowToBotRun(row) : null;
 }
@@ -134,26 +143,99 @@ export function deleteBotRun(runId: string) {
   getDb().prepare("DELETE FROM bot_runs WHERE id = ?").run(runId);
 }
 
-export function listRecentBotRuns(input: { userId?: string; limit?: number }): BotRun[] {
+export function listRecentBotRuns(input: { userId?: string; botId?: string; limit?: number }): BotRun[] {
   const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
-  const rows = (input.userId
-    ? getDb()
-        .prepare(
-          `SELECT r.${BOT_RUN_COLUMNS.split(", ").join(", r.")}
-           FROM bot_runs r
-           JOIN bots b ON b.id = r.bot_id
-           WHERE b.user_id = ?
-           ORDER BY r.created_at DESC, r.id DESC
-           LIMIT ?`
-        )
-        .all(input.userId, limit)
-    : getDb()
-        .prepare(
-          `SELECT ${BOT_RUN_COLUMNS} FROM bot_runs ORDER BY created_at DESC, id DESC LIMIT ?`
-        )
-        .all(limit)) as BotRunRow[];
+  const filters: string[] = [];
+  const values: string[] = [];
+  if (input.userId) {
+    filters.push("r.bot_id IN (SELECT id FROM bots WHERE user_id = ?)");
+    values.push(input.userId);
+  }
+  if (input.botId) {
+    filters.push("(r.bot_id = ? OR pb.id = ?)");
+    values.push(input.botId, input.botId);
+  }
+  const rows = getDb()
+    .prepare(
+      `${BOT_RUN_SELECT}
+       ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT ?`
+    )
+    .all(...values, limit) as BotRunRow[];
 
   return rows.map(rowToBotRun);
+}
+
+const USER_STOPPED_BOT_RUNS_KEY = Symbol.for("eidon:user-stopped-bot-runs");
+
+function getUserStoppedBotRuns() {
+  const registry = globalThis as Record<symbol, Set<string> | undefined>;
+  registry[USER_STOPPED_BOT_RUNS_KEY] ??= new Set<string>();
+  return registry[USER_STOPPED_BOT_RUNS_KEY];
+}
+
+export function consumeUserStoppedBotRun(runId: string) {
+  return getUserStoppedBotRuns().delete(runId);
+}
+
+export function isBotRunStopped(runId: string) {
+  return getBotRun(runId)?.status === "stopped";
+}
+
+function isActiveBotRun(run: BotRun) {
+  return run.status === "queued" || run.status === "running" || run.status === "waiting_approval";
+}
+
+function markBotRunStopped(runId: string) {
+  const run = getBotRun(runId);
+  if (!run || !isActiveBotRun(run)) return;
+  if (run.triggerSource === "delegated") getUserStoppedBotRuns().add(run.id);
+  const stopped = updateBotRunStatus(run.id, { status: "stopped", finishedAt: nowIso() });
+  if (stopped) broadcastBotRunUpdate(stopped);
+}
+
+export function stopBotRun(runId: string): BotRun | null {
+  const run = getBotRun(runId);
+  if (!run || !isActiveBotRun(run)) return run;
+
+  if (getActiveChatTurn(run.conversationId)?.botRunId === run.id) {
+    stopConversationWork(run.conversationId);
+  } else {
+    markBotRunStopped(run.id);
+  }
+  const bot = getBot(run.botId);
+  if (bot) broadcastBotUpsert(bot);
+  return getBotRun(run.id);
+}
+
+export function stopConversationWork(conversationId: string) {
+  const activeRunId = getActiveChatTurn(conversationId)?.botRunId;
+  requestStop(conversationId);
+  if (activeRunId) markBotRunStopped(activeRunId);
+
+  const delegated = getDb()
+    .prepare(
+      `SELECT r.id FROM bot_runs r
+       INNER JOIN messages pm ON pm.id = r.parent_message_id
+       WHERE pm.conversation_id = ? AND r.status IN ${ACTIVE_BOT_RUN_STATUSES}
+       ORDER BY r.created_at ASC`
+    )
+    .all(conversationId) as Array<{ id: string }>;
+  for (const { id } of delegated) {
+    stopBotRun(id);
+  }
+}
+
+export function stopBotWork(bot: Bot) {
+  const active = getDb()
+    .prepare(`SELECT id FROM bot_runs WHERE bot_id = ? AND status IN ${ACTIVE_BOT_RUN_STATUSES} ORDER BY created_at ASC`)
+    .all(bot.id) as Array<{ id: string }>;
+  for (const { id } of active) {
+    stopBotRun(id);
+  }
+  stopConversationWork(bot.homeConversationId);
+  broadcastBotUpsert(bot);
 }
 
 function getBotOwnerUserId(bot: Bot): string | null {

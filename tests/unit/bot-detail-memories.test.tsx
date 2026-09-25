@@ -77,6 +77,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -102,7 +103,9 @@ function renderView(bot: BotSummary) {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
   fireEvent.click(screen.getByRole("button", { name: "Memories" }));
@@ -143,7 +146,7 @@ function mockMemoryEndpoints(memories: UserMemory[]) {
       } as Response;
     }
 
-    if (url === "/api/bots/bot_1/seen-input" && method === "POST") {
+    if (url === "/api/bots/bot_1/read" && method === "POST") {
       return {
         ok: true,
         json: async () => ({ deleted: true })
@@ -238,26 +241,45 @@ describe("bot detail memories", () => {
     expect(screen.getByText("Works at Acme on the platform team")).toBeInTheDocument();
   });
 
-  it("acknowledges pending input on mount when the bot is waiting for input", async () => {
+  it("marks an unread bot read on mount", async () => {
     const fetchMock = mockMemoryEndpoints([]);
 
-    renderView(buildBot({ waitingForInput: true }));
+    renderView(buildBot({ unread: true }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/bots/bot_1/seen-input",
+        "/api/bots/bot_1/read",
         expect.objectContaining({ method: "POST" })
       );
     });
   });
 
-  it("does not acknowledge pending input when nothing is waiting", () => {
+  it("does not mark the bot read while the page is hidden, then marks it once visible", async () => {
+    const fetchMock = mockMemoryEndpoints([]);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+
+    try {
+      renderView(buildBot({ unread: true }));
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/bots/bot_1/read", expect.anything());
+
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith("/api/bots/bot_1/read", expect.objectContaining({ method: "POST" }));
+      });
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("does not mark the bot read when there is nothing unread, even with pending input", () => {
     const fetchMock = mockMemoryEndpoints([]);
 
-    renderView(buildBot());
+    renderView(buildBot({ waitingForInput: true }));
 
     expect(fetchMock).not.toHaveBeenCalledWith(
-      "/api/bots/bot_1/seen-input",
+      "/api/bots/bot_1/read",
       expect.anything()
     );
   });

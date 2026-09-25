@@ -434,7 +434,7 @@ describe("ws-handler", () => {
 
   it("routes client stop messages to the turn registry", async () => {
     const requestStop = vi.fn();
-    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop }));
+    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop, getActiveChatTurn: vi.fn(() => null) }));
     const { verifySessionToken } = await import("@/lib/auth");
     (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
 
@@ -574,9 +574,55 @@ describe("ws-handler", () => {
     });
   });
 
+  it("redirects the running turn instead of stopping it when a queued message is sent now", async () => {
+    const requestStop = vi.fn();
+    const requestRedirect = vi.fn(() => true);
+    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop, requestRedirect }));
+
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const {
+      getConversationSnapshot,
+      listActiveConversations,
+      listQueuedMessages,
+      moveQueuedMessageToFront
+    } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: true },
+      messages: [],
+      queuedMessages: []
+    });
+    (moveQueuedMessageToFront as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (listQueuedMessages as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) => handler(JSON.stringify({ type: "subscribe", conversationId: "conv-1" })));
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({ type: "send_queued_message_now", conversationId: "conv-1", queuedMessageId: "queue-1" }))
+    );
+
+    expect(requestRedirect).toHaveBeenCalledWith("conv-1", "queue-1");
+    expect(requestStop).not.toHaveBeenCalled();
+    expect(listQueuedMessages).toHaveBeenCalledWith("conv-1");
+  });
+
   it("sends an error when reprioritizing a queued message fails", async () => {
     const requestStop = vi.fn();
-    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop }));
+    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop, getActiveChatTurn: vi.fn(() => null) }));
 
     const { verifySessionToken } = await import("@/lib/auth");
     (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });

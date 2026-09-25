@@ -13,13 +13,16 @@ import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   broadcastBotRunUpdate,
   broadcastBotUpsert,
+  consumeUserStoppedBotRun,
   createBotRunRecord,
   getBotRun,
   getLatestBotRun,
+  isBotRunStopped,
   setBotRunAwaitingApproval,
   updateBotRunStatus
 } from "@/lib/bot-runs";
 import { createPausableTimeout } from "@/lib/pausable-timeout";
+import { formatDurationSeconds } from "@/lib/utils";
 import {
   DELEGATED_TURN_STALL_STOP_MS,
   consumeStallStop,
@@ -107,6 +110,8 @@ async function startTurnWhenIdle(input: {
   maxWaitMs: number;
   busyErrorMessage: string;
   unattended?: boolean;
+  botRunId?: string;
+  isCancelled?: () => boolean;
   onTurnStarted?: () => void;
   onApprovalWait?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ChatTurnResult> {
@@ -115,8 +120,11 @@ async function startTurnWhenIdle(input: {
   const deadline = Date.now() + input.maxWaitMs;
 
   while (true) {
+    if (input.isCancelled?.()) {
+      return { status: "stopped" };
+    }
     const result = await startChatTurn(manager, input.conversationId, input.content, [], undefined, {
-      botRun: { record: false },
+      botRun: { record: false, runId: input.botRunId },
       quietWhenBusy: true,
       unattended: input.unattended,
       onApprovalWait: input.onApprovalWait,
@@ -186,9 +194,12 @@ async function runWorkerTurn(input: {
         maxWaitMs: DEFAULT_BOT_RUN_TIMEOUT_MS,
         busyErrorMessage: `${target.name} stayed busy and never picked up the message`,
         unattended: true,
+        botRunId: runId,
+        isCancelled: () => isBotRunStopped(runId),
         onTurnStarted: () => {
           turnStarted = true;
           setTurnStallStop(target.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
+          if (isBotRunStopped(runId)) requestStop(target.homeConversationId);
         },
         onApprovalWait: async (waiting) => {
           setBotRunAwaitingApproval(runId, waiting);
@@ -269,14 +280,17 @@ async function completeActionFromBackground(input: {
   actionHandle: string;
   senderConversationId: string;
   outcome: DelegationOutcome;
+  stoppedByUser: boolean;
 }) {
   const { updateMessageAction } = await import("@/lib/conversations");
   const isFailure = input.outcome.status === "failed";
   const updated = updateMessageAction(input.actionHandle, {
-    status: isFailure ? "error" : "completed",
-    resultSummary: isFailure
-      ? `The bot run failed${input.outcome.errorMessage ? `: ${input.outcome.errorMessage}` : ""}.`
-      : input.outcome.summary || "Finished.",
+    status: input.stoppedByUser ? "stopped" : isFailure ? "error" : "completed",
+    resultSummary: input.stoppedByUser
+      ? "Stopped by you before it finished."
+      : isFailure
+        ? `The bot run failed${input.outcome.errorMessage ? `: ${input.outcome.errorMessage}` : ""}.`
+        : input.outcome.summary || "Finished.",
     completedAt: new Date().toISOString()
   });
   if (!updated) return;
@@ -386,13 +400,15 @@ export async function executeMessageBot(
 
   const senderConversationId = context.input.conversationId;
   void (async () => {
-    const outcome = await runWorkerTurn({ target, runId: run.id, taskPrompt: deliveredPrompt, ownerUserId }).catch(
+    const turnOutcome = await runWorkerTurn({ target, runId: run.id, taskPrompt: deliveredPrompt, ownerUserId }).catch(
       (error: unknown) => ({
         status: "failed",
         summary: "",
         errorMessage: error instanceof Error ? error.message : "Message delivery failed"
       })
     );
+    const stoppedByUser = consumeUserStoppedBotRun(run.id);
+    const outcome: DelegationOutcome = stoppedByUser ? { status: "stopped", summary: "" } : turnOutcome;
 
     await settleDelegationRun({
       outcome,
@@ -407,9 +423,11 @@ export async function executeMessageBot(
       await completeActionFromBackground({
         actionHandle,
         senderConversationId,
-        outcome
+        outcome,
+        stoppedByUser
       });
     }
+    if (stoppedByUser) return;
 
     const wake = await deliverDelegationWake({
       recipientConversationId: senderConversationId,
@@ -440,11 +458,7 @@ export async function executeMessageBot(
 const CHECK_BOT_OUTPUT_CHARS = 1_500;
 
 function formatElapsed(fromIso: string, toMs = Date.now()) {
-  const seconds = Math.max(0, Math.round((toMs - Date.parse(fromIso)) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return formatDurationSeconds((toMs - Date.parse(fromIso)) / 1000);
 }
 
 function getLatestOutputSnippet(conversationId: string) {
