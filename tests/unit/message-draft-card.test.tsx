@@ -237,6 +237,8 @@ describe("MessageDraftCard", () => {
 
     const body = screen.getByRole("textbox", { name: "Body" });
     expect(body).toHaveClass("overflow-y-hidden");
+    expect(body).toHaveClass("transition-[border-color,background-color,box-shadow]");
+    expect(body).not.toHaveClass("transition-all");
     act(() => {
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 150 });
       window.dispatchEvent(new Event("resize"));

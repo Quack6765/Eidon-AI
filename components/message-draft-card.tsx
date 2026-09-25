@@ -164,7 +164,7 @@ function DraftTextarea({
       value={value}
       autoFocus={autoFocus}
       onChange={(event) => onChange(event.target.value)}
-      className={`mt-1 max-h-[60vh] resize-none rounded-md border-white/8 bg-black/20 px-3 py-2 text-[16px] leading-6 text-white md:text-[12px] md:leading-5 ${reachedCap ? "overflow-y-auto" : "overflow-y-hidden"}`}
+      className={`mt-1 max-h-[60vh] resize-none rounded-md border-white/8 bg-black/20 px-3 py-2 text-[16px] leading-6 text-white transition-[border-color,background-color,box-shadow] md:text-[12px] md:leading-5 ${reachedCap ? "overflow-y-auto" : "overflow-y-hidden"}`}
     />
   );
 }
