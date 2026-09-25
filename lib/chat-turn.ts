@@ -69,7 +69,7 @@ import {
   startTurnAction,
   touchTurnActivity
 } from "@/lib/turn-activity";
-import type { ChatResearchOptions, ChatStreamEvent, ToolApprovalContext } from "@/lib/types";
+import type { ChatResearchOptions, ChatStreamEvent, DelegationChain, ToolApprovalContext } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -98,6 +98,8 @@ export type StartChatTurn = (
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    providerProfileId?: string;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
@@ -190,7 +192,7 @@ export async function* runAssistantTurn(input: {
   }
 }
 
-export function getAssistantTurnStartPreflight(conversationId: string) {
+export function getAssistantTurnStartPreflight(conversationId: string, providerProfileId?: string) {
   const conversation = getConversation(conversationId);
   if (!conversation) {
     return {
@@ -201,9 +203,10 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     };
   }
 
+  const resolvedProviderProfileId = providerProfileId ?? conversation.providerProfileId;
   const profileSettings =
-    (conversation.providerProfileId
-      ? getRuntimeProviderProfile(conversation.providerProfileId)
+    (resolvedProviderProfileId
+      ? getRuntimeProviderProfile(resolvedProviderProfileId)
       : null) ?? getDefaultRuntimeProviderProfile();
   const settings = profileSettings
     ? {
@@ -307,6 +310,7 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
@@ -442,6 +446,7 @@ async function startAssistantTurn(
       if (userMessage) {
         manager.broadcast(conversationId, { type: "user_message_persisted", conversationId, message: userMessage });
       }
+      options?.onMessagesCreated?.({ userMessageId: next.userMessage.id, assistantMessageId: next.assistantMessage.id });
 
       assistantMessageId = next.assistantMessage.id;
       contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
@@ -519,6 +524,7 @@ async function startAssistantTurn(
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
       takeRedirect,
+      delegationChain: options?.delegationChain ?? { messagesSent: 0 },
       async onEvent(event: ChatStreamEvent) {
         touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
@@ -863,10 +869,12 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    providerProfileId?: string;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
-  const preflight = getAssistantTurnStartPreflight(conversationId);
+  const preflight = getAssistantTurnStartPreflight(conversationId, options?.providerProfileId);
   if (!preflight.ok) {
     if (preflight.status === "failed") {
       manager.broadcast(conversationId, {
@@ -936,6 +944,7 @@ export async function startChatTurn(
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
       unattended: options?.unattended,
+      delegationChain: options?.delegationChain,
       async onApprovalWait(waiting) {
         if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
         await options?.onApprovalWait?.(waiting);

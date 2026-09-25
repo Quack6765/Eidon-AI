@@ -144,6 +144,15 @@ function buildWorkerCommunicationBlock(bot: Bot) {
   ].join("\n");
 }
 
+function buildChiefIdentityBlock(bot: Bot) {
+  return [
+    `You are ${bot.name}, the user's primary assistant coordinating a team of specialist bots.`,
+    bot.systemPrompt.trim()
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function buildChiefPolicyBlock(bot: Bot) {
   const roster = buildBotRoster(bot.userId ?? undefined, bot.id);
   const rosterLines = roster.length
@@ -151,8 +160,6 @@ function buildChiefPolicyBlock(bot: Bot) {
     : ["You currently have no specialist bots. When a lane of recurring work emerges, propose creating a focused bot for it — with the user's confirmation."];
 
   return [
-    `You are ${CHIEF_BOT_NAME}, the user's primary assistant coordinating a team of specialist bots.`,
-    "",
     "How you work:",
     "- Answer directly for quick questions and small tasks you can handle yourself.",
     "- Delegate substantive or recurring work to the specialist bot that owns that area using message_bot. It returns immediately: after sending, tell the user right away what you asked and that you will let them know once you have the answer, then continue with other work. The bot's reply arrives here as a new message — report it to the user directly in this conversation when it lands.",
@@ -177,7 +184,7 @@ function buildChiefPolicyBlock(bot: Bot) {
 export function buildBotSystemPrompt(bot: Bot, basePrompt?: string) {
   const base = basePrompt?.trim() || DEFAULT_BOT_BASE_SYSTEM_PROMPT;
   if (bot.isChief) {
-    return [base, buildChiefPolicyBlock(bot)].join("\n\n");
+    return [base, buildChiefIdentityBlock(bot), buildChiefPolicyBlock(bot)].join("\n\n");
   }
   return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot)].join("\n\n");
 }

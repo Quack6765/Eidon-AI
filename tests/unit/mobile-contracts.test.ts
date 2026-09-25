@@ -210,6 +210,16 @@ describe("Mobile API v1 contracts", () => {
       tags: ["Agents"],
       responses: { "200": { $ref: "#/components/responses/PendingBotApprovalList" } }
     });
+    expect(contract.paths["/conversations/{conversationId}"]).toMatchObject({
+      patch: { responses: { "409": { $ref: "#/components/responses/Error" } } },
+      delete: {
+        operationId: "deleteConversation",
+        responses: {
+          "200": { $ref: "#/components/responses/ConversationDelete" },
+          "409": { $ref: "#/components/responses/Error" }
+        }
+      }
+    });
     expect(contract.paths["/bots/{botId}/clear-context"]).toMatchObject({
       parameters: [{ $ref: "#/components/parameters/botId" }]
     });
@@ -309,7 +319,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(119);
+    expect(compileOpenApiJsonResponses()).toBe(121);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

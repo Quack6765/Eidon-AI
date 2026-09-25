@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-import { executeLocalShellCommand, resolveShellWorkspaceDir } from "@/lib/local-shell";
+import { executeLocalShellCommand, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
 
 const dataDir = resolve(process.env.EIDON_DATA_DIR ?? "./.test-data");
 const workspaceRoot = `${dataDir}-workspaces`;
@@ -124,4 +124,37 @@ describe("shell workspace containment", () => {
 
     expect(() => resolveShellWorkspaceDir("conv_overlap")).toThrow("overlaps application data");
   });
+
+  it("kills the whole process tree on timeout and keeps the partial output", async () => {
+    const workspaceDir = resolveShellWorkspaceDir("conv_timeout");
+    const startedAt = Date.now();
+
+    const result = await executeLocalShellCommand({
+      command: "echo before-timeout; sh -c 'echo $$ > sleeper.pid; exec sleep 30' | cat",
+      cwd: workspaceDir,
+      timeoutMs: 300
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(result.timedOut).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(summarizeShellResult(result)).toContain("before-timeout");
+
+    const sleeperPid = Number(readFileSync(join(workspaceDir, "sleeper.pid"), "utf8"));
+    expect(() => process.kill(sleeperPid, 0)).toThrow();
+  }, 10_000);
+
+  it("force-kills leftover group members that ignore SIGTERM after a timeout", async () => {
+    const workspaceDir = resolveShellWorkspaceDir("conv_timeout_stubborn");
+
+    const result = await executeLocalShellCommand({
+      command: "sh -c \"trap '' TERM; echo \\$\\$ > stubborn.pid; exec sleep 30\" >/dev/null 2>&1 & sleep 30",
+      cwd: workspaceDir,
+      timeoutMs: 300
+    });
+    expect(result.timedOut).toBe(true);
+
+    const stubbornPid = Number(readFileSync(join(workspaceDir, "stubborn.pid"), "utf8"));
+    await vi.waitFor(() => expect(() => process.kill(stubbornPid, 0)).toThrow(), { timeout: 5_000, interval: 100 });
+  }, 10_000);
 });

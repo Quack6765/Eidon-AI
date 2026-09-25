@@ -1772,6 +1772,19 @@ describe("chat view", () => {
     });
   });
 
+  it("offers the temporary toggle only on an empty regular chat", () => {
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    expect(screen.getByRole("button", { name: "Temporary conversation" })).toBeInTheDocument();
+    view.unmount();
+
+    const botPayload = createPayload();
+    botPayload.conversation.conversationOrigin = "bot";
+    renderWithProvider(
+      React.createElement(ChatView, { payload: botPayload, retainEmptyConversation: true })
+    );
+    expect(screen.queryByRole("button", { name: "Temporary conversation" })).not.toBeInTheDocument();
+  });
+
   it("keeps an empty conversation when the chat view remounts on the same route", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
@@ -1820,6 +1833,47 @@ describe("chat view", () => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
     });
+  });
+
+  it("drops an active stream that a reconnect snapshot no longer contains", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_interrupted" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Partial words before the restart" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Partial words before the restart")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({ id: "msg_user", role: "user", content: "Write something long" }),
+          createMessage({ id: "msg_resume", role: "user", content: "[Resumed after a server restart]\nContinue." }),
+          createMessage({ id: "msg_resumed_answer", content: "Final answer after the restart" })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Final answer after the restart")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Partial words before the restart")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    expect(screen.getByTestId("restart-resume-message")).toBeInTheDocument();
   });
 
   it("hydrates running action rows for an active streaming message from snapshot state", async () => {

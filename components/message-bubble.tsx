@@ -59,6 +59,7 @@ import type {
   ToolCallDisplayMode
 } from "@/lib/types";
 import { normalizeRealLineBreaks } from "@/lib/text-utils";
+import { RESTART_RESUME_NOTICE_HEADER } from "@/lib/constants";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Message,
@@ -182,6 +183,28 @@ const AssistantMarkdown = React.memo(
     previous.isStatic === next.isStatic &&
     previous.linkSafety === next.linkSafety
 );
+
+function AutomatedMessageMarker({
+  messageId,
+  testId,
+  children
+}: {
+  messageId: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Message from="user" data-message-id={messageId}>
+      <div className="flex w-full min-w-0 flex-col items-stretch gap-2" data-testid={testId}>
+        <div className="flex w-full min-w-0 justify-center">
+          <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
+            <span className="min-w-0 truncate">{children}</span>
+          </span>
+        </div>
+      </div>
+    </Message>
+  );
+}
 
 function DelegateBotGlyph({ botName }: { botName: string }) {
   const seed = useBotAvatarSeed(botName);
@@ -705,6 +728,7 @@ function MessageBubbleImpl({
     [assistantBlocks]
   );
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
+  const isRestartResume = message.role === "user" && content.startsWith(RESTART_RESUME_NOTICE_HEADER);
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1054,24 +1078,22 @@ function MessageBubbleImpl({
   }
 
   if (message.role === "user") {
+    if (isRestartResume && !isEditing) {
+      return (
+        <AutomatedMessageMarker messageId={message.id} testId="restart-resume-message">
+          <RefreshCw className="mr-1.5 inline h-3 w-3 align-[-2px] text-white/40" aria-hidden="true" />
+          Resumed after a server restart
+        </AutomatedMessageMarker>
+      );
+    }
+
     if (delegationWake && !isEditing) {
       return (
-        <Message from="user" data-message-id={message.id}>
-          <div
-            className="flex w-full min-w-0 flex-col items-stretch gap-2"
-            data-testid="delegation-wake-message"
-          >
-            <div className="flex w-full min-w-0 justify-center">
-              <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
-                <span className="min-w-0 truncate">
-                  {"Message from "}
-                  <DelegateBotGlyph botName={delegationWake.botName} />
-                  <span className="text-white/60">{delegationWake.botName}</span>
-                </span>
-              </span>
-            </div>
-          </div>
-        </Message>
+        <AutomatedMessageMarker messageId={message.id} testId="delegation-wake-message">
+          {"Message from "}
+          <DelegateBotGlyph botName={delegationWake.botName} />
+          <span className="text-white/60">{delegationWake.botName}</span>
+        </AutomatedMessageMarker>
       );
     }
 

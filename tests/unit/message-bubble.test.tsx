@@ -703,6 +703,25 @@ describe("delegation event lines", () => {
     expect(wake.querySelector(".markdown-body")).toBeNull();
   });
 
+  it("renders a restart resume notice as a marker without the automated instructions", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_resume",
+          content: "[Resumed after a server restart]\nContinue from where you left off instead of starting over."
+        }
+      })
+    );
+
+    const marker = screen.getByTestId("restart-resume-message");
+    expect(marker).toHaveTextContent("Resumed after a server restart");
+    expect(marker).not.toHaveTextContent("Continue from where you left off");
+    expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(container.querySelector(".rounded-2xl")).toBeNull();
+  });
+
   it("keeps normal user messages as bubbles when the marker pattern does not match", () => {
     render(
       React.createElement(MessageBubble, {

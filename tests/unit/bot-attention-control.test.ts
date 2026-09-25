@@ -120,7 +120,10 @@ describe("bot attention and control", () => {
       return { answer: "Canada it is.", thinking: "", usage: {} };
     });
 
-    const result = await startChatTurn(manager, bot.homeConversationId, "Research markets", []);
+    const created: Array<{ userMessageId: string; assistantMessageId: string }> = [];
+    const result = await startChatTurn(manager, bot.homeConversationId, "Research markets", [], undefined, {
+      onMessagesCreated: (payload) => created.push(payload)
+    });
 
     expect(result.status).toBe("completed");
     expect(observed.beforeRequest).toBeNull();
@@ -138,6 +141,10 @@ describe("bot attention and control", () => {
       { role: "assistant", content: "Looking at France.", status: "completed" },
       { role: "user", content: "Focus on Canada instead", status: "completed" },
       { role: "assistant", content: "Canada it is.", status: "completed" }
+    ]);
+    expect(created.map((payload) => payload.assistantMessageId)).toEqual([
+      observed.firstAssistantId,
+      redirect.assistantMessageId
     ]);
     expect(events).toEqual([
       `message_start:${observed.firstAssistantId}`,

@@ -26,7 +26,7 @@ import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { startSemanticIndex } from "@/lib/semantic-index";
 import { getDb } from "@/lib/db";
 import { sendWebSocketData } from "@/lib/ws-send";
-import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
+import { bootstrapRuntimeState, resumeRuntimeWork } from "@/lib/runtime-bootstrap";
 import { truncateText } from "@/lib/bounded-text";
 import { sanitizeMobilePayload } from "@/lib/mobile-api";
 import {
@@ -89,6 +89,7 @@ function buildSnapshotMessage(
 
 export {
   bootstrapRuntimeState,
+  resumeRuntimeWork,
   disposeTitleModel,
   getDb,
   initTitleModel,
