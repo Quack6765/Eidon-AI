@@ -405,26 +405,15 @@ describe("db", () => {
     const { getDb, migrate } = await import("@/lib/db");
     const automations = await import("@/lib/automations");
     const conversations = await import("@/lib/conversations");
-    const { updateProviderCatalog } = await import("@/lib/settings");
-    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
 
-    const profile = createProviderProfileInput({ id: "profile_backfill", name: "Backfill", model: "gpt-backfill" });
-    updateProviderCatalog({ defaultProviderProfileId: profile.id, skillsEnabled: false, providerProfiles: [profile] });
-    const automation = automations.createAutomation({
-      name: "Digest",
-      prompt: "Digest",
-      providerProfileId: profile.id,
-      personaId: null,
-      scheduleKind: "interval",
-      intervalMinutes: 60,
-      calendarFrequency: null,
-      timeOfDay: null,
-      daysOfWeek: [],
-      enabled: false
-    });
-    const conversation = conversations.createConversation("Shared thread", null, { providerProfileId: profile.id });
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO automations (id, name, prompt, provider_profile_id, schedule_kind, interval_minutes, enabled, created_at, updated_at)
+       VALUES ('auto_backfill', 'Digest', 'Digest', 'profile_backfill', 'interval', 60, 0, ?, ?)`
+    ).run("2026-04-10T07:00:00.000Z", "2026-04-10T07:00:00.000Z");
+    const conversation = conversations.createConversation("Shared thread");
     const run = automations.createAutomationRun({
-      automationId: automation.id,
+      automationId: "auto_backfill",
       scheduledFor: "2026-04-10T08:00:00.000Z",
       triggerSource: "schedule"
     });
@@ -435,7 +424,6 @@ describe("db", () => {
       finishedAt: "2026-04-10T08:05:00.000Z"
     });
 
-    const db = getDb();
     const createAnswerAt = (content: string, createdAt: string) => {
       const message = conversations.createMessage({ conversationId: conversation.id, role: "assistant", content });
       db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(createdAt, message.id);
@@ -447,7 +435,7 @@ describe("db", () => {
     db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
     migrate(db);
 
-    expect(automations.getPreviousAutomationRunResult(automation.id, "run_next")).toBe("Routine answer");
+    expect(automations.getPreviousAutomationRunResult("auto_backfill", "run_next")).toBe("Routine answer");
   });
 
   it("seeds new accounts with the running version so a fresh install is not announced", async () => {
