@@ -188,6 +188,29 @@ const isEditableEventTarget = (target: EventTarget | null): boolean =>
 const isTouchPointerType = (pointerType: string): boolean =>
   pointerType === "touch" || pointerType === "pen";
 
+const INTERACTIVE_UNDER_TRACK_SELECTOR =
+  'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [contenteditable="true"]';
+
+const findInteractiveUnderPoint = (
+  track: HTMLElement,
+  clientX: number,
+  clientY: number
+): HTMLElement | null => {
+  if (typeof document.elementFromPoint !== "function") return null;
+  const previous = track.style.pointerEvents;
+  track.style.pointerEvents = "none";
+  let under: Element | null = null;
+  try {
+    under = document.elementFromPoint(clientX, clientY);
+  } catch {
+    under = null;
+  }
+  track.style.pointerEvents = previous;
+  return under instanceof Element
+    ? under.closest<HTMLElement>(INTERACTIVE_UNDER_TRACK_SELECTOR)
+    : null;
+};
+
 export const ConversationScrollbar = ({
   className,
   ...props
@@ -205,6 +228,12 @@ export const ConversationScrollbar = ({
     startY: number;
   } | null>(null);
   const userScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const deferredTapRef = useRef<{
+    pointerId: number;
+    target: HTMLElement;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -354,6 +383,7 @@ export const ConversationScrollbar = ({
         return;
       }
     }
+    deferredTapRef.current = null;
     touchGestureRef.current = {
       ...gesture,
       scrubbing: true
@@ -413,6 +443,19 @@ export const ConversationScrollbar = ({
     const track = trackRef.current;
     if (!scroller || !track) return;
     event.preventDefault();
+    const interactiveTarget = findInteractiveUnderPoint(
+      track,
+      event.clientX,
+      event.clientY
+    );
+    if (interactiveTarget) {
+      deferredTapRef.current = {
+        pointerId: event.pointerId,
+        target: interactiveTarget,
+        startX: event.clientX,
+        startY: event.clientY
+      };
+    }
     if (isTouchPointerType(event.pointerType)) {
       if (touchGestureRef.current?.scrubbing) return;
       clearHoldTimer();
@@ -422,6 +465,7 @@ export const ConversationScrollbar = ({
         startY: event.clientY
       };
       reveal();
+      if (interactiveTarget) return;
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null;
         const gesture = touchGestureRef.current;
@@ -431,6 +475,7 @@ export const ConversationScrollbar = ({
       return;
     }
     noteUserScroll();
+    if (interactiveTarget) return;
     jumpToCenter(event.clientY);
   };
 
@@ -448,6 +493,17 @@ export const ConversationScrollbar = ({
   };
 
   const handleTrackPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const deferredTap = deferredTapRef.current;
+    if (deferredTap && deferredTap.pointerId === event.pointerId) {
+      deferredTapRef.current = null;
+      clearHoldTimer();
+      touchGestureRef.current = null;
+      const withinTap =
+        Math.abs(event.clientX - deferredTap.startX) <= SCROLLBAR_TOUCH_SLOP_PX &&
+        Math.abs(event.clientY - deferredTap.startY) <= SCROLLBAR_TOUCH_SLOP_PX;
+      if (withinTap) deferredTap.target.click();
+      return;
+    }
     const gesture = touchGestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (gesture.scrubbing) {
@@ -460,6 +516,9 @@ export const ConversationScrollbar = ({
   };
 
   const handleTrackPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (deferredTapRef.current?.pointerId === event.pointerId) {
+      deferredTapRef.current = null;
+    }
     const gesture = touchGestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (gesture.scrubbing) {

@@ -22,6 +22,7 @@ import {
   summarizeToolActivity
 } from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
+import { openMermaidFullscreenFromCard } from "@/lib/mermaid-fullscreen";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import {
@@ -776,7 +777,8 @@ function MessageBubbleImpl({
         {isOpen && thinkingShellContent ? (
           <div
             className="markdown-body thinking-markdown-body mt-1.5"
-            onClick={() => {
+            onClick={(event) => {
+              if (openMermaidFullscreenFromCard(event)) return;
               if (!window.getSelection()?.toString()) {
                 toggleThinkingItem(id);
               }
@@ -1097,7 +1099,7 @@ function MessageBubbleImpl({
                   }}
                 />
               ) : content ? (
-                <div ref={contentRef} className="markdown-body">
+                <div ref={contentRef} className="markdown-body" onClick={openMermaidFullscreenFromCard}>
                   <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>{content.replace(/\n/g, "  \n")}</Streamdown>
                 </div>
               ) : null}
@@ -1303,7 +1305,7 @@ function MessageBubbleImpl({
                             className={ASSISTANT_CONTENT}
                             data-testid="assistant-message-content"
                           >
-                            <div className="markdown-body">
+                            <div className="markdown-body" onClick={openMermaidFullscreenFromCard}>
                               <AssistantMarkdown
                                 content={renderedContent}
                                 isAnimating={isStreamingTailBlock}
