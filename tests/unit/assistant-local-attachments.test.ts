@@ -97,7 +97,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("report.txt");
-      expect(result.content).toBe("- item\n\n  ```md\n  ![Generated image](data:image/png;base64,%%%)\n  ```");
+      expect(result.content).toBe("- item\n\n  ```md\n  ![Generated image](data:image/png;base64,%%%)\n  ```\n\nreport");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -124,7 +124,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("report.txt");
-      expect(result.content).toBe("> ```md\n> ![Generated image](data:image/png;base64,%%%)\n> still code");
+      expect(result.content).toBe("> ```md\n> ![Generated image](data:image/png;base64,%%%)\n> still code\n\nreport");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -157,7 +157,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("report.txt");
-      expect(result.content).toBe("```md\n![Generated image](data:image/png;base64,%%%)\n```notclose\nstill code\n```");
+      expect(result.content).toBe("```md\n![Generated image](data:image/png;base64,%%%)\n```notclose\nstill code\n```\n\nreport");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -188,7 +188,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("report.txt");
-      expect(result.content).toBe("~~~md\n![Generated image](data:image/png;base64,%%%)\n~~~");
+      expect(result.content).toBe("~~~md\n![Generated image](data:image/png;base64,%%%)\n~~~\n\nreport");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -218,7 +218,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("report.txt");
-      expect(result.content).toBe("    ![Generated image](data:image/png;base64,%%%)\n    still code");
+      expect(result.content).toBe("    ![Generated image](data:image/png;base64,%%%)\n    still code\n\nreport");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -274,7 +274,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports a workspace markdown link on its own line and removes it from content", async () => {
+  it("imports a workspace markdown link and keeps only its text in the content", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -291,14 +291,14 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("workspace-log.txt");
-      expect(result.content).toBe("Attached log:");
+      expect(result.content).toBe("Attached log:\n\nlog");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
 
-  it("imports titled workspace markdown links on their own lines and removes them from content", async () => {
+  it("imports titled workspace markdown links and keeps only their text in the content", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -321,14 +321,14 @@ describe("inferAssistantLocalAttachments", () => {
       });
 
       expect(result.attachments).toHaveLength(2);
-      expect(result.content).toBe("Attached logs:");
+      expect(result.content).toBe("Attached logs:\n\nlog\nnotes");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
 
-  it("imports reference-style workspace markdown links and removes them and their definitions from content", async () => {
+  it("imports reference-style workspace markdown links, keeping their text and dropping their definitions", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -345,7 +345,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.filename).toBe("workspace-log.txt");
-      expect(result.content).toBe("Attached log:");
+      expect(result.content).toBe("Attached log:\n\nlog");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -495,7 +495,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.kind).toBe("text");
-      expect(result.content).toBe("Attached:");
+      expect(result.content).toBe("Attached:\n\nnotes");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -519,7 +519,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.kind).toBe("text");
-      expect(result.content).toBe("Attached:");
+      expect(result.content).toBe("Attached:\n\nfile");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -543,7 +543,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.kind).toBe("text");
-      expect(result.content).toBe("Attached:");
+      expect(result.content).toBe("Attached:\n\nfile");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -591,7 +591,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(1);
       expect(result.attachments[0]?.kind).toBe("text");
-      expect(result.content).toBe("Attached:");
+      expect(result.content).toBe("Attached:\n\nfile");
       expect(result.failureNote).toBe("");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
@@ -714,7 +714,7 @@ describe("authorized roots inside the app data dir", () => {
     expect(readAttachmentBuffer(result.attachments[0]!).toString("utf8")).toBe("quarter,revenue\nq3,10");
   });
 
-  it("keeps a delivered link's text inside a sentence and drops a link that stands alone on its line", async () => {
+  it("keeps a delivered link's text wherever the link sits", async () => {
     const conversation = createConversation();
     const { teamRoot, workspaceDir } = createTeamRoot();
     const sourcePath = path.join(workspaceDir, "brief.md");
@@ -727,7 +727,23 @@ describe("authorized roots inside the app data dir", () => {
     });
 
     expect(result.attachments).toHaveLength(1);
-    expect(result.content).toBe("Here's the file: the brief, ready for review.\n\n- brief");
+    expect(result.content).toBe("Here's the file: the brief, ready for review.\n\nbrief.md\n- brief");
+  });
+
+  it("keeps a delivered link's text on its own line so a lead-in never points at nothing", async () => {
+    const conversation = createConversation();
+    const { teamRoot, workspaceDir } = createTeamRoot();
+    const sourcePath = path.join(workspaceDir, "handoff.csv");
+    fs.writeFileSync(sourcePath, "name,score", "utf8");
+
+    const result = await inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content: `Verified on disk.\n\n**Here's the file:**\n\n[handoff.csv](${sourcePath})\n\n**Spec compliance:** all good.`,
+      authorizedRoots: [teamRoot]
+    });
+
+    expect(result.attachments).toHaveLength(1);
+    expect(result.content).toBe("Verified on disk.\n\n**Here's the file:**\n\nhandoff.csv\n\n**Spec compliance:** all good.");
   });
 
   it("keeps only the file name when a delivered link's text is its own path", async () => {

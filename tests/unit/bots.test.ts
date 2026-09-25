@@ -166,6 +166,7 @@ describe("bots", () => {
       expect(prompt).toContain(`Your workspace is ${getBotWorkspaceDir(bot)}`);
       expect(prompt).toContain(`The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}`);
       expect(prompt).toMatch(/\[report\.csv\]\(<?\S*report\.csv>?\)/);
+      expect(prompt).toContain("inside a sentence of your reply");
       expect(prompt).toContain("edit that same file in place and link it again");
       expect(prompt).toContain("Do not paste its absolute path into the text unless the user asks for it");
       expect(prompt).toContain("link them again in your answer to pass them on");

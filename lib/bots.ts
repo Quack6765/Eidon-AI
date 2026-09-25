@@ -194,7 +194,7 @@ function buildFilesBlock(bot: Bot) {
     "Files and results:",
     `- Your workspace is ${workspaceDir}, the working directory of your shell commands. Keep your files there in project folders with descriptive names.`,
     `- The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}. Every bot on the team can read and write it: save files another bot needs there, and give that bot the exact path.`,
-    `- To deliver a file, save it in either workspace and link it in your reply by its absolute path, for example ${exampleLink}. It appears in the conversation as a file card the user can preview and download. Only files in your team's workspaces can be delivered.`,
+    `- To deliver a file, save it in either workspace and link it by its absolute path inside a sentence of your reply, for example "The summary is in ${exampleLink}." It appears in the conversation as a file card the user can preview and download. Only files in your team's workspaces can be delivered.`,
     "- The file card shows the delivered file, so refer to it by name in your reply. Do not paste its absolute path into the text unless the user asks for it.",
     "- When asked to change a file you already delivered, edit that same file in place and link it again. Never save a copy or a renamed version.",
     "- When a teammate's reply links files, link them again in your answer to pass them on."

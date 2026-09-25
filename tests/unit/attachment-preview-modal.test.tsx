@@ -74,7 +74,7 @@ describe("AttachmentPreviewModal", () => {
     openPreview({ kind: "text", content: "a,b" });
 
     expect(screen.getByText(attachment.filename)).toHaveAttribute("title", attachment.filename);
-    expect(screen.getByRole("dialog").parentElement).toHaveClass("z-[60]");
+    expect(screen.getByRole("dialog").parentElement).toHaveClass("z-[80]");
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

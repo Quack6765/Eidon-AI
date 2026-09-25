@@ -41,16 +41,15 @@ export function AttachmentTile({
     <button
       type="button"
       aria-label={`Preview ${attachment.filename}`}
+      title={attachment.filename}
       onClick={() => onPreview(attachment)}
-      className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-left"
+      className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-left"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/75">
         <FileText className="h-4 w-4" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-white" title={attachment.filename}>
-          {attachment.filename}
-        </span>
+        <span className="block truncate text-sm font-medium text-white">{attachment.filename}</span>
         <span className="block truncate text-xs text-white/60">{attachment.mimeType}</span>
       </span>
     </button>

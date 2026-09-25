@@ -66,18 +66,9 @@ function isInsideAuthorizedRoot(canonicalPath: string, authorizedRoots: string[]
   });
 }
 
-function isAloneOnItsLine(segment: string, match: ParsedMarkdownTarget) {
-  const lineStart = segment.lastIndexOf("\n", match.start - 1) + 1;
-  const lineEnd = segment.indexOf("\n", match.end);
-  return (
-    !segment.slice(lineStart, match.start).trim() &&
-    !segment.slice(match.end, lineEnd === -1 ? segment.length : lineEnd).trim()
-  );
-}
-
-function keptLinkText(segment: string, match: ParsedMarkdownTarget, outcomes: LocalTargetOutcome[]) {
+function keptLinkText(match: ParsedMarkdownTarget, outcomes: LocalTargetOutcome[]) {
   const delivered = outcomes.every((outcome) => outcome.type === "attach" || outcome.type === "already_attached");
-  if (!match.label || !delivered || isAloneOnItsLine(segment, match)) {
+  if (!match.label || !delivered) {
     return "";
   }
 
@@ -290,7 +281,7 @@ export async function inferAssistantLocalAttachments(
         continue;
       }
 
-      parts.push(segment.slice(cursor, match.start), keptLinkText(segment, match, outcomes));
+      parts.push(segment.slice(cursor, match.start), keptLinkText(match, outcomes));
 
       for (const outcome of outcomes) {
         if (outcome.type === "deny") {

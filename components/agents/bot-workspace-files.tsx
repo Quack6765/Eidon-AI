@@ -40,7 +40,8 @@ function WorkspaceTreeNode({
           type="button"
           onClick={() => onToggle(key)}
           aria-expanded={isOpen}
-          className={`flex w-full items-center gap-1 rounded-md py-[3px] pr-2 text-left text-[11px] transition-colors hover:text-[#f4f4f5] ${
+          title={label ?? node.name}
+          className={`flex w-full items-center gap-1 rounded-md py-[3px] pr-2 text-left text-[11px] transition-colors hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 ${
             depth === 0 ? "text-[#f4f4f5]" : "text-white/60"
           }`}
           style={{ paddingLeft: depth * 10 + 4, fontSize: 11 }}
@@ -54,7 +55,7 @@ function WorkspaceTreeNode({
           ) : (
             <Folder className="h-3 w-3 shrink-0 text-[#a1a1aa]" aria-hidden="true" />
           )}
-          <span className="truncate" title={label ?? node.name}>{label ?? node.name}</span>
+          <span className="truncate">{label ?? node.name}</span>
         </button>
         {isOpen ? (
           <div>
@@ -86,12 +87,13 @@ function WorkspaceTreeNode({
       type="button"
       onClick={() => onOpenFile(scope, node)}
       aria-label={`Open ${node.name}`}
-      className="group flex w-full items-center gap-1 rounded-md py-[3px] pr-2 text-left text-[11px] text-white/60 transition-colors hover:text-[#f4f4f5]"
+      title={node.name}
+      className="group flex w-full items-center gap-1 rounded-md py-[3px] pr-2 text-left text-[11px] text-white/60 transition-colors hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
       style={{ paddingLeft: depth * 10 + 4, fontSize: 11 }}
     >
       <span className="w-3 shrink-0" aria-hidden="true" />
       <FileText className="h-3 w-3 shrink-0 text-[#71717a] transition-colors group-hover:text-[#a1a1aa]" aria-hidden="true" />
-      <span className="truncate" title={node.name}>{node.name}</span>
+      <span className="truncate">{node.name}</span>
     </button>
   );
 }
