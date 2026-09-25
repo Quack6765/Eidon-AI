@@ -448,7 +448,7 @@ export async function executeMessageBot(
   const delegationChain = context.input.delegationChain ?? { messagesSent: 0 };
   if (delegationChain.messagesSent >= MAX_BOT_MESSAGES_PER_REQUEST) {
     return result(
-      `Error: bots have already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages for this request without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after they reply.`,
+      `Error: bots have already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages for this request without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after the user replies.`,
       context.timelineSortOrder + 1
     );
   }

@@ -338,6 +338,7 @@ describe("bot-delegation", () => {
     expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBeUndefined();
     expect(result.promptMessages.at(-1)?.content).toContain(`already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages`);
     expect(result.promptMessages.at(-1)?.content).toContain("Report what you have to the user");
+    expect(result.promptMessages.at(-1)?.content).toContain("message bots again after the user replies");
     expect(chain.messagesSent).toBe(MAX_BOT_MESSAGES_PER_REQUEST);
     expect(calls).toHaveLength(0);
     expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
