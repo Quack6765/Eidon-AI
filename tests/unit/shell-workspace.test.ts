@@ -143,4 +143,18 @@ describe("shell workspace containment", () => {
     const sleeperPid = Number(readFileSync(join(workspaceDir, "sleeper.pid"), "utf8"));
     expect(() => process.kill(sleeperPid, 0)).toThrow();
   }, 10_000);
+
+  it("force-kills leftover group members that ignore SIGTERM after a timeout", async () => {
+    const workspaceDir = resolveShellWorkspaceDir("conv_timeout_stubborn");
+
+    const result = await executeLocalShellCommand({
+      command: "sh -c \"trap '' TERM; echo \\$\\$ > stubborn.pid; exec sleep 30\" >/dev/null 2>&1 & sleep 30",
+      cwd: workspaceDir,
+      timeoutMs: 300
+    });
+    expect(result.timedOut).toBe(true);
+
+    const stubbornPid = Number(readFileSync(join(workspaceDir, "stubborn.pid"), "utf8"));
+    await vi.waitFor(() => expect(() => process.kill(stubbornPid, 0)).toThrow(), { timeout: 5_000, interval: 100 });
+  }, 10_000);
 });

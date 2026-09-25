@@ -110,8 +110,11 @@ export function saveBotWorkspaceSkill(
   const renaming = previousDir !== null && previousFolderSlug !== slug && existsSync(previousDir);
   const creating = previousFolderSlug !== slug && !renaming;
 
-  if (renaming ? existsSync(skillDir) : creating && existsSync(skillFilePath)) {
+  if (previousFolderSlug !== slug && existsSync(skillFilePath)) {
     return { error: "A skill with the same or a similar name already exists. Choose a different name." };
+  }
+  if (renaming && existsSync(skillDir)) {
+    return { error: `The workspace already has a skills/${slug} folder. Choose a different name or remove that folder first.` };
   }
   if (creating && countSkillFolders(skillsDir) >= MAX_BOT_WORKSPACE_SKILLS) {
     return { error: `This bot already has ${MAX_BOT_WORKSPACE_SKILLS} skills. Delete one before adding another.` };
@@ -144,8 +147,12 @@ export function upsertBotWorkspaceSkill(
   const name = normalizeSingleLine(input.name).toLowerCase();
   const slug = slugifySkillFolderName(name);
   const existing = slug ? readSkillFolder(getBotSkillsDir(bot), bot.id, slug) : null;
-  const sameSkill = existing !== null && existing.name.toLowerCase() === name;
-  return saveBotWorkspaceSkill(bot, input, sameSkill ? existing.id : undefined);
+  if (existing && existing.name.toLowerCase() !== name) {
+    return {
+      error: `The skill "${existing.name}" already uses this folder. Save with that exact name to update it, or choose a different name.`
+    };
+  }
+  return saveBotWorkspaceSkill(bot, input, existing?.id);
 }
 
 export function deleteBotWorkspaceSkill(bot: Pick<Bot, "id" | "userId">, skillId: string) {

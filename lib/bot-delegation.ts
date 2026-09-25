@@ -35,14 +35,14 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import type { RuntimeAction } from "./tool-executors";
 import type { ChatTurnResult } from "@/lib/chat-turn";
-import type { BotRun, PromptMessage } from "@/lib/types";
+import type { BotRun, DelegationChain, PromptMessage } from "@/lib/types";
 
 type BotToolContext = {
   input: {
     memoryUserId?: string | null;
     conversationId?: string;
     assistantMessageId?: string;
-    delegationDepth?: number;
+    delegationChain?: DelegationChain;
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
     onActionComplete?: (
@@ -86,7 +86,7 @@ type DelegationOutcome = { status: string; summary: string; errorMessage?: strin
 
 const WAKE_MAX_WAIT_MS = 30 * 60_000;
 const TURN_RELEASE_WAIT_FALLBACK_MS = 5_000;
-export const MAX_DELEGATION_DEPTH = 8;
+export const MAX_BOT_MESSAGES_PER_REQUEST = 10;
 
 function createBotUserSlotLease(ownerUserId: string) {
   let held = false;
@@ -124,7 +124,7 @@ async function startTurnWhenIdle(input: {
   maxWaitMs: number;
   busyErrorMessage: string;
   unattended?: boolean;
-  delegationDepth?: number;
+  delegationChain?: DelegationChain;
   onTurnStarted?: () => void;
   onApprovalWait?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ChatTurnResult> {
@@ -137,7 +137,7 @@ async function startTurnWhenIdle(input: {
       botRun: { record: false },
       quietWhenBusy: true,
       unattended: input.unattended,
-      delegationDepth: input.delegationDepth,
+      delegationChain: input.delegationChain,
       onApprovalWait: input.onApprovalWait,
       onMessagesCreated: ({ userMessageId }) => {
         input.onTurnStarted?.();
@@ -165,9 +165,9 @@ async function runWorkerTurn(input: {
   runId: string;
   taskPrompt: string;
   ownerUserId: string;
-  delegationDepth: number;
+  delegationChain: DelegationChain;
 }): Promise<DelegationOutcome> {
-  const { target, runId, taskPrompt, ownerUserId, delegationDepth } = input;
+  const { target, runId, taskPrompt, ownerUserId, delegationChain } = input;
   return enqueueSerialTask(target.id, async () => {
     const slot = createBotUserSlotLease(ownerUserId);
     if (!(await slot.acquire(DEFAULT_BOT_RUN_TIMEOUT_MS))) {
@@ -206,7 +206,7 @@ async function runWorkerTurn(input: {
         maxWaitMs: DEFAULT_BOT_RUN_TIMEOUT_MS,
         busyErrorMessage: `${target.name} stayed busy and never picked up the message`,
         unattended: true,
-        delegationDepth,
+        delegationChain,
         onTurnStarted: () => {
           turnStarted = true;
           setTurnStallStop(target.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
@@ -320,7 +320,7 @@ export function deliverDelegationWake(input: {
   ownerUserId: string;
   content: string;
   maxWaitMs?: number;
-  delegationDepth?: number;
+  delegationChain?: DelegationChain;
 }): Promise<ChatTurnResult> {
   return enqueueSerialTask(`wake:${input.recipientConversationId}`, async () => {
     const maxWaitMs = input.maxWaitMs ?? WAKE_MAX_WAIT_MS;
@@ -338,7 +338,7 @@ export function deliverDelegationWake(input: {
         maxWaitMs,
         busyErrorMessage: "Recipient conversation stayed busy",
         unattended: recipientIsBot,
-        delegationDepth: input.delegationDepth,
+        delegationChain: input.delegationChain,
         onApprovalWait: recipientIsBot
           ? async (waiting) => {
               if (waiting) {
@@ -377,14 +377,6 @@ export async function executeMessageBot(
     return result("Error: bot and message are required", context.timelineSortOrder + 1);
   }
 
-  const delegationDepth = (context.input.delegationDepth ?? 0) + 1;
-  if (delegationDepth > MAX_DELEGATION_DEPTH) {
-    return result(
-      `Error: this request has already passed between bots ${MAX_DELEGATION_DEPTH} times without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after they reply.`,
-      context.timelineSortOrder + 1
-    );
-  }
-
   const sender = context.input.conversationId
     ? getBotByConversationId(context.input.conversationId)
     : null;
@@ -408,6 +400,15 @@ export async function executeMessageBot(
       );
     }
   }
+
+  const delegationChain = context.input.delegationChain ?? { messagesSent: 0 };
+  if (delegationChain.messagesSent >= MAX_BOT_MESSAGES_PER_REQUEST) {
+    return result(
+      `Error: bots have already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages for this request without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after they reply.`,
+      context.timelineSortOrder + 1
+    );
+  }
+  delegationChain.messagesSent += 1;
 
   const deliveredPrompt = sender
     ? `[Message from ${sender.name}]\n${message}`
@@ -439,7 +440,7 @@ export async function executeMessageBot(
       runId: run.id,
       taskPrompt: deliveredPrompt,
       ownerUserId,
-      delegationDepth
+      delegationChain
     }).catch(
       (error: unknown) => ({
         status: "failed",
@@ -469,7 +470,7 @@ export async function executeMessageBot(
       recipientConversationId: senderConversationId,
       ownerUserId,
       content: buildDelegationWakeContent(target.name, outcome),
-      delegationDepth
+      delegationChain
     });
     if (wake.status === "failed") {
       console.error(`[bot-delegation] reply from ${target.name} could not be delivered: ${wake.errorMessage}`);

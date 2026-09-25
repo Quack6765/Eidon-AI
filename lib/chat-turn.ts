@@ -60,7 +60,7 @@ import {
   startTurnAction,
   touchTurnActivity
 } from "@/lib/turn-activity";
-import type { ChatResearchOptions, ChatStreamEvent, ToolApprovalContext } from "@/lib/types";
+import type { ChatResearchOptions, ChatStreamEvent, DelegationChain, ToolApprovalContext } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -298,7 +298,7 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
-    delegationDepth?: number;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
@@ -467,7 +467,7 @@ async function startAssistantTurn(
       botTeam,
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
-      delegationDepth: options?.delegationDepth,
+      delegationChain: options?.delegationChain ?? { messagesSent: 0 },
       async onEvent(event: ChatStreamEvent) {
         touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
@@ -808,7 +808,7 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
-    delegationDepth?: number;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
@@ -881,7 +881,7 @@ export async function startChatTurn(
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
       unattended: options?.unattended,
-      delegationDepth: options?.delegationDepth,
+      delegationChain: options?.delegationChain,
       async onApprovalWait(waiting) {
         if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
         await options?.onApprovalWait?.(waiting);

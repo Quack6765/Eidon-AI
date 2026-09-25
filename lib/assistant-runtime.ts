@@ -379,7 +379,7 @@ export async function resolveAssistantTurn(input: {
   appSettings?: import("@/lib/types").RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
-  delegationDepth?: number;
+  delegationChain?: import("@/lib/types").DelegationChain;
   botTeam?: {
     isChief: boolean;
     roster: import("@/lib/bots").BotRosterEntry[];

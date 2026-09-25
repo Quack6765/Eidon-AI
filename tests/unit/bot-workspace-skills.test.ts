@@ -260,7 +260,7 @@ describe("bot-workspace-skills", () => {
 
       expect(
         saveBotWorkspaceSkill(bot, { name: "Target", description: "d", instructions: "i" }, created.skill.id)
-      ).toMatchObject({ error: expect.stringContaining("already exists") });
+      ).toMatchObject({ error: expect.stringContaining("already has a skills/target folder") });
       expect(existsSync(join(getBotSkillsDir(bot), "source", "SKILL.md"))).toBe(true);
     });
 
@@ -301,7 +301,7 @@ describe("bot-workspace-skills", () => {
       upsertBotWorkspaceSkill(bot, { name: "Release Notes", description: "d", instructions: "Original." });
 
       expect(upsertBotWorkspaceSkill(bot, { name: "release-notes", description: "d", instructions: "Clobber." })).toMatchObject({
-        error: expect.stringContaining("already exists")
+        error: expect.stringContaining('The skill "Release Notes" already uses this folder')
       });
       expect(listBotWorkspaceSkills(bot)[0].content).toContain("Original.");
     });

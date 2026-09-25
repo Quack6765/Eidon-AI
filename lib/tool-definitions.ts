@@ -134,7 +134,7 @@ export function buildToolDefinitions(input: {
         parameters: {
           type: "object",
           properties: {
-            name: { type: "string", description: "Short skill name (lowercase letters, digits, and hyphens)" },
+            name: { type: "string", description: "Short skill name, e.g. \"Release Notes\". Use an existing skill's exact name to update it." },
             description: { type: "string", description: "One-line description of when the skill applies" },
             instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
           },

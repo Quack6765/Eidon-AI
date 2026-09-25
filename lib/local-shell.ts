@@ -207,7 +207,7 @@ export async function executeLocalShellCommand(input: {
     let stderrTruncated = false;
     let timedOut = false;
     let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let terminating = false;
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -235,12 +235,12 @@ export async function executeLocalShellCommand(input: {
     };
 
     const terminate = () => {
-      if (forceKillTimer) {
+      if (terminating) {
         return;
       }
+      terminating = true;
       terminateProcessGroup(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => terminateProcessGroup(child, "SIGKILL"), FORCE_KILL_DELAY_MS);
-      forceKillTimer.unref();
+      setTimeout(() => terminateProcessGroup(child, "SIGKILL"), FORCE_KILL_DELAY_MS).unref();
     };
 
     const handleAbort = () => {
@@ -271,9 +271,6 @@ export async function executeLocalShellCommand(input: {
     });
 
     child.on("error", (error) => {
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
       finish({
         stdout: formatCapturedOutput(stdout, stdoutTruncated),
         stderr: truncateOutput(`${formatCapturedOutput(stderr, stderrTruncated)}${stderr ? "\n" : ""}${error.message}`),
@@ -284,9 +281,6 @@ export async function executeLocalShellCommand(input: {
     });
 
     child.on("close", (exitCode) => {
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
       finish({
         stdout: formatCapturedOutput(stdout, stdoutTruncated),
         stderr: formatCapturedOutput(stderr, stderrTruncated),

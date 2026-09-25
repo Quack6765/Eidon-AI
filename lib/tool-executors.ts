@@ -50,6 +50,7 @@ import type {
   MemoryProposalState,
   MessageActionKind,
   ProposalPayload,
+  DelegationChain,
   ToolApprovalContext,
   ToolApprovalProposalPayload,
   RuntimeAppSettings,
@@ -667,6 +668,10 @@ export async function executeSaveSkill(
         handle: string | undefined,
         patch: { detail?: string; resultSummary?: string }
       ) => Promise<void> | void;
+      onActionError?: (
+        handle: string | undefined,
+        patch: { detail?: string; resultSummary?: string }
+      ) => Promise<void> | void;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -703,19 +708,23 @@ export async function executeSaveSkill(
     result = { error: error instanceof Error ? error.message : "Failed to write the skill file" };
   }
 
+  throwIfAborted(context.input.abortSignal);
+  const detail = "skill" in result ? result.skill.name : String(args.name ?? "").trim();
+  const handle = await context.input.onActionStart?.({
+    kind: "save_skill",
+    label: "Save skill",
+    detail
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
   if ("error" in result) {
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: result.error });
     return errorResult(`Cannot save skill — ${result.error}`);
   }
 
   const savedSkill = result.skill;
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "save_skill",
-    label: "Save skill",
-    detail: savedSkill.name
-  });
-  await context.input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
-    detail: savedSkill.name,
+  await context.input.onActionComplete?.(actionHandle, {
+    detail,
     resultSummary: "Skill saved to the workspace skills folder."
   });
 
@@ -1396,7 +1405,7 @@ export async function executeToolCall(
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
-      delegationDepth?: number;
+      delegationChain?: DelegationChain;
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
     };

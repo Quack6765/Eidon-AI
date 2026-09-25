@@ -334,15 +334,14 @@ describe("local shell", () => {
     child.stdout.emit("data", "3 passing");
     await vi.advanceTimersByTimeAsync(5);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    child.emit("close", null);
+    const result = await resultPromise;
+    expect(summarizeShellResult(result)).toBe("Command timed out\n\n3 passing");
     expect(child.kill).not.toHaveBeenCalledWith("SIGKILL");
 
     await vi.advanceTimersByTimeAsync(2_000);
     expect(child.kill).toHaveBeenCalledWith("SIGKILL");
-
-    child.emit("close", null);
-    const result = await resultPromise;
-
-    expect(summarizeShellResult(result)).toBe("Command timed out\n\n3 passing");
   });
 
   it("caps requested timeouts at ten minutes", async () => {

@@ -30,12 +30,12 @@ vi.mock("@/lib/conversation-title-generator", () => ({
 import { createLocalUser } from "@/lib/users";
 import { createBot } from "@/lib/bots";
 import { listRecentBotRuns } from "@/lib/bot-runs";
-import { MAX_DELEGATION_DEPTH, executeMessageBot } from "@/lib/bot-delegation";
+import { MAX_BOT_MESSAGES_PER_REQUEST, executeMessageBot } from "@/lib/bot-delegation";
 import { createConversationManager } from "@/lib/conversation-manager";
 import { startChatTurn } from "@/lib/chat-turn";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import { updateProviderCatalog } from "@/lib/settings";
-import type { PromptMessage } from "@/lib/types";
+import type { DelegationChain, PromptMessage } from "@/lib/types";
 
 type TurnInput = Parameters<typeof executeMessageBot>[2]["input"];
 
@@ -60,14 +60,14 @@ function setupProvider() {
   });
 }
 
-describe("bot delegation depth", () => {
+describe("bot delegation budget", () => {
   beforeEach(() => {
     resolveAssistantTurnMock.mockReset();
     setupProvider();
   });
 
-  it("hands the turn's delegation depth to message_bot, which refuses once the limit is reached", async () => {
-    const user = await createLocalUser({ username: "depthwiring", password: "password-123", role: "user" as const });
+  it("hands the turn's message budget to message_bot, which refuses once it is spent", async () => {
+    const user = await createLocalUser({ username: "budgetwiring", password: "password-123", role: "user" as const });
     const sender = createBot({ name: "Ping" }, user.id);
     createBot({ name: "Pong" }, user.id);
     const replies: string[] = [];
@@ -83,15 +83,24 @@ describe("bot delegation depth", () => {
       return { answer: "Done.", thinking: "", usage: { outputTokens: 1 } };
     });
 
+    const spentChain: DelegationChain = { messagesSent: MAX_BOT_MESSAGES_PER_REQUEST };
     const turn = await startChatTurn(createConversationManager(), sender.homeConversationId, "Keep going", [], undefined, {
       botRun: { record: false },
       unattended: true,
-      delegationDepth: MAX_DELEGATION_DEPTH
+      delegationChain: spentChain
     });
 
     expect(turn.status).toBe("completed");
-    expect(resolveAssistantTurnMock.mock.calls[0][0]).toMatchObject({ delegationDepth: MAX_DELEGATION_DEPTH });
-    expect(replies[0]).toContain(`between bots ${MAX_DELEGATION_DEPTH} times`);
+    expect(resolveAssistantTurnMock.mock.calls[0][0].delegationChain).toBe(spentChain);
+    expect(replies[0]).toContain(`already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages`);
+    expect(spentChain.messagesSent).toBe(MAX_BOT_MESSAGES_PER_REQUEST);
     expect(listRecentBotRuns({ userId: user.id })).toEqual([]);
+
+    const userTurn = await startChatTurn(createConversationManager(), sender.homeConversationId, "New request", [], undefined, {
+      botRun: { record: false }
+    });
+
+    expect(userTurn.status).toBe("completed");
+    expect(resolveAssistantTurnMock.mock.calls[1][0].delegationChain).toEqual({ messagesSent: 0 });
   });
 });
