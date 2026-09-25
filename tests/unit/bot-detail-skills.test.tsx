@@ -148,7 +148,8 @@ function mockSkillEndpoints(skills: Skill[], options: { failList?: boolean } = {
       return {
         ok: true,
         json: async () => ({
-          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
+          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
       } as Response;
     }
@@ -298,7 +299,8 @@ describe("bot detail skills", () => {
       if (url === "/api/bots/bot_1/workspace") {
         return {
           ok: true,
-          json: async () => ({ tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] } })
+          json: async () => ({ tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] } })
         } as Response;
       }
       return {

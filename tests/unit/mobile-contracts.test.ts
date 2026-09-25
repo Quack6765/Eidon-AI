@@ -167,6 +167,7 @@ describe("Mobile API v1 contracts", () => {
       "/bots/{botId}/memories",
       "/bots/{botId}/reset-browser-session",
       "/bots/{botId}/workspace",
+      "/bots/{botId}/workspace/file",
       "/avatars/{seed}",
       "/messages/{messageId}/edit-restart",
       "/message-actions/{actionId}/approve",
@@ -245,6 +246,7 @@ describe("Mobile API v1 contracts", () => {
     const attachmentProperties = contract.components.schemas.Attachment.properties!;
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
+    expect(attachmentProperties).not.toHaveProperty("sourcePath");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
     expect(contract.components.schemas.MemoryProposalPayload.properties!.botId).toEqual({
       $ref: "#/components/schemas/NullableId"
@@ -307,7 +309,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(119);
+    expect(compileOpenApiJsonResponses()).toBe(120);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

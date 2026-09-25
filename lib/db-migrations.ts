@@ -2049,6 +2049,11 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
   }
 
+  const attachmentCols = db.prepare("PRAGMA table_info(message_attachments)").all() as Array<{ name: string }>;
+  if (!attachmentCols.some((column) => column.name === "source_path")) {
+    db.exec("ALTER TABLE message_attachments ADD COLUMN source_path TEXT");
+  }
+
   const hadSemanticChunksTable = tableExists(db, "semantic_chunks");
   db.exec(`
     CREATE TABLE IF NOT EXISTS semantic_chunks (

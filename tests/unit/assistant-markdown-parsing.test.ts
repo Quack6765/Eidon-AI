@@ -41,6 +41,9 @@ describe("normalizeProtectedMarkdownContentOutsideCodeBlocks", () => {
 
   it("normalizes content with no code blocks", () => {
     expect(normalizeProtectedMarkdownContentOutsideCodeBlocks("A\n\n\n\nB")).toBe("A\n\nB");
+    expect(
+      normalizeProtectedMarkdownContentOutsideCodeBlocks("\n\nIntro\n\n\n```js\ncode\n```\n\n\nAfter the block\n\n")
+    ).toBe("Intro\n\n```js\ncode\n```\n\nAfter the block");
   });
 });
 
