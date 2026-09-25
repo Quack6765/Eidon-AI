@@ -12,7 +12,7 @@ import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { createMessage } from "@/lib/conversations";
-import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
+import { getBotRun, getBotRunDelegation, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
 import { configureBotRunLimits, enqueueSerialTask, releaseBotUserSlot, resetBotRunLimiter, tryAcquireBotUserSlot } from "@/lib/bot-run-limiter";
 import { claimChatTurnStart, hasActiveChatTurn, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import {
@@ -24,7 +24,7 @@ import {
 } from "@/lib/turn-activity";
 import {
   buildDelegationWakeContent,
-  deliverDelegationWake,
+  deliverWakeMessage,
   executeCreateBotTool,
   executeMessageBot,
   executeUpdateBotTool,
@@ -125,6 +125,13 @@ describe("bot-delegation", () => {
     expect(runs[0].status).toBe("completed");
     expect(runs[0].triggerSource).toBe("delegated");
     expect(runs[0].parentMessageId).toBe(chiefMessage.id);
+    await vi.waitFor(() => expect(getBotRunDelegation(runs[0].id)?.pendingReply).toBeNull());
+    expect(getBotRunDelegation(runs[0].id)).toEqual({
+      prompt: workerCalls[0],
+      replyConversationId: chief.homeConversationId,
+      replyActionId: "action_1",
+      pendingReply: null
+    });
   });
 
   it("rejects messaging unknown bots or itself without creating runs", async () => {
@@ -529,12 +536,12 @@ describe("bot-delegation", () => {
       return { status: "completed" as const };
     });
 
-    const first = deliverDelegationWake({
+    const first = deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "first"
     });
-    const second = deliverDelegationWake({
+    const second = deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "second"
@@ -649,7 +656,7 @@ describe("bot-delegation", () => {
       return { status: "completed" as const };
     });
 
-    const wake = await deliverDelegationWake({
+    const wake = await deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: buildDelegationWakeContent("Bot", { status: "completed", summary: "done" }),
@@ -677,7 +684,7 @@ describe("bot-delegation", () => {
       errorMessage: "Conversation already has an active assistant turn"
     }));
 
-    const wake = await deliverDelegationWake({
+    const wake = await deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "wake",

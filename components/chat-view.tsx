@@ -1024,33 +1024,37 @@ export function ChatView({
             )
           });
           break;
-        case "snapshot":
+        case "snapshot": {
+          const snapshotMessages = msg.messages as Message[];
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           setIsConversationActive(
-            (msg.messages as Message[]).some(
+            snapshotMessages.some(
               (message) => message.role === "assistant" && message.status === "streaming"
             )
           );
-          if (streamMessageId) {
-            const activeSnapshotMessage = (msg.messages as Message[]).find(
-              (message) => message.id === streamMessageId
+          let activeStreamMessageId = streamMessageId;
+          if (activeStreamMessageId) {
+            const activeSnapshotMessage = snapshotMessages.find(
+              (message) => message.id === activeStreamMessageId
             );
 
-            if (
-              activeSnapshotMessage &&
-              activeSnapshotMessage.status !== "streaming" &&
-              !finalizePendingRef.current
-            ) {
+            if (activeSnapshotMessage?.status === "streaming") {
+              syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
+            } else if ((activeSnapshotMessage || snapshotMessages.length > 0) && !finalizePendingRef.current) {
+              const endedStreamMessageId = activeStreamMessageId;
               setStreamMessageId(null);
               updateStreamTimeline([]);
               streamBuffer.reset();
               setHasReceivedFirstToken(false);
               setIsSending(false);
-            } else if (activeSnapshotMessage && activeSnapshotMessage.status === "streaming") {
-              syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
+              if (!activeSnapshotMessage) {
+                setMessages((current) => current.filter((message) => message.id !== endedStreamMessageId));
+              }
+              activeStreamMessageId = null;
             }
-          } else {
-            const streamingMsg = (msg.messages as Message[]).find(
+          }
+          if (!activeStreamMessageId) {
+            const streamingMsg = snapshotMessages.find(
               (message) => message.status === "streaming" && message.role === "assistant"
             );
             if (streamingMsg) {
@@ -1064,8 +1068,9 @@ export function ChatView({
             }
           }
 
-          applySnapshotReconciliation(msg.messages as Message[], streamMessageId);
+          applySnapshotReconciliation(snapshotMessages, activeStreamMessageId);
           break;
+        }
         case "user_message_persisted": {
           if (msg.conversationId !== payload.conversation.id) {
             break;
