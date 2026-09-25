@@ -56,8 +56,8 @@
     "/conversations/{conversationId}": {
       "parameters": [{ "$ref": "#/components/parameters/conversationId" }],
       "get": { "operationId": "getConversationSnapshot", "tags": ["Conversations"], "responses": { "200": { "$ref": "#/components/responses/ConversationSnapshot" }, "404": { "$ref": "#/components/responses/Error" } } },
-      "patch": { "operationId": "updateConversation", "tags": ["Conversations"], "description": "Renames, moves, selects a provider or persona, and updates temporary-chat state using the same ownership rules as the web application.", "requestBody": { "$ref": "#/components/requestBodies/ConversationUpdate" }, "responses": { "200": { "$ref": "#/components/responses/Conversation" } } },
-      "delete": { "operationId": "deleteConversation", "tags": ["Conversations"], "responses": { "200": { "$ref": "#/components/responses/ConversationDelete" } } }
+      "patch": { "operationId": "updateConversation", "tags": ["Conversations"], "description": "Renames, moves, selects a provider or persona, and updates temporary-chat state using the same ownership rules as the web application. Only regular chats can be made temporary; bot and automation conversations return 409.", "requestBody": { "$ref": "#/components/requestBodies/ConversationUpdate" }, "responses": { "200": { "$ref": "#/components/responses/Conversation" }, "409": { "$ref": "#/components/responses/Error" } } },
+      "delete": { "operationId": "deleteConversation", "tags": ["Conversations"], "description": "Deletes a conversation. A bot's home conversation returns 409; it is removed only by deleting the bot.", "responses": { "200": { "$ref": "#/components/responses/ConversationDelete" }, "409": { "$ref": "#/components/responses/Error" } } }
     },
     "/conversations/{conversationId}/share": {
       "parameters": [{ "$ref": "#/components/parameters/conversationId" }],

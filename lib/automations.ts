@@ -360,20 +360,11 @@ export function getPreviousAutomationRunResult(automationId: string, excludeRunI
       `SELECT m.content as content
        FROM automation_runs r
        JOIN messages m
-         ON m.conversation_id = r.conversation_id
-        AND m.role = 'assistant'
+         ON m.id = r.result_message_id
         AND m.status = 'completed'
        WHERE r.automation_id = ?
          AND r.id != ?
          AND r.status = 'completed'
-         AND r.conversation_id IS NOT NULL
-         AND m.rowid = (
-           SELECT MAX(m2.rowid)
-           FROM messages m2
-           WHERE m2.conversation_id = r.conversation_id
-             AND m2.role = 'assistant'
-             AND m2.status = 'completed'
-         )
        ORDER BY r.scheduled_for DESC, r.created_at DESC, r.id DESC
        LIMIT 1`
     )
@@ -1093,6 +1084,16 @@ export function attachConversationToRun(runId: string, conversationId: string) {
        WHERE id = ?`
     )
     .run(conversationId, runId);
+}
+
+export function attachResultMessageToRun(runId: string, messageId: string) {
+  getDb()
+    .prepare(
+      `UPDATE automation_runs
+       SET result_message_id = ?
+       WHERE id = ?`
+    )
+    .run(messageId, runId);
 }
 
 export function updateAutomationRunStatus(runId: string, input: UpdateAutomationRunStatusInput) {

@@ -1129,8 +1129,8 @@ test.describe("Feature: Skills in settings", () => {
     // Add skill
     await page.getByLabel("Add skill").click();
     await page.getByPlaceholder("Skill name").fill("Test Skill");
-    await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for French output.");
-    await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
+    await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for English output.");
+    await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in English.");
     await page.getByRole("button", { name: "Save" }).last().click();
 
     await expect(page.getByRole("heading", { name: "Test Skill", exact: true })).toBeVisible({

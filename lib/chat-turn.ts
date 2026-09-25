@@ -90,6 +90,7 @@ export type StartChatTurn = (
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    providerProfileId?: string;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
@@ -182,7 +183,7 @@ export async function* runAssistantTurn(input: {
   }
 }
 
-export function getAssistantTurnStartPreflight(conversationId: string) {
+export function getAssistantTurnStartPreflight(conversationId: string, providerProfileId?: string) {
   const conversation = getConversation(conversationId);
   if (!conversation) {
     return {
@@ -193,9 +194,10 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     };
   }
 
+  const resolvedProviderProfileId = providerProfileId ?? conversation.providerProfileId;
   const profileSettings =
-    (conversation.providerProfileId
-      ? getRuntimeProviderProfile(conversation.providerProfileId)
+    (resolvedProviderProfileId
+      ? getRuntimeProviderProfile(resolvedProviderProfileId)
       : null) ?? getDefaultRuntimeProviderProfile();
   const settings = profileSettings
     ? {
@@ -811,10 +813,11 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    providerProfileId?: string;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
-  const preflight = getAssistantTurnStartPreflight(conversationId);
+  const preflight = getAssistantTurnStartPreflight(conversationId, options?.providerProfileId);
   if (!preflight.ok) {
     if (preflight.status === "failed") {
       manager.broadcast(conversationId, {
