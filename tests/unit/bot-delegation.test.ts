@@ -9,7 +9,7 @@ vi.mock("@/lib/chat-turn", () => ({
 }));
 
 import { createLocalUser } from "@/lib/users";
-import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
+import { buildBotSystemPrompt, createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { createMessage } from "@/lib/conversations";
 import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
@@ -975,6 +975,22 @@ describe("bot-delegation", () => {
     );
     expect(tooLong.promptMessages.at(-1)?.content).toContain("instructions are too long");
     expect(getBot(worker.id, user.id)?.systemPrompt).toBe("You keep the ledger.");
+  });
+
+  it("applies the chief's self-edited instructions to its own prompt", async () => {
+    const user = await createLocalUser({ username: "chiefselfedit", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+
+    const result = await executeUpdateOwnInstructionsTool(
+      "call_cs1",
+      { instructions: "Summarize every delegated reply in three bullets." },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
+    expect(buildBotSystemPrompt(getBot(chief.id, user.id)!)).toContain(
+      "Summarize every delegated reply in three bullets."
+    );
   });
 
   it("updates and renames a bot via the update_bot tool", async () => {
