@@ -528,7 +528,7 @@ describe("automation scheduler", () => {
       "Run the shared pipeline",
       [],
       undefined,
-      { unattended: true }
+      { unattended: true, providerProfileId: "profile_scheduler", onMessagesCreated: expect.any(Function) }
     );
     expect(conversation).toMatchObject({
       automationId: automation.id,
@@ -589,7 +589,12 @@ describe("automation scheduler", () => {
       "Research heat pump subsidies",
       [],
       undefined,
-      { research: { deadlineMs: 5 * 60_000 - 30_000 }, unattended: true }
+      {
+        research: { deadlineMs: 5 * 60_000 - 30_000 },
+        unattended: true,
+        providerProfileId: "profile_scheduler",
+        onMessagesCreated: expect.any(Function)
+      }
     );
   });
 
@@ -1291,6 +1296,64 @@ describe("automation scheduler", () => {
       } else {
         process.env.TZ = previousTz;
       }
+    }
+  });
+
+  it("resumes a paused routine at its next slot without backfilling the paused hours", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T08:00:30.000Z"));
+
+    try {
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      const automation = createAutomation({
+        name: "Hourly check",
+        prompt: "Check the queue",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 60,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      });
+      const lastRun = createAutomationRun({
+        automationId: automation.id,
+        scheduledFor: "2026-04-10T08:00:00.000Z",
+        triggerSource: "schedule"
+      });
+      updateAutomationRunStatus(lastRun.id, {
+        status: "completed",
+        startedAt: "2026-04-10T08:00:00.000Z",
+        finishedAt: "2026-04-10T08:00:20.000Z"
+      });
+      updateAutomation(automation.id, { enabled: false });
+
+      vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+      updateAutomation(automation.id, { enabled: true });
+      expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T14:00:00.000Z");
+
+      const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      const scheduler = createAutomationScheduler({
+        now: () => new Date("2026-04-10T13:04:00.000Z"),
+        timeZone: "UTC",
+        manager: createConversationManager(),
+        startChatTurn
+      });
+
+      await scheduler.runOnce();
+
+      expect(startChatTurn).not.toHaveBeenCalled();
+      expect(listAutomationRuns(automation.id).map((run) => run.id)).toEqual([lastRun.id]);
+      expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T14:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
     }
   });
 
