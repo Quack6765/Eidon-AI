@@ -499,7 +499,7 @@ export function getBotStatus(bot: Bot): BotStatus {
   const waitingRun = getDb()
     .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_approval' LIMIT 1")
     .get(bot.id);
-  if (waitingRun) return "waiting_approval";
+  if (waitingRun && hasPendingToolApproval(bot)) return "waiting_approval";
 
   const conversation = getConversation(bot.homeConversationId);
   if (conversation?.isActive) return "running";

@@ -136,6 +136,7 @@ describe("bot tool approvals", () => {
       observed.waitingForInputAfterSeen = toBotSummary(getBot(bot.id)!).waitingForInput;
 
       approveToolApproval(approval.action.id, undefined, user.id);
+      observed.statusRightAfterAnswer = getBotStatus(getBot(bot.id)!);
       outcome = await pending;
       observed.resumedStatus = listRecentBotRuns({ userId: user.id })[0].status;
       return completedTurn();
@@ -152,6 +153,7 @@ describe("bot tool approvals", () => {
       botStatus: "waiting_approval",
       stalledWhileWaiting: false,
       waitingForInputAfterSeen: true,
+      statusRightAfterAnswer: "running",
       resumedStatus: "running"
     });
     expect(listRecentBotRuns({ userId: user.id })[0].status).toBe("completed");

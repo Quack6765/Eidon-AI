@@ -77,10 +77,6 @@ describe("check_bot tool", () => {
     updateBotRunStatus(run.id, { status: "waiting_approval", startedAt: new Date().toISOString() });
     setConversationActive(worker.homeConversationId, true);
 
-    const unknownApproval = String((await runCheckBot(user.id, "Deployer")).promptMessages.at(-1)?.content);
-    expect(unknownApproval).toContain("Deployer is waiting for approval.");
-    expect(unknownApproval).toContain("Blocked: waiting for the user to approve a tool call.");
-
     const message = createMessage({ conversationId: worker.homeConversationId, role: "assistant", content: "" });
     createMessageAction({
       messageId: message.id,
@@ -93,6 +89,7 @@ describe("check_bot tool", () => {
     });
 
     const content = String((await runCheckBot(user.id, "Deployer")).promptMessages.at(-1)?.content);
+    expect(content).toContain("Deployer is waiting for approval.");
     expect(content).toMatch(/Blocked: waiting \d+s for the user to answer "Allow "git" commands\?" \(git push origin main\)\./);
     expect(content).toContain("answers the approval card in Deployer's conversation");
     setConversationActive(worker.homeConversationId, false);

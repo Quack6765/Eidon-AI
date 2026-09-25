@@ -482,12 +482,9 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
       lines.push(`Last activity ${formatElapsed(activity.lastActivityAt)} ago.`);
     }
   } else if (status === "waiting_approval") {
-    const approval = listPendingBotApprovals({ botId: target.id })[0]?.action;
-    lines.push(
-      approval
-        ? `Blocked: waiting ${formatElapsed(approval.startedAt)} for the user to answer "${approval.label}" (${approval.detail}).`
-        : "Blocked: waiting for the user to approve a tool call."
-    );
+    for (const { action } of listPendingBotApprovals({ botId: target.id })) {
+      lines.push(`Blocked: waiting ${formatElapsed(action.startedAt)} for the user to answer "${action.label}" (${action.detail}).`);
+    }
     lines.push(`It resumes once the user answers the approval card in ${target.name}'s conversation.`);
   } else if (status === "queued") {
     lines.push("Waiting for its turn — another task or a concurrency slot is ahead of it.");
