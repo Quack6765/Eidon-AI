@@ -6,7 +6,7 @@ import {
   createAttachments,
   getAttachment
 } from "@/lib/attachments";
-import { ensureChiefBot, getBot } from "@/lib/bots";
+import { createBot, ensureChiefBot, getBot } from "@/lib/bots";
 import { createConversation, createMessage } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getGlobalPreferences } from "@/lib/global-preferences";
@@ -136,9 +136,9 @@ describe("enforceConversationRetention", () => {
     expect(fs.existsSync(attachmentFilePath(foreverAttachment.relativePath))).toBe(true);
   });
 
-  it("never prunes the chief of staff home conversation", async () => {
+  it("keeps idle bots and their threads past the retention window", async () => {
     const user = await createLocalUser({
-      username: "retention-chief-user",
+      username: "retention-bot-owner",
       password: "Password123!",
       role: "user"
     });
@@ -146,13 +146,21 @@ describe("enforceConversationRetention", () => {
       conversationRetention: "7d"
     });
     const chief = ensureChiefBot(user.id);
-    backdateConversation(chief.homeConversationId, 10 * DAY_MS);
+    const worker = createBot({ name: "Idle worker" }, user.id);
+    const [workerAttachment] = await createAttachments(worker.homeConversationId, [
+      { filename: "report.zip", mimeType: "application/zip", bytes: Buffer.from("report") }
+    ]);
+    backdateConversation(chief.homeConversationId, 30 * DAY_MS);
+    backdateConversation(worker.homeConversationId, 30 * DAY_MS);
 
     const result = enforceConversationRetention();
 
     expect(result.prunedConversations).toBe(0);
-    expect(conversationExists(chief.homeConversationId)).toBe(true);
-    expect(getBot(chief.id, user.id)).not.toBeNull();
+    for (const bot of [chief, worker]) {
+      expect(getBot(bot.id, user.id)).not.toBeNull();
+      expect(conversationExists(bot.homeConversationId)).toBe(true);
+    }
+    expect(fs.existsSync(attachmentFilePath(workerAttachment.relativePath))).toBe(true);
   });
 });
 

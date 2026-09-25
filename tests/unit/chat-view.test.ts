@@ -1772,6 +1772,19 @@ describe("chat view", () => {
     });
   });
 
+  it("offers the temporary toggle only on an empty regular chat", () => {
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    expect(screen.getByRole("button", { name: "Temporary conversation" })).toBeInTheDocument();
+    view.unmount();
+
+    const botPayload = createPayload();
+    botPayload.conversation.conversationOrigin = "bot";
+    renderWithProvider(
+      React.createElement(ChatView, { payload: botPayload, retainEmptyConversation: true })
+    );
+    expect(screen.queryByRole("button", { name: "Temporary conversation" })).not.toBeInTheDocument();
+  });
+
   it("keeps an empty conversation when the chat view remounts on the same route", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 

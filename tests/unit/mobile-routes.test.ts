@@ -341,6 +341,13 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(chiefDelete.status).toBe(400);
 
+    const homeThreadDelete = await mobileDelete(
+      request(["conversations", createdBot.homeConversationId], memberSession.token, { method: "DELETE" }),
+      context(["conversations", createdBot.homeConversationId])
+    );
+    expect(homeThreadDelete.status).toBe(409);
+    await assertResponseContract("/conversations/{conversationId}", "delete", homeThreadDelete);
+
     const deleted = await mobileDelete(
       request(["bots", botId], memberSession.token, { method: "DELETE" }),
       context(["bots", botId])

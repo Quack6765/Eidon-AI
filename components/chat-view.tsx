@@ -2458,7 +2458,7 @@ export function ChatView({
             isResearch={isResearchToggled}
             onResearchChange={setIsResearchToggled}
             isTemporary={isTemporaryToggled}
-            showTemporaryToggle={messages.length === 0}
+            showTemporaryToggle={messages.length === 0 && payload.conversation.conversationOrigin === "manual"}
             onTemporaryChange={(value: boolean) => {
               setIsTemporaryToggled(value);
               fetch(`/api/conversations/${payload.conversation.id}`, {
