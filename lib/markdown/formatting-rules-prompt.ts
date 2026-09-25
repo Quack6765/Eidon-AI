@@ -20,4 +20,5 @@ Your responses are rendered with GitHub Flavored Markdown (GFM). Write standard,
 
 ### Mermaid diagrams
 Mermaid is parsed line by line, so the diagram type goes on the first line and every node, edge, entry, or statement goes on its own line — never glue two onto one line. ALWAYS wrap every node label in double quotes — write \`A["API Gateway (Backup)"]\`, never \`A[API Gateway (Backup)]\` — because an unquoted \`(\`, \`)\`, \`&\`, \`/\`, or \`<br/>\` breaks the parser. Always close the block with \`\`\` on its own line so the diagram does not swallow the text that follows it.
+Never set colors or themes inside a diagram — no \`%%{init: ...}%%\` directives, no \`style\` statements, no \`classDef\` with \`fill:\` or \`color:\`. The app renders diagrams with its own dark-aware theme (light cards with black text, light text on the dark canvas), and hardcoded colors make text invisible on it.
 `;

@@ -413,6 +413,79 @@ html.ios-pwa .app-shell {
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
+[data-streamdown="mermaid"] [role="application"] {
+  will-change: auto !important;
+}
+
+[data-streamdown="mermaid"] > div {
+  transform: translate(var(--diagram-zoom-x, 0px), var(--diagram-zoom-y, 0px)) scale(var(--diagram-zoom-g, 1)) !important;
+}
+
+[data-streamdown="mermaid"] [role="application"] > div {
+  width: 100%;
+}
+
+[data-streamdown="mermaid"] {
+  pointer-events: none !important;
+}
+
+[data-streamdown="mermaid"] > div > div.absolute {
+  display: none !important;
+}
+
+[data-streamdown="mermaid-block-actions"] {
+  pointer-events: none !important;
+}
+
+[data-streamdown="mermaid-block-actions"] button {
+  pointer-events: auto !important;
+}
+
+[data-streamdown="mermaid-block"] > div:last-child {
+  cursor: pointer;
+}
+
+[data-streamdown="mermaid-block"] {
+  touch-action: pan-y;
+}
+
+body:has(> div.fixed.inset-0.z-50) .app-shell {
+  visibility: hidden;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] {
+  pointer-events: auto !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] [role="application"] {
+  pointer-events: none !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] > div > div.absolute {
+  display: flex !important;
+}
+
+body > div.fixed.inset-0.z-50 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  touch-action: none;
+}
+
+[data-streamdown="mermaid"] [role="application"] {
+  transition: none !important;
+  transform-origin: var(--diagram-zoom-origin, center center) !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] [role="application"] > div > svg {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 100% !important;
+}
+
+[data-streamdown="mermaid"] .labelBkg span.edgeLabel {
+  color: #f4f4f5 !important;
+}
+
 .markdown-body [data-streamdown="mermaid-block"] .bg-red-50 {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.06);
