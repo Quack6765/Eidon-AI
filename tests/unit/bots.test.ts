@@ -78,6 +78,8 @@ describe("bots", () => {
     expect(rosterPrompt).toContain("Researcher");
     expect(rosterPrompt).toContain("Web research");
     expect(rosterPrompt).toContain("Finds sources.");
+    expect(rosterPrompt).toContain("write the new bot's specific instructions in the same create_bot call");
+    expect(rosterPrompt).toContain("title, description, or instructions");
   });
 
   it("composes worker prompts from the base, identity, and communication context", async () => {
@@ -106,7 +108,9 @@ describe("bots", () => {
     expect(curated.startsWith(DEFAULT_BOT_BASE_SYSTEM_PROMPT)).toBe(true);
     expect(curated).toContain("You curate art.");
     expect(curated).toContain("message_bot");
-    expect(curated).toContain("Only the chief of staff can create or edit bots");
+    expect(curated).toContain("Only the chief of staff can create bots");
+    expect(curated).toContain("update your own instructions with update_own_instructions");
+    expect(curated).toContain("always tell the user what you changed");
   });
 
   it("builds the chief prompt with a cautious creation policy requiring confirmation", async () => {

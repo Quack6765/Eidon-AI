@@ -398,9 +398,13 @@ export function ChatView({
     setMessages((current) => {
       const incoming = sanitizeMessages(payload.messages);
       if (!current.length) return incoming;
+      const activeStreamId = streamMessageIdRef.current;
       return incoming.map((msg) => {
-        if (msg.status !== "error" || msg.content) return msg;
         const local = current.find((m) => m.id === msg.id);
+        if (activeStreamId && msg.id === activeStreamId && local?.status === "streaming") {
+          return local;
+        }
+        if (msg.status !== "error" || msg.content) return msg;
         return local?.content ? { ...msg, content: local.content } : msg;
       });
     });
@@ -888,23 +892,21 @@ export function ChatView({
       }
 
       const streamedTimeline = streamTimelineRef.current;
-      const finalTimeline = event.message?.timeline
-        ? mergeStreamingSnapshotTimeline(streamedTimeline, event.message.timeline)
-        : streamedTimeline;
+      const serverTimeline = event.message?.timeline ?? [];
+      const finalTimeline = serverTimeline.length > 0 ? serverTimeline : streamedTimeline;
 
       const completedMessage = event.message;
 
       if (completedMessage) {
+        const completedWithTimeline = {
+          ...completedMessage,
+          status: wasStopped ? ("stopped" as const) : ("completed" as const),
+          timeline: finalTimeline
+        } as Message;
         setMessages((current) =>
-          current.map((m) =>
-            m.id === event.messageId
-              ? {
-                  ...completedMessage,
-                  status: wasStopped ? ("stopped" as const) : ("completed" as const),
-                  timeline: finalTimeline.length > 0 ? finalTimeline : completedMessage.timeline
-                } as Message
-              : m
-          )
+          current.some((m) => m.id === event.messageId)
+            ? current.map((m) => (m.id === event.messageId ? completedWithTimeline : m))
+            : [...current, completedWithTimeline]
         );
       } else if (isForActiveStream) {
         const bufferSnapshot = streamBuffer.getSnapshot();
@@ -927,7 +929,15 @@ export function ChatView({
 
       if (!wasStopped) {
         setMessages((current) =>
-          current.filter((m) => !(m.role === "assistant" && m.status === "error"))
+          current.filter(
+            (m) =>
+              !(
+                m.role === "assistant" &&
+                m.status === "error" &&
+                (m.timeline ?? []).length === 0 &&
+                !m.thinkingContent?.trim()
+              )
+          )
         );
       }
 
@@ -1431,6 +1441,11 @@ export function ChatView({
           !finalizePendingRef.current &&
           (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))
         ) {
+          if (activeMessage && activeMessage.status !== "streaming") {
+            setMessages((current) =>
+              current.map((m) => (m.id === activeMessage.id ? activeMessage : m))
+            );
+          }
           setStreamMessageId(null);
           updateStreamTimeline([]);
           streamBuffer.reset();

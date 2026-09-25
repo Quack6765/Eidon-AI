@@ -1388,9 +1388,12 @@ describe("chat view", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
 
-    await waitFor(() => {
-      expect(screen.getByText("Cleaning…")).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("Cleaning…")).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
 
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(wsMock.send).not.toHaveBeenCalled();
@@ -4866,7 +4869,121 @@ describe("chat view", () => {
     });
   });
 
-  it("collapses retried tool actions with the same tool and detail into one live row", async () => {
+  it("keeps server-persisted text segments when the local stream lost them before done", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Let me look into it." }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "stream_retry" }
+      });
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_start",
+          action: {
+            id: "act_final",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=weather",
+            arguments: null,
+            resultSummary: "",
+            sortOrder: 2,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
+          }
+        }
+      });
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_assistant",
+          message: createMessage({
+            id: "msg_assistant",
+            content: "Let me look into it. Here are the findings.",
+            timeline: [
+              {
+                id: "seg_1",
+                timelineKind: "text",
+                sortOrder: 0,
+                createdAt: new Date().toISOString(),
+                content: "Let me look into it."
+              },
+              {
+                id: "seg_2",
+                timelineKind: "text",
+                sortOrder: 1,
+                createdAt: new Date().toISOString(),
+                content: " Here are the findings."
+              },
+              {
+                id: "act_final",
+                messageId: "msg_assistant",
+                timelineKind: "action",
+                kind: "mcp_tool_call",
+                status: "completed",
+                serverId: "exa",
+                skillId: null,
+                toolName: "web_search_exa",
+                label: "web_search_exa",
+                detail: "query=weather",
+                arguments: null,
+                resultSummary: "ok",
+                sortOrder: 2,
+                startedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                proposalState: null,
+                proposalPayload: null,
+                proposalUpdatedAt: null
+              }
+            ]
+          })
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Let me look into it. Here are the findings.").length
+      ).toBeGreaterThan(0);
+    });
+
+    const textBlock = screen.getAllByTestId("assistant-message-content")[0];
+    const actionButton = screen.getAllByRole("button", { name: "web_search_exa" })[0];
+    expect(
+      textBlock.compareDocumentPosition(actionButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps retried tool attempts with the same tool and detail as separate live rows", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
@@ -4934,7 +5051,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText("web_search_exa")).toHaveLength(1);
+      expect(screen.getAllByText("web_search_exa")).toHaveLength(2);
     });
   });
 

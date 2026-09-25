@@ -97,7 +97,7 @@ function buildMemory(overrides: Partial<UserMemory> = {}): UserMemory {
 }
 
 function renderView(bot: BotSummary) {
-  return renderWithPanelOpen(
+  const toggle = renderWithPanelOpen(
     React.createElement(BotDetailView, {
       bot,
       systemPrompt: "You are a research bot.",
@@ -105,6 +105,8 @@ function renderView(bot: BotSummary) {
       routines: []
     })
   );
+  fireEvent.click(screen.getByRole("button", { name: "Memories" }));
+  return toggle;
 }
 
 function mockMemoryEndpoints(memories: UserMemory[]) {

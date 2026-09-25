@@ -40,7 +40,7 @@ import {
   requestToolExecutionApproval
 } from "@/lib/tool-approvals";
 import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
-import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import { resolveBotSandbox } from "./bot-sandbox";
@@ -1504,6 +1504,10 @@ export async function executeToolCall(
 
   if (name === "update_bot") {
     return executeUpdateBotTool(toolCallId, args, context);
+  }
+
+  if (name === "update_own_instructions") {
+    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
   }
 
   if (name === "create_memory") {

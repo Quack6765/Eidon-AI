@@ -377,17 +377,18 @@ async function startAssistantTurn(
 
     async function flushAnswerBuffer() {
       if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
-      const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
+      const pendingAnswer = answerBuffer;
+      const pendingSortOrder = timelineSortOrder++;
+      answerBuffer = "";
+      const sanitizedBuffer = await contentPersistence.appendSegment(pendingAnswer);
       if (!sanitizedBuffer) {
-        answerBuffer = "";
         return;
       }
       createMessageTextSegment({
         messageId: assistantMessageId,
         content: sanitizedBuffer,
-        sortOrder: timelineSortOrder++
+        sortOrder: pendingSortOrder
       });
-      answerBuffer = "";
     }
 
     const compacted = await ensureCompactedContext(conversation.id, settings, {
@@ -467,10 +468,11 @@ async function startAssistantTurn(
           answerBuffer += event.text;
           latestAnswer += event.text;
         } else if (event.type === "stream_retry") {
-          answerBuffer = "";
+          const flushed = flushAnswerBuffer();
           latestAnswer = "";
           latestThinking = "";
           sawStreamedAnswerSinceLastSegment = false;
+          await flushed;
         } else if (event.type === "answer_reset") {
           answerBuffer = "";
           latestAnswer = "";
@@ -680,7 +682,7 @@ async function startAssistantTurn(
         const errorMessage = error instanceof Error ? error.message : "Chat stream failed";
         updateMessage(assistantMessageId, {
           content: errorMessage,
-          thinkingContent: "",
+          thinkingContent: latestThinking,
           status: "error"
         });
       }

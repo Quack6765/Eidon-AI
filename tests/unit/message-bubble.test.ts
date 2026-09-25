@@ -949,7 +949,7 @@ describe("message bubble", () => {
     expect(blocks[1]?.textContent).toContain("Save memory");
   });
 
-  it("collapses consecutive retries of the same tool into a single visible action row", () => {
+  it("keeps consecutive retries of the same tool as separate action rows", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -989,7 +989,7 @@ describe("message bubble", () => {
 
     const toolButtons = screen.getAllByRole("button", { name: "web_search_exa" });
 
-    expect(toolButtons).toHaveLength(1);
+    expect(toolButtons).toHaveLength(2);
   });
 
   it("shows the web search query in the collapsed title without repeating it in expanded results", () => {

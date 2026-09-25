@@ -168,6 +168,7 @@ function renderView(bot: BotSummary = buildBot()) {
       routines: []
     })
   );
+  fireEvent.click(screen.getByRole("button", { name: "Skills" }));
 }
 
 describe("bot detail skills", () => {

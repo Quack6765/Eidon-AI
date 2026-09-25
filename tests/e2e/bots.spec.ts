@@ -9,7 +9,10 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.getByPlaceholder("Username").fill("admin");
   await page.getByPlaceholder("Password").fill(EIDON_TEST_PASSWORD);
   await page.getByRole("button", { name: "Proceed" }).click();
-  await page.waitForURL("http://localhost:3117/", { timeout: 15000 });
+  await page.waitForURL(/\/(onboarding)?\/?$/, { timeout: 15000 });
+  await page.request.put("/api/onboarding", { data: { completed: true } });
+  await page.goto("/");
+  await expect(page).toHaveURL("http://localhost:3117/");
 }
 
 test("agents roster shows the chief and supports creating a bot", async ({ page }) => {
@@ -56,6 +59,31 @@ test("bot detail page exposes sandbox actions and edit", async ({ page }) => {
   await expect(page.getByText("Workspace").first()).toBeVisible({ timeout: 10_000 });
 });
 
+test("bot detail sections start collapsed and expand on click", async ({ page }) => {
+  await signIn(page);
+
+  await page.goto("/agents");
+  await expect(page.getByText("Chief of Staff").first()).toBeVisible({ timeout: 15_000 });
+
+  const chiefRow = page.getByRole("link", { name: /Chief of Staff/ }).first();
+  await chiefRow.click();
+  await expect(page).toHaveURL(/\/agents\/bot/, { timeout: 15_000 });
+  await page.getByRole("button", { name: "Details" }).click();
+
+  const workspaceHeader = page.getByRole("button", { name: "Workspace" });
+  await expect(workspaceHeader).toBeVisible({ timeout: 10_000 });
+  await expect(workspaceHeader).toHaveAttribute("aria-expanded", "false");
+
+  const workspaceSection = page.locator("section", { has: workspaceHeader });
+  await expect(workspaceSection.getByText("This bot keeps its files in its own dedicated workspace.")).toBeHidden();
+
+  await workspaceHeader.click();
+  await expect(workspaceHeader).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    workspaceSection.getByText("This bot keeps its files in its own dedicated workspace.")
+  ).toBeVisible({ timeout: 10_000 });
+});
+
 test("bot detail manages workspace skills from the details panel", async ({ page }) => {
   await signIn(page);
 
@@ -73,6 +101,7 @@ test("bot detail manages workspace skills from the details panel", async ({ page
 
   await page.getByRole("button", { name: "Details" }).click();
   const skillsSection = page.locator("section", { has: page.getByText("Skills", { exact: true }) }).first();
+  await skillsSection.getByRole("button", { name: "Skills" }).click();
   await expect(skillsSection.getByText("No skills yet.")).toBeVisible({ timeout: 10_000 });
 
   await skillsSection.getByRole("button", { name: "Add skill" }).click();
