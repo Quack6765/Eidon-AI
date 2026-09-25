@@ -33,9 +33,9 @@ function buildAction(
       track_opens: false
     },
     fields: [
-      { key: "to", label: "To", format: "list" },
-      { key: "subject", label: "Subject", format: "text" },
-      { key: "body", label: "Body", format: "multiline" }
+      { key: "to", label: "To", format: "list", required: true },
+      { key: "subject", label: "Subject", format: "text", required: true },
+      { key: "body", label: "Body", format: "multiline", required: true }
     ],
     ...overrides.payload
   };
@@ -198,6 +198,47 @@ describe("MessageDraftCard", () => {
     expect(screen.getByText("Gmail didn't send it: Invalid recipient")).toBeInTheDocument();
   });
 
+  it("blocks sending while a required field is empty and explains why", () => {
+    const onSend = vi.fn();
+    render(<MessageDraftCard action={buildAction()} onSend={onSend} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: " , " } });
+
+    expect(screen.getByText("To can't be empty.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "sarah@example.com" } });
+    expect(screen.queryByText("To can't be empty.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+  });
+
+  it("moves focus into the editor and back to Edit on cancel, with plain accessible names", () => {
+    render(<MessageDraftCard action={buildAction()} onSend={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const to = screen.getByRole("textbox", { name: "To" });
+    expect(to).toHaveFocus();
+    expect(to).toHaveAccessibleDescription("Separate with commas");
+    expect(screen.getByRole("textbox", { name: "Body" })).toHaveClass("overflow-y-hidden");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveFocus();
+  });
+
+  it("keeps finished drafts at full contrast and drops stale request errors", async () => {
+    const onSend = vi.fn().mockRejectedValue(new Error("no longer waiting"));
+    const { container, rerender } = render(<MessageDraftCard action={buildAction()} onSend={onSend} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("no longer waiting")).toBeInTheDocument();
+
+    rerender(<MessageDraftCard action={buildAction({ status: "completed", proposalState: "approved" })} onSend={onSend} />);
+    expect(screen.queryByText("no longer waiting")).not.toBeInTheDocument();
+
+    rerender(<MessageDraftCard action={buildAction({ status: "completed", proposalState: "dismissed" })} />);
+    expect(container.querySelector(".opacity-60")).toBeNull();
+  });
+
   it("labels body fields only when there are several and marks empty headers", () => {
     render(
       <MessageDraftCard
@@ -205,9 +246,9 @@ describe("MessageDraftCard", () => {
           payload: {
             arguments: { title: "", summary: "Short summary", details: "Longer details" },
             fields: [
-              { key: "title", label: "Title", format: "text" },
-              { key: "summary", label: "Summary", format: "multiline" },
-              { key: "details", label: "Details", format: "multiline" }
+              { key: "title", label: "Title", format: "text", required: false },
+              { key: "summary", label: "Summary", format: "multiline", required: false },
+              { key: "details", label: "Details", format: "multiline", required: false }
             ]
           }
         })}
@@ -224,7 +265,7 @@ describe("MessageDraftCard", () => {
     const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(400);
     const clientHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(160);
 
-    render(<MessageDraftCard action={buildAction({ payload: { fields: [{ key: "body", label: "Body", format: "multiline" }] } })} />);
+    render(<MessageDraftCard action={buildAction({ payload: { fields: [{ key: "body", label: "Body", format: "multiline", required: true }] } })} />);
 
     const toggle = screen.getByRole("button", { name: "Show more" });
     expect(screen.getByTestId("message-draft-body")).toHaveClass("line-clamp-8");

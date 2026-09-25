@@ -475,6 +475,7 @@ export type MessageDraftField = {
   key: string;
   label: string;
   format: MessageDraftFieldFormat;
+  required: boolean;
 };
 
 export type MessageDraftProposalPayload = {

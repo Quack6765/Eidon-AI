@@ -92,11 +92,12 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["key", "label", "format"],
+            "required": ["key", "label", "format", "required"],
             "properties": {
               "key": { "type": "string" },
               "label": { "type": "string" },
-              "format": { "type": "string", "enum": ["text", "multiline", "list"] }
+              "format": { "type": "string", "enum": ["text", "multiline", "list"] },
+              "required": { "type": "boolean" }
             }
           }
         },

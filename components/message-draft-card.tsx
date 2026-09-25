@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAutoResize } from "@/lib/use-auto-resize";
 import {
+  applyMessageDraftFieldValues,
+  getEmptyRequiredDraftFields,
   getMessageDraftExtraArguments,
   getMessageDraftFieldValue,
   isMessageDraftPayload
@@ -103,7 +105,7 @@ function DraftPreview({ payload }: { payload: MessageDraftProposalPayload }) {
             <React.Fragment key={field.key}>
               <dt className="text-[12px] leading-5 text-white/45">{field.label}</dt>
               <dd className="break-words text-[12px] leading-5 text-white/84">
-                {getMessageDraftFieldValue(payload, field) || <span className="text-white/35">Empty</span>}
+                {getMessageDraftFieldValue(payload, field) || <span className="text-white/48">Empty</span>}
               </dd>
             </React.Fragment>
           ))}
@@ -125,16 +127,28 @@ function DraftPreview({ payload }: { payload: MessageDraftProposalPayload }) {
   );
 }
 
-function DraftTextarea({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+type FieldControlProps = {
+  id: string;
+  value: string;
+  autoFocus: boolean;
+  describedBy?: string;
+  onChange: (value: string) => void;
+};
+
+function DraftTextarea({ id, value, autoFocus, describedBy, onChange }: FieldControlProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useAutoResize({ ref: textareaRef, value, minHeight: 120 });
+  const { height } = useAutoResize({ ref: textareaRef, value, minHeight: 120 });
+  const reachedCap = typeof window !== "undefined" && height >= window.innerHeight * 0.6;
 
   return (
     <Textarea
       ref={textareaRef}
+      id={id}
       value={value}
+      autoFocus={autoFocus}
+      aria-describedby={describedBy}
       onChange={(event) => onChange(event.target.value)}
-      className="mt-1 max-h-[60vh] resize-none overflow-y-auto rounded-md border-white/8 bg-black/20 px-3 py-2 text-[16px] leading-6 text-white md:text-[12px] md:leading-5"
+      className={`mt-1 max-h-[60vh] resize-none rounded-md border-white/8 bg-black/20 px-3 py-2 text-[16px] leading-6 text-white md:text-[12px] md:leading-5 ${reachedCap ? "overflow-y-auto" : "overflow-y-hidden"}`}
     />
   );
 }
@@ -142,28 +156,42 @@ function DraftTextarea({ value, onChange }: { value: string; onChange: (value: s
 function DraftFieldEditor({
   field,
   value,
+  autoFocus,
   onChange
 }: {
   field: MessageDraftField;
   value: string;
+  autoFocus: boolean;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
+  const hintId = field.format === "list" ? `${id}-hint` : undefined;
+
   return (
-    <label className="block">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] font-medium tracking-[0.12em] text-white/45 uppercase">{field.label}</span>
-        {field.format === "list" ? <span className="text-[11px] text-white/35">Separate with commas</span> : null}
-      </span>
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-[10px] font-medium tracking-[0.12em] text-white/45 uppercase">
+          {field.label}
+        </label>
+        {hintId ? (
+          <span id={hintId} className="text-[11px] text-white/48">
+            Separate with commas
+          </span>
+        ) : null}
+      </div>
       {field.format === "multiline" ? (
-        <DraftTextarea value={value} onChange={onChange} />
+        <DraftTextarea id={id} value={value} autoFocus={autoFocus} onChange={onChange} />
       ) : (
         <Input
+          id={id}
           value={value}
+          autoFocus={autoFocus}
+          aria-describedby={hintId}
           onChange={(event) => onChange(event.target.value)}
           className="mt-1 h-9 rounded-md border-white/8 bg-black/20 px-2.5 py-0 text-[16px] text-white md:text-[12px]"
         />
       )}
-    </label>
+    </div>
   );
 }
 
@@ -186,12 +214,23 @@ export function MessageDraftCard({
   const draftAction = action as TimelineAction & { proposalPayload: MessageDraftProposalPayload };
   const payload = draftAction.proposalPayload;
   const isPending = !readOnly && action.status === "pending" && action.proposalState === "pending";
-  const isClosed = action.proposalState === "dismissed" || action.proposalState === "superseded";
   const [isEditing, setIsEditing] = useState(false);
   const [values, setValues] = useState<Record<string, string>>(() => readFieldValues(payload));
   const [submissionState, setSubmissionState] = useState<"send" | "discard" | null>(null);
   const [localError, setLocalError] = useState("");
+  const [returnFocusToEdit, setReturnFocusToEdit] = useState(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
   const extraArguments = getMessageDraftExtraArguments(payload);
+  const emptyRequiredFields = isEditing
+    ? getEmptyRequiredDraftFields(payload, applyMessageDraftFieldValues(payload, values))
+    : [];
+
+  useEffect(() => {
+    if (returnFocusToEdit && !isEditing) {
+      editButtonRef.current?.focus();
+      setReturnFocusToEdit(false);
+    }
+  }, [returnFocusToEdit, isEditing]);
 
   async function handleSend() {
     if (!onSend) return;
@@ -227,6 +266,7 @@ export function MessageDraftCard({
     setValues(readFieldValues(payload));
     setIsEditing(false);
     setLocalError("");
+    setReturnFocusToEdit(true);
   }
 
   return (
@@ -241,17 +281,23 @@ export function MessageDraftCard({
         </span>
       </div>
 
-      <div className={`mt-2 space-y-2 text-[12px] leading-5 text-white/70 ${isClosed ? "opacity-60" : ""}`}>
+      <div className="mt-2 space-y-2 text-[12px] leading-5 text-white/70">
         {isEditing && isPending ? (
           <div className="space-y-2">
-            {payload.fields.map((field) => (
+            {payload.fields.map((field, index) => (
               <DraftFieldEditor
                 key={field.key}
                 field={field}
                 value={values[field.key] ?? ""}
+                autoFocus={index === 0}
                 onChange={(value) => setValues((current) => ({ ...current, [field.key]: value }))}
               />
             ))}
+            {emptyRequiredFields.length ? (
+              <p className="text-[11px] text-white/48">
+                {emptyRequiredFields.map((field) => field.label).join(", ")} can&apos;t be empty.
+              </p>
+            ) : null}
           </div>
         ) : (
           <DraftPreview payload={payload} />
@@ -279,7 +325,7 @@ export function MessageDraftCard({
           </p>
         ) : null}
 
-        {localError ? <p className="text-[11px] text-red-300">{localError}</p> : null}
+        {localError && isPending ? <p className="text-[11px] text-red-300">{localError}</p> : null}
       </div>
 
       {isPending ? (
@@ -287,7 +333,7 @@ export function MessageDraftCard({
           <button
             type="button"
             onClick={() => void handleSend()}
-            disabled={submissionState !== null}
+            disabled={submissionState !== null || emptyRequiredFields.length > 0}
             className={PRIMARY_BUTTON}
           >
             {submissionState === "send" ? "Sending..." : "Send"}
@@ -304,6 +350,7 @@ export function MessageDraftCard({
           ) : (
             <>
               <button
+                ref={editButtonRef}
                 type="button"
                 onClick={() => {
                   setValues(readFieldValues(payload));

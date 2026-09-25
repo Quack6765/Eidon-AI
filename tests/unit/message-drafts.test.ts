@@ -8,13 +8,13 @@ import {
 } from "@/lib/conversations";
 import { createMcpServer, updateMcpServer } from "@/lib/mcp-servers";
 import {
-  applyMessageDraftFieldValues,
   buildMessageDraftFields,
   discardMessageDraft,
   sendMessageDraft,
   supersedeMessageDraft
 } from "@/lib/message-drafts";
 import {
+  applyMessageDraftFieldValues,
   describeMessageDraftForPrompt,
   getMessageDraftExtraArguments,
   getMessageDraftFieldValue,
@@ -113,9 +113,9 @@ function buildDraftPayload(
       track_opens: false
     },
     fields: [
-      { key: "to", label: "To", format: "list" },
-      { key: "subject", label: "Subject", format: "text" },
-      { key: "body", label: "Body", format: "multiline" }
+      { key: "to", label: "To", format: "list", required: true },
+      { key: "subject", label: "Subject", format: "text", required: true },
+      { key: "body", label: "Body", format: "multiline", required: true }
     ],
     ...overrides
   };
@@ -175,10 +175,10 @@ describe("message draft fields", () => {
     });
 
     expect(fields).toEqual([
-      { key: "to", label: "To", format: "list" },
-      { key: "subject", label: "Subject", format: "text" },
-      { key: "thread_id", label: "Thread", format: "text" },
-      { key: "body", label: "Body", format: "multiline" }
+      { key: "to", label: "To", format: "list", required: true },
+      { key: "subject", label: "Subject", format: "text", required: true },
+      { key: "thread_id", label: "Thread", format: "text", required: false },
+      { key: "body", label: "Body", format: "multiline", required: true }
     ]);
   });
 
@@ -193,11 +193,11 @@ describe("message draft fields", () => {
     });
 
     expect(fields).toEqual([
-      { key: "channelId", label: "Channel id", format: "text" },
-      { key: "message_id", label: "Message id", format: "text" },
-      { key: "summary", label: "Summary", format: "multiline" },
-      { key: "intro", label: "Intro", format: "multiline" },
-      { key: "messageText", label: "Message text", format: "multiline" }
+      { key: "channelId", label: "Channel id", format: "text", required: false },
+      { key: "message_id", label: "Message id", format: "text", required: false },
+      { key: "summary", label: "Summary", format: "multiline", required: false },
+      { key: "intro", label: "Intro", format: "multiline", required: false },
+      { key: "messageText", label: "Message text", format: "multiline", required: false }
     ]);
   });
 
@@ -422,6 +422,17 @@ describe("sending and discarding drafts", () => {
     const retried = await sendMessageDraft(draft.id, undefined, user.id);
     expect(retried).toEqual(expect.objectContaining({ proposalState: "approved" }));
     expect(retried.proposalPayload).toEqual(expect.objectContaining({ sendError: null }));
+  });
+
+  it("refuses to send when an edit empties a required field", async () => {
+    const { user, message, server } = await createFixture("draft-send-required");
+    const draft = createDraftAction(message.id, server);
+
+    await expect(sendMessageDraft(draft.id, { to: " , ", subject: "  " }, user.id)).rejects.toThrow(
+      "To, Subject can't be empty"
+    );
+    expect(readAction(draft)).toEqual(expect.objectContaining({ status: "pending", proposalState: "pending" }));
+    expect(callMcpToolMock).not.toHaveBeenCalled();
   });
 
   it("does not send when the connector is gone or turned off", async () => {

@@ -28,6 +28,42 @@ export function getMessageDraftFieldValue(payload: MessageDraftProposalPayload, 
   return typeof value === "string" ? value : "";
 }
 
+export function applyMessageDraftFieldValues(
+  payload: MessageDraftProposalPayload,
+  values: Record<string, string> | undefined
+) {
+  const nextArguments = { ...payload.arguments };
+
+  for (const field of payload.fields) {
+    const value = values?.[field.key];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    nextArguments[field.key] =
+      field.format === "list"
+        ? value.split(",").map((entry) => entry.trim()).filter(Boolean)
+        : field.format === "text"
+          ? value.trim()
+          : value;
+  }
+
+  return nextArguments;
+}
+
+export function getEmptyRequiredDraftFields(
+  payload: MessageDraftProposalPayload,
+  nextArguments: Record<string, unknown>
+) {
+  return payload.fields.filter((field) => {
+    if (!field.required) {
+      return false;
+    }
+    const value = nextArguments[field.key];
+    return Array.isArray(value) ? value.length === 0 : typeof value !== "string" || !value.trim();
+  });
+}
+
 export function getMessageDraftExtraArguments(payload: MessageDraftProposalPayload) {
   const fieldKeys = new Set(payload.fields.map((field) => field.key));
 

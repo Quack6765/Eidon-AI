@@ -760,8 +760,8 @@ describe("message bubble drafts", () => {
             toolLabel: "Send email",
             arguments: { subject: "Q3 recap", body: "Hi Sarah" },
             fields: [
-              { key: "subject", label: "Subject", format: "text" },
-              { key: "body", label: "Body", format: "multiline" }
+              { key: "subject", label: "Subject", format: "text", required: true },
+              { key: "body", label: "Body", format: "multiline", required: true }
             ]
           },
           proposalUpdatedAt: null

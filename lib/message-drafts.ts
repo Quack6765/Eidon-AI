@@ -3,7 +3,11 @@ import { getMessage, updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { getMcpServer } from "@/lib/mcp-servers";
-import { isMessageDraftPayload } from "@/lib/message-draft-display";
+import {
+  applyMessageDraftFieldValues,
+  getEmptyRequiredDraftFields,
+  isMessageDraftPayload
+} from "@/lib/message-draft-display";
 import { getSettings } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import type {
@@ -52,6 +56,7 @@ function humanizeKey(key: string) {
 
 export function buildMessageDraftFields(tool: McpTool, args: Record<string, unknown>): MessageDraftField[] {
   const properties = (tool.inputSchema?.properties ?? {}) as Record<string, SchemaProperty | undefined>;
+  const requiredKeys = new Set(tool.inputSchema?.required ?? []);
   const fields: MessageDraftField[] = [];
 
   for (const [key, value] of Object.entries(args)) {
@@ -68,12 +73,12 @@ export function buildMessageDraftFields(tool: McpTool, args: Record<string, unkn
         MULTILINE_KEY_WORDS.has(splitKeyWords(key).at(-1) ?? "") ||
         value.includes("\n") ||
         value.length > MULTILINE_VALUE_LENGTH;
-      fields.push({ key, label, format: multiline ? "multiline" : "text" });
+      fields.push({ key, label, format: multiline ? "multiline" : "text", required: requiredKeys.has(key) });
       continue;
     }
 
     if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
-      fields.push({ key, label, format: "list" });
+      fields.push({ key, label, format: "list", required: requiredKeys.has(key) });
     }
   }
 
@@ -81,29 +86,6 @@ export function buildMessageDraftFields(tool: McpTool, args: Record<string, unkn
     ...fields.filter((field) => field.format !== "multiline"),
     ...fields.filter((field) => field.format === "multiline")
   ];
-}
-
-export function applyMessageDraftFieldValues(
-  payload: MessageDraftProposalPayload,
-  values: Record<string, string> | undefined
-) {
-  const nextArguments = { ...payload.arguments };
-
-  for (const field of payload.fields) {
-    const value = values?.[field.key];
-    if (typeof value !== "string") {
-      continue;
-    }
-
-    nextArguments[field.key] =
-      field.format === "list"
-        ? value.split(",").map((entry) => entry.trim()).filter(Boolean)
-        : field.format === "text"
-          ? value.trim()
-          : value;
-  }
-
-  return nextArguments;
 }
 
 function loadMessageDraftAction(actionId: string, userId?: string) {
@@ -181,9 +163,16 @@ export async function sendMessageDraft(
     throw new Error(`${draft.payload.mcpServerName} is not connected. Turn it back on in Settings, then send again.`);
   }
 
+  const nextArguments = applyMessageDraftFieldValues(draft.payload, values);
+  const emptyRequired = getEmptyRequiredDraftFields(draft.payload, nextArguments);
+
+  if (emptyRequired.length) {
+    throw new Error(`${emptyRequired.map((field) => field.label).join(", ")} can't be empty`);
+  }
+
   const payload: MessageDraftProposalPayload = {
     ...draft.payload,
-    arguments: applyMessageDraftFieldValues(draft.payload, values),
+    arguments: nextArguments,
     sendError: null
   };
   const claimedAt = nowIso();
