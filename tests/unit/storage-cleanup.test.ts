@@ -6,6 +6,7 @@ import {
   createAttachments,
   getAttachment
 } from "@/lib/attachments";
+import { ensureChiefBot, getBot } from "@/lib/bots";
 import { createConversation, createMessage } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getGlobalPreferences } from "@/lib/global-preferences";
@@ -133,6 +134,25 @@ describe("enforceConversationRetention", () => {
     expect(fs.existsSync(attachmentFilePath(recentAttachment.relativePath))).toBe(true);
     expect(conversationExists(foreverConversation.id)).toBe(true);
     expect(fs.existsSync(attachmentFilePath(foreverAttachment.relativePath))).toBe(true);
+  });
+
+  it("never prunes the chief of staff home conversation", async () => {
+    const user = await createLocalUser({
+      username: "retention-chief-user",
+      password: "Password123!",
+      role: "user"
+    });
+    updateUserPreferences(user.id, getGlobalPreferences(), {
+      conversationRetention: "7d"
+    });
+    const chief = ensureChiefBot(user.id);
+    backdateConversation(chief.homeConversationId, 10 * DAY_MS);
+
+    const result = enforceConversationRetention();
+
+    expect(result.prunedConversations).toBe(0);
+    expect(conversationExists(chief.homeConversationId)).toBe(true);
+    expect(getBot(chief.id, user.id)).not.toBeNull();
   });
 });
 

@@ -171,4 +171,33 @@ describe("reliability route hardening", () => {
       deleted: false
     });
   });
+
+  it("refuses to delete the chief of staff through its home conversation", async () => {
+    const user = await createLocalUser({
+      username: "delete-chief-conversation-user",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { ensureChiefBot, getBot } = await import("@/lib/bots");
+    const chief = ensureChiefBot(user.id);
+
+    const { DELETE } = await import("@/app/api/conversations/[conversationId]/route");
+    for (const query of ["", "?onlyIfEmpty=1"]) {
+      const response = await DELETE(
+        new Request(`http://localhost/api/conversations/${chief.homeConversationId}${query}`, {
+          method: "DELETE"
+        }),
+        { params: Promise.resolve({ conversationId: chief.homeConversationId }) }
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "The chief of staff bot cannot be deleted"
+      });
+    }
+
+    expect(getBot(chief.id, user.id)?.homeConversationId).toBe(chief.homeConversationId);
+  });
 });
