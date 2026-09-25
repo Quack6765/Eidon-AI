@@ -320,6 +320,52 @@ describe("local shell", () => {
     ).toBe("Command failed with no output");
   });
 
+  it("escalates a timed out command to SIGKILL and keeps its partial output", async () => {
+    vi.useFakeTimers();
+    const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "npm test",
+      timeoutMs: 5
+    });
+
+    child.stdout.emit("data", "3 passing");
+    await vi.advanceTimersByTimeAsync(5);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(child.kill).not.toHaveBeenCalledWith("SIGKILL");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+
+    child.emit("close", null);
+    const result = await resultPromise;
+
+    expect(summarizeShellResult(result)).toBe("Command timed out\n\n3 passing");
+  });
+
+  it("caps requested timeouts at ten minutes", async () => {
+    vi.useFakeTimers();
+    const { executeLocalShellCommand, MAX_SHELL_TIMEOUT_MS } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "sleep 99999",
+      timeoutMs: 24 * 60 * 60_000
+    });
+
+    await vi.advanceTimersByTimeAsync(MAX_SHELL_TIMEOUT_MS - 1);
+    expect(child.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    child.emit("close", null);
+    await expect(resultPromise).resolves.toMatchObject({ timedOut: true });
+  });
+
   it("aborts an active command and terminates its process group", async () => {
     const { executeLocalShellCommand } = await import("@/lib/local-shell");
     const child = new MockChild();

@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-import { executeLocalShellCommand, resolveShellWorkspaceDir } from "@/lib/local-shell";
+import { executeLocalShellCommand, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
 
 const dataDir = resolve(process.env.EIDON_DATA_DIR ?? "./.test-data");
 const workspaceRoot = `${dataDir}-workspaces`;
@@ -124,4 +124,23 @@ describe("shell workspace containment", () => {
 
     expect(() => resolveShellWorkspaceDir("conv_overlap")).toThrow("overlaps application data");
   });
+
+  it("kills the whole process tree on timeout and keeps the partial output", async () => {
+    const workspaceDir = resolveShellWorkspaceDir("conv_timeout");
+    const startedAt = Date.now();
+
+    const result = await executeLocalShellCommand({
+      command: "echo before-timeout; sh -c 'echo $$ > sleeper.pid; exec sleep 30' | cat",
+      cwd: workspaceDir,
+      timeoutMs: 300
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(result.timedOut).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(summarizeShellResult(result)).toContain("before-timeout");
+
+    const sleeperPid = Number(readFileSync(join(workspaceDir, "sleeper.pid"), "utf8"));
+    expect(() => process.kill(sleeperPid, 0)).toThrow();
+  }, 10_000);
 });

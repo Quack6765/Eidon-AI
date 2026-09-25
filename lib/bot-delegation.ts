@@ -42,6 +42,7 @@ type BotToolContext = {
     memoryUserId?: string | null;
     conversationId?: string;
     assistantMessageId?: string;
+    delegationDepth?: number;
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
     onActionComplete?: (
@@ -85,6 +86,22 @@ type DelegationOutcome = { status: string; summary: string; errorMessage?: strin
 
 const WAKE_MAX_WAIT_MS = 30 * 60_000;
 const TURN_RELEASE_WAIT_FALLBACK_MS = 5_000;
+export const MAX_DELEGATION_DEPTH = 8;
+
+function createBotUserSlotLease(ownerUserId: string) {
+  let held = false;
+  return {
+    async acquire(timeoutMs: number) {
+      if (!held) held = await acquireBotUserSlot(ownerUserId, timeoutMs);
+      return held;
+    },
+    release() {
+      if (!held) return;
+      held = false;
+      releaseBotUserSlot(ownerUserId);
+    }
+  };
+}
 
 function isBusyTurnFailure(result: ChatTurnResult) {
   return result.status === "failed" && /already has an active/i.test(result.errorMessage ?? "");
@@ -107,6 +124,7 @@ async function startTurnWhenIdle(input: {
   maxWaitMs: number;
   busyErrorMessage: string;
   unattended?: boolean;
+  delegationDepth?: number;
   onTurnStarted?: () => void;
   onApprovalWait?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ChatTurnResult> {
@@ -119,6 +137,7 @@ async function startTurnWhenIdle(input: {
       botRun: { record: false },
       quietWhenBusy: true,
       unattended: input.unattended,
+      delegationDepth: input.delegationDepth,
       onApprovalWait: input.onApprovalWait,
       onMessagesCreated: ({ userMessageId }) => {
         input.onTurnStarted?.();
@@ -146,10 +165,12 @@ async function runWorkerTurn(input: {
   runId: string;
   taskPrompt: string;
   ownerUserId: string;
+  delegationDepth: number;
 }): Promise<DelegationOutcome> {
-  const { target, runId, taskPrompt, ownerUserId } = input;
+  const { target, runId, taskPrompt, ownerUserId, delegationDepth } = input;
   return enqueueSerialTask(target.id, async () => {
-    if (!(await acquireBotUserSlot(ownerUserId, DEFAULT_BOT_RUN_TIMEOUT_MS))) {
+    const slot = createBotUserSlotLease(ownerUserId);
+    if (!(await slot.acquire(DEFAULT_BOT_RUN_TIMEOUT_MS))) {
       return {
         status: "failed",
         summary: "",
@@ -157,7 +178,6 @@ async function runWorkerTurn(input: {
       };
     }
 
-    let slotHeld = true;
     try {
       const currentRun = getBotRun(runId);
       if (!currentRun || currentRun.status !== "queued") {
@@ -186,6 +206,7 @@ async function runWorkerTurn(input: {
         maxWaitMs: DEFAULT_BOT_RUN_TIMEOUT_MS,
         busyErrorMessage: `${target.name} stayed busy and never picked up the message`,
         unattended: true,
+        delegationDepth,
         onTurnStarted: () => {
           turnStarted = true;
           setTurnStallStop(target.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
@@ -194,14 +215,11 @@ async function runWorkerTurn(input: {
           setBotRunAwaitingApproval(runId, waiting);
           if (waiting) {
             timer.pause();
-            if (slotHeld) {
-              slotHeld = false;
-              releaseBotUserSlot(ownerUserId);
-            }
+            slot.release();
             return;
           }
           timer.resume();
-          slotHeld = await acquireBotUserSlot(ownerUserId, timer.remainingMs());
+          await slot.acquire(timer.remainingMs());
         }
       });
 
@@ -243,7 +261,7 @@ async function runWorkerTurn(input: {
         summary: getLatestAssistantSummary(target.homeConversationId) || "The bot finished without a visible response."
       };
     } finally {
-      if (slotHeld) releaseBotUserSlot(ownerUserId);
+      slot.release();
     }
   });
 }
@@ -302,17 +320,39 @@ export function deliverDelegationWake(input: {
   ownerUserId: string;
   content: string;
   maxWaitMs?: number;
+  delegationDepth?: number;
 }): Promise<ChatTurnResult> {
-  return enqueueSerialTask(`wake:${input.recipientConversationId}`, () =>
-    startTurnWhenIdle({
-      conversationId: input.recipientConversationId,
-      content: input.content,
-      ownerUserId: input.ownerUserId,
-      maxWaitMs: input.maxWaitMs ?? WAKE_MAX_WAIT_MS,
-      busyErrorMessage: "Recipient conversation stayed busy",
-      unattended: Boolean(getBotByConversationId(input.recipientConversationId))
-    })
-  );
+  return enqueueSerialTask(`wake:${input.recipientConversationId}`, async () => {
+    const maxWaitMs = input.maxWaitMs ?? WAKE_MAX_WAIT_MS;
+    const recipientIsBot = Boolean(getBotByConversationId(input.recipientConversationId));
+    const slot = createBotUserSlotLease(input.ownerUserId);
+    if (recipientIsBot && !(await slot.acquire(maxWaitMs))) {
+      return { status: "failed", errorMessage: "Too many concurrent bot runs to deliver the reply" };
+    }
+
+    try {
+      return await startTurnWhenIdle({
+        conversationId: input.recipientConversationId,
+        content: input.content,
+        ownerUserId: input.ownerUserId,
+        maxWaitMs,
+        busyErrorMessage: "Recipient conversation stayed busy",
+        unattended: recipientIsBot,
+        delegationDepth: input.delegationDepth,
+        onApprovalWait: recipientIsBot
+          ? async (waiting) => {
+              if (waiting) {
+                slot.release();
+                return;
+              }
+              await slot.acquire(maxWaitMs);
+            }
+          : undefined
+      });
+    } finally {
+      slot.release();
+    }
+  });
 }
 
 export async function executeMessageBot(
@@ -335,6 +375,14 @@ export async function executeMessageBot(
 
   if (!botReference || !message) {
     return result("Error: bot and message are required", context.timelineSortOrder + 1);
+  }
+
+  const delegationDepth = (context.input.delegationDepth ?? 0) + 1;
+  if (delegationDepth > MAX_DELEGATION_DEPTH) {
+    return result(
+      `Error: this request has already passed between bots ${MAX_DELEGATION_DEPTH} times without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after they reply.`,
+      context.timelineSortOrder + 1
+    );
   }
 
   const sender = context.input.conversationId
@@ -386,7 +434,13 @@ export async function executeMessageBot(
 
   const senderConversationId = context.input.conversationId;
   void (async () => {
-    const outcome = await runWorkerTurn({ target, runId: run.id, taskPrompt: deliveredPrompt, ownerUserId }).catch(
+    const outcome = await runWorkerTurn({
+      target,
+      runId: run.id,
+      taskPrompt: deliveredPrompt,
+      ownerUserId,
+      delegationDepth
+    }).catch(
       (error: unknown) => ({
         status: "failed",
         summary: "",
@@ -414,7 +468,8 @@ export async function executeMessageBot(
     const wake = await deliverDelegationWake({
       recipientConversationId: senderConversationId,
       ownerUserId,
-      content: buildDelegationWakeContent(target.name, outcome)
+      content: buildDelegationWakeContent(target.name, outcome),
+      delegationDepth
     });
     if (wake.status === "failed") {
       console.error(`[bot-delegation] reply from ${target.name} could not be delivered: ${wake.errorMessage}`);

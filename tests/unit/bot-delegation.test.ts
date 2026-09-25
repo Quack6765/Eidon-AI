@@ -23,6 +23,7 @@ import {
   scanTurnActivity
 } from "@/lib/turn-activity";
 import {
+  MAX_DELEGATION_DEPTH,
   buildDelegationWakeContent,
   deliverDelegationWake,
   executeCreateBotTool,
@@ -281,6 +282,102 @@ describe("bot-delegation", () => {
     expect(result.promptMessages.at(-1)?.content).toContain("Report Echo's reply to the user");
     expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
     expect(startChatTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("carries the hop count into the worker turn and the reply wake", async () => {
+    const user = await createLocalUser({ username: "depthcarry", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Relay" }, user.id);
+    const depths: Record<string, unknown> = {};
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { delegationDepth?: number }
+      ) => {
+        if (conversationId === worker.homeConversationId) {
+          depths.worker = options.delegationDepth;
+          stubWorkerAnswer(conversationId, "Relayed.");
+        } else {
+          depths.wake = options.delegationDepth;
+        }
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_depth", { bot: worker.id, message: "pass it on" }, {
+      ...context,
+      input: { ...context.input, delegationDepth: 2 }
+    });
+
+    await vi.waitFor(() => {
+      if (depths.wake === undefined) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+    expect(depths).toEqual({ worker: 3, wake: 3 });
+  });
+
+  it("stops bots from messaging each other once the hop limit is reached", async () => {
+    const user = await createLocalUser({ username: "depthlimit", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Ping" }, user.id);
+
+    const { context, calls } = buildContext(user.id, undefined, chief.homeConversationId);
+    const result = await executeMessageBot("call_loop", { bot: worker.id, message: "again" }, {
+      ...context,
+      input: { ...context.input, delegationDepth: MAX_DELEGATION_DEPTH }
+    });
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBeUndefined();
+    expect(result.promptMessages.at(-1)?.content).toContain(`between bots ${MAX_DELEGATION_DEPTH} times`);
+    expect(result.promptMessages.at(-1)?.content).toContain("Report what you have to the user");
+    expect(calls).toHaveLength(0);
+    expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
+    expect(startChatTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("makes a reply wake into a bot conversation wait for a free concurrency slot", async () => {
+    const user = await createLocalUser({ username: "wakeslot", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    let slotFreeDuringWake: boolean | null = null;
+    startChatTurnMock.mockImplementation(async () => {
+      slotFreeDuringWake = tryAcquireBotUserSlot(user.id);
+      if (slotFreeDuringWake) releaseBotUserSlot(user.id);
+      return { status: "completed" as const };
+    });
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    try {
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      const wake = deliverDelegationWake({
+        recipientConversationId: chief.homeConversationId,
+        ownerUserId: user.id,
+        content: "reply"
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(startChatTurnMock).not.toHaveBeenCalled();
+
+      releaseBotUserSlot(user.id);
+      await expect(wake).resolves.toMatchObject({ status: "completed" });
+      expect(slotFreeDuringWake).toBe(false);
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      releaseBotUserSlot(user.id);
+
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      const plainWake = await deliverDelegationWake({
+        recipientConversationId: "conv_plain_chat",
+        ownerUserId: user.id,
+        content: "reply"
+      });
+      expect(plainWake.status).toBe("completed");
+      releaseBotUserSlot(user.id);
+    } finally {
+      configureBotRunLimits({ maxConcurrentPerUser: 4 });
+    }
   });
 
   it("waits for a free concurrency slot instead of failing the delegation", async () => {

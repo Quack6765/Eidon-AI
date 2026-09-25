@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_BOT_WORKSPACE_SKILLS,
   MAX_SKILL_FILE_BYTES,
   buildBotWorkspaceSkillId,
   buildSkillMarkdown,
@@ -15,7 +16,8 @@ import {
   mergeSkillsWithWorkspace,
   parseBotWorkspaceSkillId,
   saveBotWorkspaceSkill,
-  slugifySkillFolderName
+  slugifySkillFolderName,
+  upsertBotWorkspaceSkill
 } from "@/lib/bot-workspace-skills";
 import type { Skill } from "@/lib/types";
 
@@ -229,6 +231,79 @@ describe("bot-workspace-skills", () => {
       expect(renamed.skill.id).toBe(buildBotWorkspaceSkillId(bot.id, "renamed-skill"));
       expect(existsSync(join(getBotSkillsDir(bot), "rename-me"))).toBe(false);
       expect(readFileSync(join(getBotSkillsDir(bot), "renamed-skill", "SKILL.md"), "utf8")).toContain("new body");
+    });
+
+    it("moves supporting files along when a rename changes the folder", () => {
+      const created = saveBotWorkspaceSkill(bot, { name: "Old Name", description: "d", instructions: "i" });
+      if (!("skill" in created)) throw new Error("expected skill");
+      const oldDir = join(getBotSkillsDir(bot), "old-name");
+      mkdirSync(join(oldDir, "scripts"), { recursive: true });
+      writeFileSync(join(oldDir, "scripts", "run.sh"), "echo hi", "utf8");
+
+      const renamed = saveBotWorkspaceSkill(
+        bot,
+        { name: "New Name", description: "d", instructions: "i" },
+        created.skill.id
+      );
+      if (!("skill" in renamed)) throw new Error("expected skill");
+
+      const newDir = join(getBotSkillsDir(bot), "new-name");
+      expect(existsSync(oldDir)).toBe(false);
+      expect(readFileSync(join(newDir, "scripts", "run.sh"), "utf8")).toBe("echo hi");
+      expect(readFileSync(join(newDir, "SKILL.md"), "utf8")).toContain("name: New Name");
+    });
+
+    it("refuses to rename into an existing folder even without a SKILL.md", () => {
+      const created = saveBotWorkspaceSkill(bot, { name: "Source", description: "d", instructions: "i" });
+      if (!("skill" in created)) throw new Error("expected skill");
+      mkdirSync(join(getBotSkillsDir(bot), "target", "assets"), { recursive: true });
+
+      expect(
+        saveBotWorkspaceSkill(bot, { name: "Target", description: "d", instructions: "i" }, created.skill.id)
+      ).toMatchObject({ error: expect.stringContaining("already exists") });
+      expect(existsSync(join(getBotSkillsDir(bot), "source", "SKILL.md"))).toBe(true);
+    });
+
+    it("caps new skills per bot but still allows updates and renames at the cap", () => {
+      for (let index = 0; index < MAX_BOT_WORKSPACE_SKILLS; index += 1) {
+        writeWorkspaceSkill(`skill-${String(index).padStart(2, "0")}`, `---\nname: skill-${index}\n---\n\nBody`);
+      }
+      mkdirSync(join(getBotSkillsDir(bot), "not-a-skill"), { recursive: true });
+
+      expect(saveBotWorkspaceSkill(bot, { name: "One Too Many", description: "d", instructions: "i" })).toMatchObject({
+        error: expect.stringContaining(`${MAX_BOT_WORKSPACE_SKILLS} skills`)
+      });
+      expect(existsSync(join(getBotSkillsDir(bot), "one-too-many"))).toBe(false);
+
+      const existingId = buildBotWorkspaceSkillId(bot.id, "skill-00");
+      expect(
+        saveBotWorkspaceSkill(bot, { name: "skill-00", description: "d", instructions: "updated" }, existingId)
+      ).toHaveProperty("skill");
+      expect(
+        saveBotWorkspaceSkill(bot, { name: "Renamed At Cap", description: "d", instructions: "i" }, existingId)
+      ).toHaveProperty("skill");
+      expect(listBotWorkspaceSkills(bot)).toHaveLength(MAX_BOT_WORKSPACE_SKILLS);
+    });
+  });
+
+  describe("upsertBotWorkspaceSkill", () => {
+    it("updates a skill saved under the same name, ignoring case", () => {
+      upsertBotWorkspaceSkill(bot, { name: "Release Notes", description: "d", instructions: "Old body." });
+      const updated = upsertBotWorkspaceSkill(bot, { name: "release notes", description: "d", instructions: "New body." });
+
+      expect(updated).toHaveProperty("skill.id", buildBotWorkspaceSkillId(bot.id, "release-notes"));
+      const skills = listBotWorkspaceSkills(bot);
+      expect(skills).toHaveLength(1);
+      expect(skills[0].content).toContain("New body.");
+    });
+
+    it("refuses a differently named skill that maps to the same folder", () => {
+      upsertBotWorkspaceSkill(bot, { name: "Release Notes", description: "d", instructions: "Original." });
+
+      expect(upsertBotWorkspaceSkill(bot, { name: "release-notes", description: "d", instructions: "Clobber." })).toMatchObject({
+        error: expect.stringContaining("already exists")
+      });
+      expect(listBotWorkspaceSkills(bot)[0].content).toContain("Original.");
     });
   });
 

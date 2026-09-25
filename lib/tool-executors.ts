@@ -29,10 +29,7 @@ import {
 } from "@/lib/screenshot-artifact-capabilities";
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
-import { buildBotWorkspaceSkillId, buildSkillMarkdown, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
-import { nowIso } from "@/lib/utils";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import {
   classifyShellCommand,
@@ -670,10 +667,6 @@ export async function executeSaveSkill(
         handle: string | undefined,
         patch: { detail?: string; resultSummary?: string }
       ) => Promise<void> | void;
-      onActionError?: (
-        handle: string | undefined,
-        patch: { detail?: string; resultSummary?: string }
-      ) => Promise<void> | void;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -684,111 +677,51 @@ export async function executeSaveSkill(
   toolSucceeded?: boolean;
 }> {
   throwIfAborted(context.input.abortSignal);
-  let sortOrder = context.timelineSortOrder;
-
-  const name = String(args.name ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const description = String(args.description ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const instructions = String(args.instructions ?? "").trim();
-
-  const invalidReason = !name
-    ? "a name is required"
-    : !description
-      ? "a description is required"
-      : !instructions
-        ? "instructions are required"
-        : null;
-
-  if (invalidReason) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot save skill — ${invalidReason}.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
+  const sortOrder = context.timelineSortOrder;
+  const errorResult = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
+    toolSucceeded: false
+  });
 
   const bot = context.input.conversationId
     ? getBotByConversationId(context.input.conversationId)
     : null;
 
   if (!bot) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      "Error: save_skill is only available in agent conversations that have a workspace."
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+    return errorResult("save_skill is only available in agent conversations that have a workspace.");
   }
 
-  const slug = slugifySkillFolderName(name);
-
-  if (!slug) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot derive a valid skill folder name from "${name}". Use lowercase letters, digits, and hyphens.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+  let result: ReturnType<typeof upsertBotWorkspaceSkill>;
+  try {
+    result = upsertBotWorkspaceSkill(bot, {
+      name: String(args.name ?? ""),
+      description: String(args.description ?? ""),
+      instructions: String(args.instructions ?? "")
+    });
+  } catch (error) {
+    result = { error: error instanceof Error ? error.message : "Failed to write the skill file" };
   }
 
-  const skillDir = join(getBotSkillsDir(bot), slug);
-  const skillFilePath = join(skillDir, "SKILL.md");
-  const content = buildSkillMarkdown(name, description, instructions);
+  if ("error" in result) {
+    return errorResult(`Cannot save skill — ${result.error}`);
+  }
 
+  const savedSkill = result.skill;
   throwIfAborted(context.input.abortSignal);
   const handle = await context.input.onActionStart?.({
     kind: "save_skill",
     label: "Save skill",
-    detail: name
+    detail: savedSkill.name
   });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  try {
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(skillFilePath, content, "utf8");
-  } catch (error) {
-    throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "Failed to write the skill file";
-    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
-
-  await context.input.onActionComplete?.(actionHandle, {
-    detail: name,
+  await context.input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+    detail: savedSkill.name,
     resultSummary: "Skill saved to the workspace skills folder."
   });
 
   const turnSkills = context.input.skills;
   if (turnSkills) {
-    const savedSkill: Skill = {
-      id: buildBotWorkspaceSkillId(bot.id, slug),
-      name,
-      description,
-      content,
-      enabled: true,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    };
-    const resolvedNameLower = name.toLowerCase();
+    const resolvedNameLower = savedSkill.name.toLowerCase();
     for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
       const existing = turnSkills[index];
       if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
@@ -803,14 +736,12 @@ export async function executeSaveSkill(
     }
   }
 
-  sortOrder += 1;
-
   const resultMsg = buildToolResultMessage(
     toolCallId,
-    `Skill saved: ${name} (skills/${slug}/SKILL.md). It is available via load_skill, including right away in this turn.`
+    `Skill saved: ${savedSkill.name} (skills/${slugifySkillFolderName(savedSkill.name)}/SKILL.md). It is available via load_skill, including right away in this turn.`
   );
   return {
-    nextSortOrder: sortOrder,
+    nextSortOrder: sortOrder + 1,
     promptMessages: [...context.promptMessages, resultMsg],
     toolSucceeded: true
   };
@@ -1364,6 +1295,7 @@ export async function executeSearchWorkspace(
   context: {
     input: {
       memoryUserId?: string | null;
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -1402,7 +1334,12 @@ export async function executeSearchWorkspace(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const results = await searchWorkspace({ userId, query, limit });
+    const results = await searchWorkspace({
+      userId,
+      query,
+      limit,
+      memoryBotId: resolveMemoryScope(context.input.conversationId)?.botId ?? null
+    });
     throwIfAborted(context.input.abortSignal);
     if (!results) {
       throw new Error("Semantic index is unavailable");
@@ -1459,6 +1396,7 @@ export async function executeToolCall(
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
+      delegationDepth?: number;
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
     };

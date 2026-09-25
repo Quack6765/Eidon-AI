@@ -298,6 +298,7 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
+    delegationDepth?: number;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
@@ -466,6 +467,7 @@ async function startAssistantTurn(
       botTeam,
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
+      delegationDepth: options?.delegationDepth,
       async onEvent(event: ChatStreamEvent) {
         touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
@@ -806,6 +808,7 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    delegationDepth?: number;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
@@ -878,6 +881,7 @@ export async function startChatTurn(
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
       unattended: options?.unattended,
+      delegationDepth: options?.delegationDepth,
       async onApprovalWait(waiting) {
         if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
         await options?.onApprovalWait?.(waiting);

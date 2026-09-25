@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createLocalUser } from "@/lib/users";
 import { createBot } from "@/lib/bots";
 import { createConversation } from "@/lib/conversations";
-import { getBotSkillsDir, listBotWorkspaceSkills } from "@/lib/bot-workspace-skills";
+import { MAX_SKILL_FILE_BYTES, getBotSkillsDir, listBotWorkspaceSkills } from "@/lib/bot-workspace-skills";
 import { executeLoadSkill, executeSaveSkill, executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
 import type { PromptMessage } from "@/lib/types";
 
@@ -124,6 +124,46 @@ describe("save_skill tool", () => {
 
     expect(actions).toHaveLength(0);
     expect(existsSync(getBotSkillsDir(bot))).toBe(false);
+  });
+
+  it("enforces the same size, name and folder guards as the skills editor", async () => {
+    const user = await createLocalUser({ username: "guardowner", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Guarded", title: "Skills" }, user.id);
+    const { actions, context } = buildContext(bot.homeConversationId);
+
+    const oversized = await executeSaveSkill(
+      "call_1",
+      { name: "Huge", description: "Too big.", instructions: "x".repeat(MAX_SKILL_FILE_BYTES) },
+      context
+    );
+    expect(oversized.toolSucceeded).toBe(false);
+    expect(resultText(oversized.promptMessages)).toContain("under 200 KB");
+
+    const longName = await executeSaveSkill(
+      "call_2",
+      { name: "n".repeat(101), description: "Long.", instructions: "Body." },
+      context
+    );
+    expect(longName.toolSucceeded).toBe(false);
+    expect(resultText(longName.promptMessages)).toContain("100 characters or fewer");
+
+    await executeSaveSkill(
+      "call_3",
+      { name: "Release Notes", description: "Original.", instructions: "Keep me." },
+      context
+    );
+    const clash = await executeSaveSkill(
+      "call_4",
+      { name: "release-notes", description: "Clash.", instructions: "Clobber." },
+      context
+    );
+    expect(clash.toolSucceeded).toBe(false);
+    expect(resultText(clash.promptMessages)).toContain("already exists");
+
+    expect(actions.map((action) => action.detail)).toEqual(["Release Notes"]);
+    expect(listBotWorkspaceSkills(bot).map((skill) => skill.content)).toEqual([
+      expect.stringContaining("Keep me.")
+    ]);
   });
 
   it("returns an error tool result for conversations without a bot workspace", async () => {
