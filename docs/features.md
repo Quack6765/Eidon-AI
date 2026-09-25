@@ -8,15 +8,16 @@ The complete capability reference: what Eidon does, where the controls are, and 
 
 **Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**, which carries the live activity while the turn runs and then rests on a count summary — for example `3 tools, 4 web searches, 6 pages read` — that expands on click to list every call of the turn.
 
-**Branching and redoing.** Three different ways to change course:
+**Branching and redoing.** Four different ways to change course:
 
 | Action | Where | Effect |
 | --- | --- | --- |
-| Fork | On an assistant reply | Copies the conversation up to that reply into a new conversation, leaving the original intact |
+| Rewind | On any message | Discards everything after an assistant reply — messages, tool calls, and their place in the model's context. Rewinding one of your messages removes it too and puts its text and attachments back in the composer |
+| Fork | On any message | Copies the conversation up to that message into a new conversation, leaving the original intact. Forking from one of your messages opens the new conversation with that message in the composer |
 | Edit and restart | On one of your messages | Rewrites that message and re-runs the turn from there, discarding what followed |
 | Regenerate | On an assistant reply | Re-runs the same turn to get a different answer |
 
-A failed turn can also be retried directly.
+A failed turn can also be retried directly. Rewind takes effect on screen at once and offers Undo for a few seconds; it is saved when that window closes, when you dismiss the notice, or when you send or change anything else in the conversation, and leaving the conversation before then cancels it. Rewind waits until the current reply has finished. A bot's home thread can be rewound but not forked, because each bot has exactly one thread.
 
 **Queued follow-ups.** While a reply is streaming you can keep typing. Queued messages are held in order and sent when the current turn finishes. The queue is editable: reorder it, edit an entry, delete one, or push one to the front and send it immediately.
 

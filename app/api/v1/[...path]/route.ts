@@ -35,6 +35,7 @@ import * as messageActionDismissRoute from "@/app/api/message-actions/[actionId]
 import * as messageRoute from "@/app/api/messages/[messageId]/route";
 import * as messageEditRestartRoute from "@/app/api/messages/[messageId]/edit-restart/route";
 import * as messageForkRoute from "@/app/api/messages/[messageId]/fork/route";
+import * as messageRewindRoute from "@/app/api/messages/[messageId]/rewind/route";
 import * as messageRegenerateRoute from "@/app/api/messages/[messageId]/regenerate/route";
 import * as messageRetryRoute from "@/app/api/messages/[messageId]/retry/route";
 import * as onboardingRoute from "@/app/api/onboarding/route";
@@ -119,6 +120,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["messages", ":messageId", "regenerate"], module: messageRegenerateRoute },
   { pattern: ["messages", ":messageId", "retry"], module: messageRetryRoute },
   { pattern: ["messages", ":messageId", "fork"], module: messageForkRoute },
+  { pattern: ["messages", ":messageId", "rewind"], module: messageRewindRoute },
   { pattern: ["messages", ":messageId"], module: messageRoute },
   { pattern: ["message-actions", ":actionId", "approve"], module: messageActionApproveRoute },
   { pattern: ["message-actions", ":actionId", "dismiss"], module: messageActionDismissRoute },

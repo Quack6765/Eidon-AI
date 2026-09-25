@@ -322,11 +322,12 @@ export function publishAttachmentArtifacts(
 export function copyAttachmentsForConversationFork(input: {
   sourceMessages: Array<{ id: string; attachments?: MessageAttachment[] }>;
   targetConversationId: string;
-  targetMessageIdBySourceId: Map<string, string>;
+  targetMessageIdBySourceId: Map<string, string | null>;
 }) {
+  const unboundCreatedAt = nowIso();
   const records = input.sourceMessages.flatMap((message) => {
-    const messageId = input.targetMessageIdBySourceId.get(message.id);
-    if (!messageId) return [];
+    if (!input.targetMessageIdBySourceId.has(message.id)) return [];
+    const messageId = input.targetMessageIdBySourceId.get(message.id) ?? null;
     return (message.attachments ?? []).map((attachment) => {
       const id = createId("att");
       let bytes: Buffer;
@@ -355,7 +356,7 @@ export function copyAttachmentsForConversationFork(input: {
         ),
         kind: attachment.kind,
         extractedText: attachment.extractedText,
-        createdAt: attachment.createdAt,
+        createdAt: messageId ? attachment.createdAt : unboundCreatedAt,
         bytes
       };
     });

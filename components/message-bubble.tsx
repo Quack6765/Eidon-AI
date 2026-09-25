@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
+import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
@@ -65,6 +65,7 @@ import {
   MessageContent,
   MessageAction
 } from "@/components/ai-elements/message";
+import { MessageActionsMenu } from "@/components/message-actions-menu";
 
 const COPY_RESET_DELAY_MS = 1600;
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
@@ -425,8 +426,9 @@ function MessageBubbleImpl({
   toolCallDisplay = "pills",
   onUpdateUserMessage,
   isUpdating = false,
-  onForkAssistantMessage,
+  onForkMessage,
   isForking = false,
+  onRewindMessage,
   onRetryAssistantMessage,
   isRetrying = false,
   onRegenerateUserMessage,
@@ -465,8 +467,9 @@ function MessageBubbleImpl({
   ) => Promise<void>;
   onDismissToolApproval?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onForkMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   isRetrying?: boolean;
   onRegenerateUserMessage?: (messageId: string) => void;
@@ -1164,9 +1167,18 @@ function MessageBubbleImpl({
                     </MessageAction>
                   </>
                 ) : !readOnly ? (
-                  <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </MessageAction>
+                  <>
+                    <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </MessageAction>
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="end"
+                      onFork={onForkMessage}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
+                  </>
                 ) : null}
               </div>
             ) : null}
@@ -1375,20 +1387,13 @@ function MessageBubbleImpl({
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </MessageAction>
-                    {onForkAssistantMessage && message.status === "completed" ? (
-                      <MessageAction
-                        label="Fork conversation from message"
-                        tooltip="Fork conversation from message"
-                        onClick={() => onForkAssistantMessage(message.id)}
-                        disabled={isForking}
-                      >
-                        {isForking ? (
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <GitFork className="h-3.5 w-3.5" />
-                        )}
-                      </MessageAction>
-                    ) : null}
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="start"
+                      onFork={message.status === "completed" ? onForkMessage : undefined}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
                   </div>
                 ) : null}
               </div>

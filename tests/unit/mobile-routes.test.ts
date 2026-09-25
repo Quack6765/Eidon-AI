@@ -7,6 +7,7 @@ import {
   POST as mobilePost,
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
@@ -634,6 +635,32 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { content: "Updated contract message" }
     );
+    const reply = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "Contract reply"
+    });
+    const [draftAttachment] = await createAttachments(conversationId, [
+      { filename: "draft.txt", mimeType: "text/plain", bytes: Buffer.from("draft attachment", "utf8") }
+    ]);
+    bindAttachmentsToMessage(conversationId, message.id, [draftAttachment.id]);
+    const userForkBody = await call(
+      "/messages/{messageId}/fork",
+      ["messages", message.id, "fork"],
+      "POST"
+    ) as { data: { draft: { content: string; attachments: Array<Record<string, unknown>> } } };
+    expect(userForkBody.data.draft.content).toBe("Updated contract message");
+    expect(userForkBody.data.draft.attachments[0]).not.toHaveProperty("relativePath");
+    await call("/messages/{messageId}/fork", ["messages", reply.id, "fork"], "POST");
+    const rewindBody = await call(
+      "/messages/{messageId}/rewind",
+      ["messages", message.id, "rewind"],
+      "POST"
+    ) as { data: { messages: unknown[]; draft: { attachments: Array<{ id: string; messageId: string | null }> } } };
+    expect(rewindBody.data.messages).toEqual([]);
+    expect(rewindBody.data.draft.attachments).toEqual([
+      expect.objectContaining({ id: draftAttachment.id, messageId: null })
+    ]);
 
     const formData = new FormData();
     formData.set("conversationId", conversationId);
