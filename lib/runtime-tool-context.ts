@@ -5,6 +5,7 @@ import type {
   RuntimeAppSettings,
   RuntimeProviderProfile,
   Skill,
+  ToolApprovalContext,
   VisionMode
 } from "@/lib/types";
 
@@ -14,7 +15,7 @@ export type RuntimeToolContext = {
   appSettings?: RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
-  toolApproval?: { userId: string | null; unattended: boolean };
+  toolApproval?: ToolApprovalContext;
   promptMessages?: PromptMessage[];
   mcpToolSets: ToolSet[];
   skills: Skill[];

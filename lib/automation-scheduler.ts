@@ -30,8 +30,10 @@ import { getBot } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
+  setBotRunAwaitingApproval,
   updateBotRunStatus
 } from "@/lib/bot-runs";
+import { createPausableTimeout } from "@/lib/pausable-timeout";
 import type { BotRun } from "@/lib/types";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
@@ -245,11 +247,29 @@ async function executeAutomationRun(
       return;
     }
 
-    let timeout: ReturnType<typeof setTimeout> | null = null;
     const runTimeoutMs = resolveAutomationRunTimeoutMs(automation, dependencies.runTimeoutMs);
+    let turn: ReturnType<StartChatTurn> | null = null;
+    let rejectDeadline: (error: Error) => void = () => {};
+    const deadline = new Promise<never>((_resolve, reject) => {
+      rejectDeadline = reject;
+    });
+    const deadlineTimer = createPausableTimeout(() => {
+      requestStop(conversation.id);
+      rejectDeadline(new AutomationRunDeadlineError(turn ?? Promise.resolve()));
+    }, runTimeoutMs);
+    const botRunId = botRunState.runId;
     const turnOptions = {
       unattended: true,
-      ...(bot ? { botRun: { record: false as const } } : {}),
+      ...(bot && botRunId
+        ? {
+            botRun: { record: false as const },
+            onApprovalWait: (waiting: boolean) => {
+              setBotRunAwaitingApproval(botRunId, waiting);
+              if (waiting) deadlineTimer.pause();
+              else deadlineTimer.resume();
+            }
+          }
+        : {}),
       ...(automation.research
         ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }
         : {})
@@ -265,27 +285,19 @@ async function executeAutomationRun(
       runNumber: countAutomationRuns(automation.id),
       previousResult: getPreviousAutomationRunResult(automation.id, run.id)
     });
-    const turn = dependencies.startChatTurn(
-      dependencies.manager,
-      conversation.id,
-      prompt,
-      [],
-      automation.personaId ?? undefined,
-      Object.keys(turnOptions).length ? turnOptions : undefined
-    );
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        requestStop(conversation.id);
-        reject(new AutomationRunDeadlineError(turn));
-      }, runTimeoutMs);
-    });
     let result: Awaited<ReturnType<StartChatTurn>>;
     try {
+      turn = dependencies.startChatTurn(
+        dependencies.manager,
+        conversation.id,
+        prompt,
+        [],
+        automation.personaId ?? undefined,
+        Object.keys(turnOptions).length ? turnOptions : undefined
+      );
       result = await Promise.race([turn, deadline]);
     } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      deadlineTimer.clear();
     }
 
     const completedAt = dependencies.now().toISOString();

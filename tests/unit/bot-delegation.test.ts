@@ -327,6 +327,109 @@ describe("bot-delegation", () => {
     configureBotRunLimits({ maxConcurrentPerUser: 4 });
   });
 
+  it("pauses on a tool approval: frees its slot while waiting and takes one back to resume", async () => {
+    const user = await createLocalUser({ username: "delegateapproval", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Gatekeeper" }, user.id);
+    const observed: Record<string, unknown> = {};
+    const wakeOptions: Array<Record<string, unknown>> = [];
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { unattended?: boolean; onApprovalWait?: (waiting: boolean) => Promise<void> }
+      ) => {
+        if (conversationId !== worker.homeConversationId) {
+          wakeOptions.push(options as Record<string, unknown>);
+          return { status: "completed" as const };
+        }
+        observed.unattended = options.unattended;
+        const runId = listRecentBotRuns({ userId: user.id })[0].id;
+        await options.onApprovalWait?.(true);
+        observed.waitingStatus = getBotRun(runId)?.status;
+        observed.slotFreeWhileWaiting = tryAcquireBotUserSlot(user.id);
+        releaseBotUserSlot(user.id);
+        await options.onApprovalWait?.(false);
+        observed.resumedStatus = getBotRun(runId)?.status;
+        observed.slotFreeAfterResume = tryAcquireBotUserSlot(user.id);
+        stubWorkerAnswer(conversationId, "Approved and done.");
+        return { status: "completed" as const };
+      }
+    );
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_gate", { bot: worker.id, message: "push it" }, context);
+
+    await vi.waitFor(() => {
+      if (wakeOptions.length === 0) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+
+    expect(observed).toEqual({
+      unattended: true,
+      waitingStatus: "waiting_approval",
+      slotFreeWhileWaiting: true,
+      resumedStatus: "running",
+      slotFreeAfterResume: false
+    });
+    expect(wakeOptions[0].unattended).toBe(true);
+    expect(listRecentBotRuns({ userId: user.id })[0].status).toBe("completed");
+    expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+    releaseBotUserSlot(user.id);
+    configureBotRunLimits({ maxConcurrentPerUser: 4 });
+  });
+
+  it("does not hold a slot it could not take back after an approval", async () => {
+    const user = await createLocalUser({ username: "delegatenoslot", password: "password-123", role: "user" as const });
+    const worker = createBot({ name: "Latecomer" }, user.id);
+    const wakeCalls: string[] = [];
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { onApprovalWait?: (waiting: boolean) => Promise<void> }
+      ) => {
+        if (conversationId !== worker.homeConversationId) {
+          wakeCalls.push(content);
+          return { status: "completed" as const };
+        }
+        await options.onApprovalWait?.(true);
+        expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+        await options.onApprovalWait?.(false);
+        stubWorkerAnswer(conversationId, "Finished anyway.");
+        return { status: "completed" as const };
+      }
+    );
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { context } = buildContext(user.id);
+      await executeMessageBot("call_late", { bot: worker.id, message: "go" }, context);
+      await vi.waitFor(() => {
+        if (startChatTurnMock.mock.calls.length === 0) throw new Error("waiting for worker");
+      });
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await vi.waitFor(() => {
+      if (wakeCalls.length === 0) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+    expect(tryAcquireBotUserSlot(user.id)).toBe(false);
+    releaseBotUserSlot(user.id);
+    expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+    releaseBotUserSlot(user.id);
+    configureBotRunLimits({ maxConcurrentPerUser: 4 });
+  });
+
   it("waits for a busy worker conversation to free up before delivering the task", async () => {
     const user = await createLocalUser({ username: "workerbusy", password: "password-123", role: "user" as const });
     const chief = ensureChiefBot(user.id);

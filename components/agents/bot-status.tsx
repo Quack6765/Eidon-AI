@@ -15,7 +15,8 @@ const STATUS_DOT_CLASSES: Partial<Record<BotStatus, string>> = {
 const STATUS_LABELS: Record<BotStatus, string> = {
   idle: "Idle",
   queued: "Queued",
-  running: "Running"
+  running: "Running",
+  waiting_approval: "Needs approval"
 };
 
 const WAITING_FOR_INPUT_CHIP_CLASSES =
@@ -32,13 +33,13 @@ export function BotStatusChip({
   status: BotStatus;
   waitingForInput?: boolean;
 }) {
-  if (waitingForInput) {
+  if (waitingForInput || status === "waiting_approval") {
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${WAITING_FOR_INPUT_CHIP_CLASSES}`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-        Waiting for input
+        {status === "waiting_approval" ? STATUS_LABELS.waiting_approval : "Waiting for input"}
       </span>
     );
   }
@@ -68,7 +69,7 @@ export function BotStatusDot({
   status: BotStatus;
   waitingForInput?: boolean;
 }) {
-  if (waitingForInput) {
+  if (waitingForInput || status === "waiting_approval") {
     return <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />;
   }
 

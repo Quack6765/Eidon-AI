@@ -87,6 +87,57 @@ describe("bot routines (automation run-as-bot)", () => {
     expect(botRuns[0].status).toBe("completed");
   });
 
+  it("pauses a routine on a tool approval without letting its deadline expire", async () => {
+    setupProvider();
+    const user = await createLocalUser({ username: "routineapproval", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Watcher" }, user.id);
+    const automation = createAutomation(
+      {
+        name: "Deploy check",
+        prompt: "check the deploy",
+        providerProfileId: "profile_bot_routine",
+        personaId: null,
+        botId: bot.id,
+        scheduleKind: "interval",
+        intervalMinutes: 30,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: [],
+        enabled: false
+      },
+      user.id
+    );
+
+    const observed: Record<string, unknown> = {};
+    const startChatTurnStub = (async (
+      _manager: unknown,
+      _conversationId: string,
+      _content: string,
+      _attachments: string[],
+      _personaId?: string,
+      options?: { unattended?: boolean; onApprovalWait?: (waiting: boolean) => Promise<void> | void }
+    ) => {
+      observed.unattended = options?.unattended;
+      await options?.onApprovalWait?.(true);
+      observed.waitingStatus = listRecentBotRuns({ userId: user.id })[0].status;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await options?.onApprovalWait?.(false);
+      observed.resumedStatus = listRecentBotRuns({ userId: user.id })[0].status;
+      return { status: "completed" as const };
+    }) as StartChatTurn;
+
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    const run = await runAutomationNow(automation.id, user.id, {
+      manager: createConversationManager(),
+      startChatTurn: startChatTurnStub,
+      runTimeoutMs: 60
+    });
+
+    expect(run?.status).toBe("completed");
+    expect(observed).toEqual({ unattended: true, waitingStatus: "waiting_approval", resumedStatus: "running" });
+    expect(listRecentBotRuns({ userId: user.id })[0].status).toBe("completed");
+  });
+
   it("keeps regular automations unchanged (fresh conversation, no bot run)", async () => {
     setupProvider();
     const user = await createLocalUser({ username: "plainowner", password: "password-123", role: "user" as const });

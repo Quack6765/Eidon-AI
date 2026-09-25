@@ -984,6 +984,20 @@ describe("db", () => {
       triggerSource: "delegated"
     });
     botRuns.updateBotRunStatus(botRun.id, { status: "running", startedAt: "2026-07-12T12:00:00.000Z" });
+    const pausedBotRun = botRuns.createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "routine"
+    });
+    botRuns.updateBotRunStatus(pausedBotRun.id, { status: "waiting_approval", startedAt: "2026-07-12T12:00:00.000Z" });
+    const toolApprovalAction = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "tool_approval",
+      label: "Allow \"git\" commands?",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
     const delegationAction = conversations.createMessageAction({
       messageId: assistantMessage.id,
       kind: "message_bot",
@@ -1076,6 +1090,19 @@ describe("db", () => {
     expect(recoveredDelegationAction.status).toBe("error");
     expect(recoveredDelegationAction.result_summary).toContain("interrupted");
     expect(recoveredDelegationAction.completed_at).not.toBeNull();
+    expect(reopened.prepare("SELECT status FROM bot_runs WHERE id = ?").get(pausedBotRun.id)).toEqual({ status: "failed" });
+    const recoveredToolApproval = reopened
+      .prepare("SELECT status, proposal_state, proposal_payload_json, completed_at FROM message_actions WHERE id = ?")
+      .get(toolApprovalAction.id) as {
+      status: string;
+      proposal_state: string;
+      proposal_payload_json: string;
+      completed_at: string | null;
+    };
+    expect(recoveredToolApproval.status).toBe("completed");
+    expect(recoveredToolApproval.proposal_state).toBe("dismissed");
+    expect(JSON.parse(recoveredToolApproval.proposal_payload_json)).toMatchObject({ command: "git push", resolution: "stopped" });
+    expect(recoveredToolApproval.completed_at).not.toBeNull();
     expect(bootstrapResult).toMatchObject({
       recovered: {
         conversations: 1,
@@ -1084,8 +1111,9 @@ describe("db", () => {
         titles: 1,
         queuedMessages: 1,
         automationRuns: 1,
-        botRuns: 1,
-        delegationActions: 1
+        botRuns: 2,
+        delegationActions: 1,
+        toolApprovals: 1
       }
     });
 

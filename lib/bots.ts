@@ -7,6 +7,7 @@ import {
   createConversation,
   deleteConversation,
   getConversation,
+  listMessageActionsForMessageIds,
   renameConversation,
   updateConversationProviderProfile
 } from "@/lib/conversations";
@@ -17,7 +18,7 @@ import { nowIso } from "@/lib/utils";
 import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
 import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
-import type { Bot, BotStatus, BotSummary } from "@/lib/types";
+import type { Bot, BotStatus, BotSummary, PendingBotApproval } from "@/lib/types";
 
 export { DEFAULT_BOT_BASE_SYSTEM_PROMPT };
 
@@ -495,6 +496,11 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
 }
 
 export function getBotStatus(bot: Bot): BotStatus {
+  const waitingRun = getDb()
+    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_approval' LIMIT 1")
+    .get(bot.id);
+  if (waitingRun) return "waiting_approval";
+
   const conversation = getConversation(bot.homeConversationId);
   if (conversation?.isActive) return "running";
 
@@ -525,6 +531,60 @@ export function getBotPendingInputAt(bot: Bot): string | null {
   return row?.pending_at ?? null;
 }
 
+const PENDING_TOOL_APPROVAL_CONDITION =
+  "ma.kind = 'tool_approval' AND ma.status = 'pending' AND ma.proposal_state = 'pending'";
+
+function hasPendingToolApproval(bot: Bot) {
+  return Boolean(
+    getDb()
+      .prepare(
+        `SELECT 1 FROM message_actions ma
+         INNER JOIN messages m ON m.id = ma.message_id
+         WHERE m.conversation_id = ? AND ${PENDING_TOOL_APPROVAL_CONDITION}
+         LIMIT 1`
+      )
+      .get(bot.homeConversationId)
+  );
+}
+
+export function listPendingBotApprovals(input: { userId?: string; botId?: string } = {}): PendingBotApproval[] {
+  const filters = [PENDING_TOOL_APPROVAL_CONDITION];
+  const values: string[] = [];
+  if (input.userId) {
+    filters.push("b.user_id = ?");
+    values.push(input.userId);
+  }
+  if (input.botId) {
+    filters.push("b.id = ?");
+    values.push(input.botId);
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT ma.id AS action_id, ma.message_id, b.id AS bot_id, b.name AS bot_name, b.home_conversation_id
+       FROM message_actions ma
+       INNER JOIN messages m ON m.id = ma.message_id
+       INNER JOIN bots b ON b.home_conversation_id = m.conversation_id
+       WHERE ${filters.join(" AND ")}
+       ORDER BY ma.started_at ASC, ma.id ASC`
+    )
+    .all(...values) as Array<{
+    action_id: string;
+    message_id: string;
+    bot_id: string;
+    bot_name: string;
+    home_conversation_id: string;
+  }>;
+  const actions = new Map(
+    listMessageActionsForMessageIds([...new Set(rows.map((row) => row.message_id))]).map((action) => [action.id, action])
+  );
+  return rows.flatMap((row) => {
+    const action = actions.get(row.action_id);
+    return action
+      ? [{ botId: row.bot_id, botName: row.bot_name, conversationId: row.home_conversation_id, action }]
+      : [];
+  });
+}
+
 export function markBotPendingInputSeen(botId: string, userId?: string): Bot | null {
   const current = getBot(botId, userId);
   if (!current) return null;
@@ -547,8 +607,9 @@ export function toBotSummary(bot: Bot): BotSummary {
     homeConversationId: bot.homeConversationId,
     status: getBotStatus(bot),
     waitingForInput:
-      pendingInputAt !== null &&
-      (bot.pendingInputSeenAt === null || pendingInputAt > bot.pendingInputSeenAt),
+      hasPendingToolApproval(bot) ||
+      (pendingInputAt !== null &&
+        (bot.pendingInputSeenAt === null || pendingInputAt > bot.pendingInputSeenAt)),
     lastRunAt: getBotLastRunAt(bot.id),
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt

@@ -159,7 +159,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
 
 export type BotRunTriggerSource = "dm" | "delegated" | "routine";
 
-export type BotRunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+export type BotRunStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "stopped";
 
 export type Bot = {
   id: string;
@@ -189,7 +189,14 @@ export type BotRun = {
   createdAt: string;
 };
 
-export type BotStatus = "idle" | "queued" | "running";
+export type BotStatus = "idle" | "queued" | "running" | "waiting_approval";
+
+export type PendingBotApproval = {
+  botId: string;
+  botName: string;
+  conversationId: string;
+  action: MessageAction;
+};
 
 export type TurnActivity = {
   startedAt: string;
@@ -453,6 +460,13 @@ export type ToolApprovalProposalPayload = {
   mcpToolName?: string;
   arguments?: Record<string, unknown> | null;
   resolution?: ToolApprovalResolution;
+};
+
+export type ToolApprovalContext = {
+  userId: string | null;
+  unattended: boolean;
+  timeoutMs?: number;
+  onWaitChange?: (waiting: boolean) => Promise<void> | void;
 };
 
 export type ProposalPayload =

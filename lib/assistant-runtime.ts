@@ -28,6 +28,7 @@ import type {
   ProviderToolCall,
   PromptMessage,
   Skill,
+  ToolApprovalContext,
   VisionMode
 } from "@/lib/types";
 
@@ -359,7 +360,7 @@ export async function resolveAssistantTurn(input: {
   memoriesEnabled?: boolean;
   memoriesRigor?: MemoryRigor;
   memoryUserId?: string | null;
-  toolApproval?: { userId: string | null; unattended: boolean };
+  toolApproval?: ToolApprovalContext;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;

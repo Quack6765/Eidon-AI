@@ -8,6 +8,7 @@ import * as automationsRoute from "@/app/api/automations/route";
 import * as attachmentRoute from "@/app/api/attachments/[attachmentId]/route";
 import * as attachmentsRoute from "@/app/api/attachments/route";
 import * as avatarRoute from "@/app/api/avatars/[seed]/route";
+import * as botApprovalsRoute from "@/app/api/bots/approvals/route";
 import * as botRoute from "@/app/api/bots/[botId]/route";
 import * as botClearContextRoute from "@/app/api/bots/[botId]/clear-context/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
@@ -98,6 +99,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["attachments"], module: attachmentsRoute },
   { pattern: ["attachments", ":attachmentId"], module: attachmentRoute },
   { pattern: ["avatars", ":seed"], module: avatarRoute },
+  { pattern: ["bots", "approvals"], module: botApprovalsRoute },
   { pattern: ["bots", ":botId", "clear-context"], module: botClearContextRoute },
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },

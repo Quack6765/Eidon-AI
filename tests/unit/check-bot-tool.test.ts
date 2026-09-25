@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot } from "@/lib/bots";
 import { createBotRunRecord, updateBotRunStatus } from "@/lib/bot-runs";
-import { createMessage, setConversationActive } from "@/lib/conversations";
+import { createMessage, createMessageAction, setConversationActive } from "@/lib/conversations";
 import { buildToolDefinitions } from "@/lib/tool-definitions";
 import { executeToolCall } from "@/lib/tool-executors";
 import { beginTurnActivity, resetTurnActivityForTests, startTurnAction } from "@/lib/turn-activity";
@@ -67,6 +67,34 @@ describe("check_bot tool", () => {
     expect(content).toContain("Current step: Read page.");
     expect(content).toContain("Collected 12 rows so far.");
     expect(content).toContain("the bot was not interrupted");
+    setConversationActive(worker.homeConversationId, false);
+  });
+
+  it("tells the sender that a bot is blocked on a tool approval and where to answer it", async () => {
+    const user = await createLocalUser({ username: "checkblocked", password: "password-123", role: "user" as const });
+    const worker = createBot({ name: "Deployer" }, user.id);
+    const run = createBotRunRecord({ botId: worker.id, conversationId: worker.homeConversationId, triggerSource: "delegated" });
+    updateBotRunStatus(run.id, { status: "waiting_approval", startedAt: new Date().toISOString() });
+    setConversationActive(worker.homeConversationId, true);
+
+    const unknownApproval = String((await runCheckBot(user.id, "Deployer")).promptMessages.at(-1)?.content);
+    expect(unknownApproval).toContain("Deployer is waiting for approval.");
+    expect(unknownApproval).toContain("Blocked: waiting for the user to approve a tool call.");
+
+    const message = createMessage({ conversationId: worker.homeConversationId, role: "assistant", content: "" });
+    createMessageAction({
+      messageId: message.id,
+      kind: "tool_approval",
+      status: "pending",
+      label: 'Allow "git" commands?',
+      detail: "git push origin main",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push origin main" }
+    });
+
+    const content = String((await runCheckBot(user.id, "Deployer")).promptMessages.at(-1)?.content);
+    expect(content).toMatch(/Blocked: waiting \d+s for the user to answer "Allow "git" commands\?" \(git push origin main\)\./);
+    expect(content).toContain("answers the approval card in Deployer's conversation");
     setConversationActive(worker.homeConversationId, false);
   });
 

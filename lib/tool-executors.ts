@@ -53,6 +53,7 @@ import type {
   MemoryProposalState,
   MessageActionKind,
   ProposalPayload,
+  ToolApprovalContext,
   ToolApprovalProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
@@ -419,7 +420,7 @@ export async function executeMcpToolCall(
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -498,6 +499,8 @@ export async function executeMcpToolCall(
     detail: getToolLabel(resolvedTool),
     userId: context.input.toolApproval?.userId ?? null,
     unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart
   });
@@ -820,7 +823,7 @@ export async function executeShellCommand(
     input: {
       conversationId?: string;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -853,6 +856,8 @@ export async function executeShellCommand(
     detail: buildShellDetail(command),
     userId: context.input.toolApproval?.userId ?? null,
     unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart
   });
@@ -1455,7 +1460,7 @@ export async function executeToolCall(
       conversationId?: string;
       assistantMessageId?: string;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;

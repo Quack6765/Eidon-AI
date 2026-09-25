@@ -127,7 +127,7 @@ export function AgentsNav({
                 <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{bot.name}</div>
-                  {bot.status === "queued" ? (
+                  {bot.status === "queued" || bot.status === "waiting_approval" ? (
                     <div className="truncate text-[11px] text-[#71717a]">
                       {botStatusLabel(bot.status)}
                     </div>
