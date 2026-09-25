@@ -1199,6 +1199,7 @@ export async function executeCreateAutomationProposal(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
   const proposalPayload = {
     name,
     prompt,
@@ -1209,7 +1210,8 @@ export async function executeCreateAutomationProposal(
     daysOfWeek: schedule.daysOfWeek,
     providerProfileId,
     personaId: null,
-    continuePreviousConversation
+    botId: bot?.id ?? null,
+    continuePreviousConversation: bot ? false : continuePreviousConversation
   };
   const scheduleSummary = describeSchedule(proposalPayload);
 

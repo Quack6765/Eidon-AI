@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
+import { getBotByConversationId } from "@/lib/bots";
 import {
   deleteConversation,
   deleteConversationIfEmpty,
@@ -61,6 +62,10 @@ export async function DELETE(
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
+  }
+
+  if (getBotByConversationId(conversation.id)?.isChief) {
+    return badRequest("The chief of staff bot cannot be deleted");
   }
 
   const deleted = onlyIfEmpty

@@ -571,6 +571,13 @@ export function createConversation(
 }
 
 function deleteConversationRecord(conversationId: string) {
+  const isChiefHome = getDb()
+    .prepare("SELECT 1 FROM bots WHERE home_conversation_id = ? AND is_chief = 1")
+    .get(conversationId);
+  if (isChiefHome) {
+    return { deleted: false, relativePaths: [] };
+  }
+
   const relativePaths = listAttachmentsForConversation(conversationId).map(
     (attachment) => attachment.relativePath
   );
