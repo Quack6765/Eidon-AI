@@ -1114,20 +1114,19 @@ describe("db", () => {
       .get(delegationAction.id) as { status: string; result_summary: string; completed_at: string | null };
 
     expect(recoveredConversation).toEqual({ is_active: 0, title_generation_status: "failed" });
-    expect(recoveredMessage.status).toBe("error");
+    expect(recoveredMessage.status).toBe("stopped");
     expect(recoveredAction.status).toBe("error");
     expect(recoveredAction.completed_at).not.toBeNull();
-    expect(recoveredQueue).toEqual({ status: "failed", processing_started_at: null });
+    expect(recoveredQueue).toEqual({ status: "pending", processing_started_at: null });
     expect(recoveredPendingQueue).toEqual({ status: "pending", processing_started_at: null });
-    expect(recoveredRun.status).toBe("failed");
-    expect(recoveredRun.finished_at).not.toBeNull();
-    expect(recoveredBotRun.status).toBe("failed");
+    expect(recoveredRun).toEqual({ status: "queued", finished_at: null });
+    expect(recoveredBotRun.status).toBe("stopped");
     expect(recoveredBotRun.finished_at).not.toBeNull();
-    expect(recoveredBotRun.error_message).toContain("interrupted by server restart");
+    expect(recoveredBotRun.error_message).toBe("Interrupted by a server restart");
     expect(recoveredDelegationAction.status).toBe("error");
     expect(recoveredDelegationAction.result_summary).toContain("interrupted");
     expect(recoveredDelegationAction.completed_at).not.toBeNull();
-    expect(reopened.prepare("SELECT status FROM bot_runs WHERE id = ?").get(pausedBotRun.id)).toEqual({ status: "failed" });
+    expect(reopened.prepare("SELECT status FROM bot_runs WHERE id = ?").get(pausedBotRun.id)).toEqual({ status: "stopped" });
     const recoveredToolApproval = reopened
       .prepare("SELECT status, proposal_state, proposal_payload_json, completed_at FROM message_actions WHERE id = ?")
       .get(toolApprovalAction.id) as {
@@ -1148,9 +1147,11 @@ describe("db", () => {
         titles: 1,
         queuedMessages: 1,
         automationRuns: 1,
+        delegatedRuns: 0,
         botRuns: 2,
         delegationActions: 1,
-        toolApprovals: 1
+        toolApprovals: 1,
+        conversationIds: [conversation.id]
       }
     });
 
