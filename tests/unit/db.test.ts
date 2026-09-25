@@ -401,6 +401,43 @@ describe("db", () => {
     }
   });
 
+  it("links existing routine runs to the answer they produced when adding the result column", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const automations = await import("@/lib/automations");
+    const conversations = await import("@/lib/conversations");
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO automations (id, name, prompt, provider_profile_id, schedule_kind, interval_minutes, enabled, created_at, updated_at)
+       VALUES ('auto_backfill', 'Digest', 'Digest', 'profile_backfill', 'interval', 60, 0, ?, ?)`
+    ).run("2026-04-10T07:00:00.000Z", "2026-04-10T07:00:00.000Z");
+    const conversation = conversations.createConversation("Shared thread");
+    const run = automations.createAutomationRun({
+      automationId: "auto_backfill",
+      scheduledFor: "2026-04-10T08:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    automations.attachConversationToRun(run.id, conversation.id);
+    automations.updateAutomationRunStatus(run.id, {
+      status: "completed",
+      startedAt: "2026-04-10T08:00:00.000Z",
+      finishedAt: "2026-04-10T08:05:00.000Z"
+    });
+
+    const createAnswerAt = (content: string, createdAt: string) => {
+      const message = conversations.createMessage({ conversationId: conversation.id, role: "assistant", content });
+      db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(createdAt, message.id);
+    };
+    createAnswerAt("Earlier chat reply", "2026-04-10T07:59:00.000Z");
+    createAnswerAt("Routine answer", "2026-04-10T08:01:00.000Z");
+    createAnswerAt("Later chat reply", "2026-04-10T08:30:00.000Z");
+
+    db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
+    migrate(db);
+
+    expect(automations.getPreviousAutomationRunResult("auto_backfill", "run_next")).toBe("Routine answer");
+  });
+
   it("seeds new accounts with the running version so a fresh install is not announced", async () => {
     process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
     try {

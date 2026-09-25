@@ -1151,6 +1151,7 @@ export function migrate(db: Database.Database) {
       status TEXT NOT NULL,
       error_message TEXT,
       trigger_source TEXT NOT NULL,
+      result_message_id TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
@@ -1335,6 +1336,29 @@ export function migrate(db: Database.Database) {
   }
   if (!memoryCols.some((col) => col.name === "bot_id")) {
     db.exec("ALTER TABLE user_memories ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE");
+  }
+
+  const automationRunCols = db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>;
+  if (!automationRunCols.some((col) => col.name === "result_message_id")) {
+    db.exec("ALTER TABLE automation_runs ADD COLUMN result_message_id TEXT");
+    db.exec(
+      `UPDATE automation_runs
+       SET result_message_id = (
+         SELECT m.id
+         FROM messages m
+         WHERE m.conversation_id = automation_runs.conversation_id
+           AND m.role = 'assistant'
+           AND m.status = 'completed'
+           AND m.created_at >= automation_runs.started_at
+           AND m.created_at <= automation_runs.finished_at
+         ORDER BY m.rowid DESC
+         LIMIT 1
+       )
+       WHERE status = 'completed'
+         AND conversation_id IS NOT NULL
+         AND started_at IS NOT NULL
+         AND finished_at IS NOT NULL`
+    );
   }
 
   const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
