@@ -17,6 +17,7 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 | `EIDON_SESSION_SECRET` | HMAC key for signing session JWTs. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Key material for encrypting stored provider credentials, MCP headers and env values, and MCP OAuth tokens. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_DATA_DIR` | Directory holding the SQLite database and all runtime data. | `./.data` (the Docker image sets `/app/data`) | No |
+| `EIDON_BROWSER_MEMORY_BUDGET_MB` | Memory the bots' browsers may use, in MB. Each signed-in user's browser counts about 500 MB and each extra bot tab about 120 MB; when the budget is full, a bot waits up to a minute for a slot and is then told the browser is busy. | Total system memory minus 1200 MB, and at least 500 | No |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | unset | No |
@@ -58,7 +59,8 @@ Everything Eidon persists lives under `EIDON_DATA_DIR` (`/app/data` in the image
 | `bot-workspaces/<user>/<bot>/` | One isolated file workspace per bot; this is the working directory for that bot's shell commands |
 | `model-cache/` | Downloaded local models: the embedding model, the local title-generation model, and the Canary speech-to-text model |
 | `home/`, `tmp/`, `runtime/` | `HOME`, `TMPDIR`, and `XDG_RUNTIME_DIR` for the container user |
-| `runtime/agent-browser/` | `agent-browser` control sockets, with `runtime/agent-browser/bots/<bot>/` giving each bot its own browser session |
+| `agent-computer/<user>/profile/` | One persistent browser profile per user: cookies, sign-ins and site data shared by that user's bots and chats. **Sign out everywhere** on a bot's page wipes it |
+| `runtime/agent-browser/` | `agent-browser` control sockets: `bots/<bot>/` for each bot's tab and `users/<user>/` for the user's regular chats |
 
 There is no external datastore, cache, or queue. One volume holds the whole workspace.
 

@@ -21,7 +21,8 @@ export const SHELL_ENV_ALLOWLIST = [
 export const SHELL_ENV_EXTRA_ALLOWLIST = [
   "AGENT_BROWSER_SOCKET_DIR",
   "AGENT_BROWSER_SESSION",
-  "AGENT_BROWSER_SESSION_NAME"
+  "AGENT_BROWSER_CDP",
+  "AGENT_BROWSER_PIN_TAB"
 ] as const;
 
 export function buildShellEnv(extraEnv?: Record<string, string>) {

@@ -21,9 +21,9 @@ import {
   ensureBotWorkspace,
   getBotWorkspaceDir,
   getSharedBotWorkspaceDir,
-  removeBotBrowserSession,
   removeBotWorkspace
 } from "@/lib/bot-sandbox";
+import { botBrowserTarget, closeBrowserSession } from "@/lib/agent-computer";
 import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
 import type { Bot, BotStatus, BotSummary, PendingBotApproval } from "@/lib/types";
@@ -433,7 +433,7 @@ export function deleteBot(botId: string, userId?: string): boolean {
 
   deleteConversation(bot.homeConversationId, userId ?? undefined);
   removeBotWorkspace(bot);
-  void removeBotBrowserSession(bot).catch(() => {});
+  void closeBrowserSession(botBrowserTarget(bot)).catch(() => {});
 
   void import("@/lib/automation-scheduler")
     .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())

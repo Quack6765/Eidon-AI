@@ -1,0 +1,493 @@
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { accessSync, constants as fsConstants, mkdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { homedir, hostname, totalmem } from "node:os";
+import { join } from "node:path";
+import WebSocket from "ws";
+import { env } from "@/lib/env";
+import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
+
+const REGISTRY_KEY = Symbol.for("eidon.agent-computer");
+const MB = 1024 * 1024;
+const BROWSER_MEMORY_MB = 500;
+const TAB_MEMORY_MB = 120;
+const RESERVED_SYSTEM_MB = 1200;
+const SESSION_IDLE_MS = 10 * 60_000;
+const SWEEP_INTERVAL_MS = 60_000;
+const BUDGET_WAIT_MS = 60_000;
+const LAUNCH_TIMEOUT_MS = 15_000;
+const AGENT_BROWSER_TIMEOUT_MS = 30_000;
+const STOP_GRACE_MS = 5_000;
+const DISK_CACHE_BYTES = 64 * MB;
+
+const BROWSER_CANDIDATES = [
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium"
+];
+
+export const BROWSER_BUSY_MESSAGE =
+  "The shared browser is at its memory limit because other bots are using it. Try again in a minute.";
+
+export class BrowserBusyError extends Error {
+  constructor() {
+    super(BROWSER_BUSY_MESSAGE);
+    this.name = "BrowserBusyError";
+  }
+}
+
+export type BrowserSessionTarget = {
+  ownerKey: string;
+  sessionName: string;
+  socketDir: string;
+};
+
+type BrowserSession = {
+  socketDir: string;
+  generation: number;
+  lastUsedAt: number;
+};
+
+type BrowserHost = {
+  profileDir: string;
+  child: ChildProcess | null;
+  port: number | null;
+  wsPath: string | null;
+  generation: number;
+  sessions: Map<string, BrowserSession>;
+  queue: Promise<unknown>;
+};
+
+type Registry = {
+  hosts: Map<string, BrowserHost>;
+  waiters: Set<() => void>;
+  sweep: ReturnType<typeof setInterval> | null;
+};
+
+function getRegistry() {
+  const scope = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
+  scope[REGISTRY_KEY] ??= { hosts: new Map(), waiters: new Set(), sweep: null };
+  return scope[REGISTRY_KEY];
+}
+
+export function getAgentComputerProfileDir(ownerKey: string) {
+  return join(env.EIDON_DATA_DIR, "agent-computer", ownerKey, "profile");
+}
+
+export function getBrowserOwnerKey(userId: string | null | undefined) {
+  return userId ? toPosixSegment(userId, "user") : "shared";
+}
+
+export function getBotBrowserSocketDir(bot: { id: string }) {
+  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id, "bot"));
+}
+
+export function botBrowserTarget(bot: { id: string; userId: string | null }): BrowserSessionTarget {
+  return {
+    ownerKey: getBrowserOwnerKey(bot.userId),
+    sessionName: `bot-${toPosixSegment(bot.id, "bot")}`,
+    socketDir: getBotBrowserSocketDir(bot)
+  };
+}
+
+export function userBrowserTarget(userId: string | null | undefined): BrowserSessionTarget {
+  const ownerKey = getBrowserOwnerKey(userId);
+  return {
+    ownerKey,
+    sessionName: `user-${ownerKey}`,
+    socketDir: join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "users", ownerKey)
+  };
+}
+
+export function browserSessionEnv(target: BrowserSessionTarget, port?: number | null): Record<string, string> {
+  return {
+    AGENT_BROWSER_SOCKET_DIR: target.socketDir,
+    AGENT_BROWSER_SESSION: target.sessionName,
+    ...(port ? { AGENT_BROWSER_CDP: String(port), AGENT_BROWSER_PIN_TAB: "1" } : {})
+  };
+}
+
+function getHost(ownerKey: string) {
+  const registry = getRegistry();
+  let host = registry.hosts.get(ownerKey);
+  if (!host) {
+    host = {
+      profileDir: getAgentComputerProfileDir(ownerKey),
+      child: null,
+      port: null,
+      wsPath: null,
+      generation: 0,
+      sessions: new Map(),
+      queue: Promise.resolve()
+    };
+    registry.hosts.set(ownerKey, host);
+  }
+  return host;
+}
+
+function runExclusive<T>(host: BrowserHost, task: () => Promise<T>): Promise<T> {
+  const run = host.queue.catch(() => undefined).then(task);
+  host.queue = run.catch(() => undefined);
+  return run;
+}
+
+function isExecutable(path: string) {
+  try {
+    accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveBrowserExecutable() {
+  const configured = process.env.AGENT_BROWSER_EXECUTABLE_PATH?.trim();
+  if (configured) return isExecutable(configured) ? configured : null;
+  return BROWSER_CANDIDATES.find(isExecutable) ?? null;
+}
+
+function capacityMb() {
+  const configured = env.EIDON_BROWSER_MEMORY_BUDGET_MB;
+  if (configured) return configured;
+  return Math.max(BROWSER_MEMORY_MB, Math.floor(totalmem() / MB) - RESERVED_SYSTEM_MB);
+}
+
+function hostCostMb(host: BrowserHost) {
+  if (!host.child) return 0;
+  return BROWSER_MEMORY_MB + TAB_MEMORY_MB * Math.max(0, host.sessions.size - 1);
+}
+
+function usedMb() {
+  let total = 0;
+  for (const host of getRegistry().hosts.values()) total += hostCostMb(host);
+  return total;
+}
+
+function notifyBudget() {
+  for (const waiter of [...getRegistry().waiters]) waiter();
+}
+
+function fitsBudget(deltaMb: number) {
+  return usedMb() + deltaMb <= capacityMb();
+}
+
+function waitForBudgetChange(deadline: number) {
+  const registry = getRegistry();
+  return new Promise<void>((resolve, reject) => {
+    const wake = () => {
+      finish();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      finish();
+      reject(new BrowserBusyError());
+    }, Math.max(0, deadline - Date.now()));
+    timer.unref?.();
+    const finish = () => {
+      clearTimeout(timer);
+      registry.waiters.delete(wake);
+    };
+    registry.waiters.add(wake);
+  });
+}
+
+function readProcessCommand(pid: number) {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
+  } catch {
+    const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+    return result.status === 0 ? result.stdout : "";
+  }
+}
+
+function releaseOrphanedProfile(profileDir: string) {
+  let lock: string;
+  try {
+    lock = readlinkSync(join(profileDir, "SingletonLock"));
+  } catch {
+    return;
+  }
+  const separator = lock.lastIndexOf("-");
+  const pid = Number(lock.slice(separator + 1));
+  if (lock.slice(0, separator) !== hostname() || !Number.isInteger(pid) || pid <= 0) return;
+  if (!readProcessCommand(pid).includes(`--user-data-dir=${profileDir}`)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {}
+}
+
+function readDevToolsActivePort(profileDir: string) {
+  try {
+    const [port, path] = readFileSync(join(profileDir, "DevToolsActivePort"), "utf8").split("\n");
+    const parsed = Number(port);
+    return Number.isInteger(parsed) && parsed > 0 && path ? { port: parsed, path: path.trim() } : null;
+  } catch {
+    return null;
+  }
+}
+
+function waitForDevTools(host: BrowserHost, child: ChildProcess) {
+  return new Promise<{ port: number; path: string } | null>((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      const active = readDevToolsActivePort(host.profileDir);
+      if (active) return resolve(active);
+      if (child.exitCode !== null || child.signalCode !== null || Date.now() - started > LAUNCH_TIMEOUT_MS) {
+        return resolve(null);
+      }
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+}
+
+function browserArgs(profileDir: string) {
+  return [
+    "--headless=new",
+    `--user-data-dir=${profileDir}`,
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=0",
+    "--no-first-run",
+    "--no-default-browser-check",
+    `--disk-cache-size=${DISK_CACHE_BYTES}`,
+    ...(process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
+    "about:blank"
+  ];
+}
+
+async function launchBrowser(host: BrowserHost) {
+  const executable = resolveBrowserExecutable();
+  if (!executable) return null;
+
+  mkdirSync(host.profileDir, { recursive: true, mode: 0o700 });
+  releaseOrphanedProfile(host.profileDir);
+  rmSync(join(host.profileDir, "DevToolsActivePort"), { force: true });
+
+  const child = spawn(executable, browserArgs(host.profileDir), { stdio: "ignore", env: buildShellEnv() });
+  host.child = child;
+  host.generation += 1;
+  child.on("error", () => undefined);
+  child.on("exit", () => {
+    if (host.child !== child) return;
+    host.child = null;
+    host.port = null;
+    host.wsPath = null;
+    notifyBudget();
+  });
+
+  const active = await waitForDevTools(host, child);
+  if (!active) {
+    child.kill("SIGKILL");
+    throw new Error("The browser did not start.");
+  }
+  host.port = active.port;
+  host.wsPath = active.path;
+  ensureSweep();
+  return active.port;
+}
+
+type AgentBrowserResult = { ok: boolean; output: string };
+
+function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: number | null) {
+  mkdirSync(target.socketDir, { recursive: true });
+  return new Promise<AgentBrowserResult>((resolve) => {
+    let output = "";
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok, output: output.trim() });
+    };
+    const child = spawn("agent-browser", args, {
+      env: buildShellEnv(browserSessionEnv(target, port)),
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32"
+    });
+    const collect = (chunk: Buffer) => {
+      output = `${output}${chunk.toString()}`.slice(-4_000);
+    };
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
+    child.on("error", (error) => {
+      output = error.message;
+      finish(false);
+    });
+    child.on("exit", (code) => finish(code === 0));
+    const timer = setTimeout(() => {
+      try {
+        if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {}
+      finish(false);
+    }, AGENT_BROWSER_TIMEOUT_MS);
+    timer.unref?.();
+  });
+}
+
+function forgetBinding(target: BrowserSessionTarget) {
+  rmSync(join(target.socketDir, `${target.sessionName}.target`), { force: true });
+}
+
+async function bindSession(target: BrowserSessionTarget, port: number) {
+  await runAgentBrowser(target, ["close"]);
+  forgetBinding(target);
+  const result = await runAgentBrowser(target, ["open", "about:blank"], port);
+  if (!result.ok) {
+    throw new Error(`The browser tab could not be opened: ${result.output || "unknown error"}`);
+  }
+}
+
+async function tryOpenSession(host: BrowserHost, target: BrowserSessionTarget) {
+  if (!host.port) {
+    if (!resolveBrowserExecutable()) return browserSessionEnv(target);
+    if (!fitsBudget(BROWSER_MEMORY_MB)) return null;
+  }
+  const port = host.port ?? (await launchBrowser(host));
+  if (!port) return browserSessionEnv(target);
+
+  const session = host.sessions.get(target.sessionName);
+  if (session && session.generation === host.generation) {
+    session.lastUsedAt = Date.now();
+    return browserSessionEnv(target, port);
+  }
+  if (!session && host.sessions.size > 0 && !fitsBudget(TAB_MEMORY_MB)) return null;
+  await bindSession(target, port);
+  host.sessions.set(target.sessionName, {
+    socketDir: target.socketDir,
+    generation: host.generation,
+    lastUsedAt: Date.now()
+  });
+  return browserSessionEnv(target, port);
+}
+
+export async function openBrowserSession(target: BrowserSessionTarget) {
+  const host = getHost(target.ownerKey);
+  const deadline = Date.now() + BUDGET_WAIT_MS;
+  for (;;) {
+    const opened = await runExclusive(host, () => tryOpenSession(host, target));
+    if (opened) return opened;
+    await waitForBudgetChange(deadline);
+  }
+}
+
+export async function prepareBrowserEnv(target: BrowserSessionTarget, launch: boolean) {
+  mkdirSync(target.socketDir, { recursive: true });
+  if (launch) return openBrowserSession(target);
+  const host = getHost(target.ownerKey);
+  const session = host.sessions.get(target.sessionName);
+  const bound = host.port && session?.generation === host.generation;
+  return browserSessionEnv(target, bound ? host.port : null);
+}
+
+async function closeSession(host: BrowserHost, target: BrowserSessionTarget) {
+  if (host.port && host.sessions.has(target.sessionName)) {
+    await runAgentBrowser(target, ["tab", "close"], host.port);
+  }
+  await runAgentBrowser(target, ["close"]);
+  forgetBinding(target);
+  host.sessions.delete(target.sessionName);
+  notifyBudget();
+}
+
+function sendBrowserClose(port: number, wsPath: string) {
+  return new Promise<void>((resolve) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${wsPath}`);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      socket.terminate();
+      done();
+    }, STOP_GRACE_MS);
+    timer.unref?.();
+    socket.on("open", () => socket.send(JSON.stringify({ id: 1, method: "Browser.close" })));
+    socket.on("close", done);
+    socket.on("error", done);
+  });
+}
+
+function waitForExit(child: ChildProcess, timeoutMs: number) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    timer.unref?.();
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+async function stopBrowser(host: BrowserHost) {
+  const child = host.child;
+  if (!child) return;
+  if (host.port && host.wsPath) await sendBrowserClose(host.port, host.wsPath);
+  if (!(await waitForExit(child, STOP_GRACE_MS))) {
+    child.kill("SIGTERM");
+    if (!(await waitForExit(child, STOP_GRACE_MS))) child.kill("SIGKILL");
+  }
+}
+
+export async function closeBrowserSession(target: BrowserSessionTarget) {
+  const host = getHost(target.ownerKey);
+  await runExclusive(host, async () => {
+    await closeSession(host, target);
+    if (host.sessions.size === 0) await stopBrowser(host);
+  });
+  rmSync(target.socketDir, { recursive: true, force: true });
+}
+
+export async function resetUserBrowser(ownerKey: string) {
+  const host = getHost(ownerKey);
+  await runExclusive(host, async () => {
+    for (const [sessionName, session] of [...host.sessions]) {
+      await closeSession(host, { ownerKey, sessionName, socketDir: session.socketDir });
+    }
+    await stopBrowser(host);
+    rmSync(join(env.EIDON_DATA_DIR, "agent-computer", ownerKey), { recursive: true, force: true });
+  });
+}
+
+export async function sweepIdleBrowserSessions(now = Date.now()) {
+  for (const [ownerKey, host] of getRegistry().hosts) {
+    await runExclusive(host, async () => {
+      for (const [sessionName, session] of [...host.sessions]) {
+        if (now - session.lastUsedAt < SESSION_IDLE_MS) continue;
+        await closeSession(host, { ownerKey, sessionName, socketDir: session.socketDir });
+      }
+      if (host.sessions.size === 0) await stopBrowser(host);
+    });
+  }
+}
+
+function ensureSweep() {
+  const registry = getRegistry();
+  if (registry.sweep) return;
+  registry.sweep = setInterval(() => void sweepIdleBrowserSessions().catch(() => undefined), SWEEP_INTERVAL_MS);
+  registry.sweep.unref?.();
+}
+
+export async function shutdownAgentComputer() {
+  const registry = getRegistry();
+  if (registry.sweep) clearInterval(registry.sweep);
+  registry.sweep = null;
+  await Promise.all([...registry.hosts.values()].map((host) => runExclusive(host, () => stopBrowser(host))));
+}
+
+export function removeLegacyBrowserState() {
+  for (const name of ["bot-bot.json", "bot-bot.json.enc"]) {
+    rmSync(join(homedir(), ".agent-browser", "sessions", name), { force: true });
+  }
+}
+
+export function resetAgentComputerForTests() {
+  const registry = getRegistry();
+  if (registry.sweep) clearInterval(registry.sweep);
+  registry.hosts.clear();
+  registry.waiters.clear();
+  registry.sweep = null;
+}

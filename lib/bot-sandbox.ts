@@ -1,17 +1,14 @@
 import { lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
-import { spawn } from "node:child_process";
 import { normalizeAttachmentKind } from "@/lib/attachments";
-import { buildShellEnv, isPathInsideRoot, toPosixSegment } from "@/lib/local-shell";
+import { isPathInsideRoot, toPosixSegment } from "@/lib/local-shell";
 import { env } from "@/lib/env";
 import type { AttachmentKind, Bot } from "@/lib/types";
 
 export type BotSandbox = {
   botId: string;
   workspaceDir: string;
-  browserSocketDir: string;
   cwd: string;
-  env: Record<string, string>;
 };
 
 export type BotWorkspaceScope = "bot" | "shared";
@@ -33,10 +30,6 @@ function getBotWorkspaceScopeDir(bot: Pick<Bot, "id" | "userId">, scope: BotWork
   return scope === "shared" ? getSharedBotWorkspaceDir(bot) : getBotWorkspaceDir(bot);
 }
 
-export function getBotBrowserSocketDir(bot: Pick<Bot, "id">) {
-  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id, "bot"));
-}
-
 export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
   const workspaceDir = getBotWorkspaceDir(bot);
   mkdirSync(workspaceDir, { recursive: true });
@@ -47,32 +40,16 @@ export function removeBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
   rmSync(getBotWorkspaceDir(bot), { recursive: true, force: true });
 }
 
-export async function removeBotBrowserSession(bot: Pick<Bot, "id">) {
-  const socketDir = getBotBrowserSocketDir(bot);
-  await runAgentBrowserCloseAll(socketDir);
-  try {
-    rmSync(socketDir, { recursive: true, force: true });
-  } catch {}
-}
-
 export function resolveBotSandbox(bot: Pick<Bot, "id" | "userId">): BotSandbox {
   const workspaceDir = getBotWorkspaceDir(bot);
-  const browserSocketDir = getBotBrowserSocketDir(bot);
 
   mkdirSync(workspaceDir, { recursive: true });
   mkdirSync(getSharedBotWorkspaceDir(bot), { recursive: true });
-  mkdirSync(browserSocketDir, { recursive: true });
 
   return {
     botId: bot.id,
     workspaceDir,
-    browserSocketDir,
-    cwd: workspaceDir,
-    env: {
-      AGENT_BROWSER_SOCKET_DIR: browserSocketDir,
-      AGENT_BROWSER_SESSION: "bot",
-      AGENT_BROWSER_SESSION_NAME: "bot"
-    }
+    cwd: workspaceDir
   };
 }
 
@@ -190,43 +167,4 @@ export function listBotWorkspaceTree(
     byteSize: 0,
     children
   };
-}
-
-function runAgentBrowserCloseAll(socketDir: string) {
-  return new Promise<void>((resolve) => {
-    try {
-      const child = spawn("agent-browser", ["close", "--all"], {
-        env: buildShellEnv({
-          AGENT_BROWSER_SOCKET_DIR: socketDir,
-          AGENT_BROWSER_SESSION: "bot",
-          AGENT_BROWSER_SESSION_NAME: "bot"
-        }),
-        stdio: "ignore",
-        detached: process.platform !== "win32"
-      });
-      child.on("error", () => resolve());
-      child.on("close", () => resolve());
-      setTimeout(() => {
-        try {
-          if (child.pid && process.platform !== "win32") {
-            process.kill(-child.pid, "SIGKILL");
-          } else {
-            child.kill("SIGKILL");
-          }
-        } catch {}
-        resolve();
-      }, 10_000).unref();
-    } catch {
-      resolve();
-    }
-  });
-}
-
-export async function resetBotBrowserSession(bot: Pick<Bot, "id">) {
-  const socketDir = getBotBrowserSocketDir(bot);
-  await runAgentBrowserCloseAll(socketDir);
-  try {
-    rmSync(socketDir, { recursive: true, force: true });
-  } catch {}
-  mkdirSync(socketDir, { recursive: true });
 }

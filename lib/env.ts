@@ -37,6 +37,7 @@ const nodeEnvSchema = z.object({
   EIDON_SESSION_SECRET: z.string().min(32).optional(),
   EIDON_ENCRYPTION_SECRET: z.string().min(32).optional(),
   EIDON_DATA_DIR: z.string().default("./.data"),
+  EIDON_BROWSER_MEMORY_BUDGET_MB: z.coerce.number().int().positive().optional(),
   EIDON_GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CALLBACK_URL: z.string().url().optional()

@@ -1,3 +1,4 @@
+import { removeLegacyBrowserState } from "@/lib/agent-computer";
 import { removeOrphanedAttachmentFiles } from "@/lib/attachment-storage-recovery";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -23,6 +24,7 @@ export function bootstrapRuntimeState() {
   const db = getDb();
   const recovered = reconcileInterruptedRuntimeState(db);
   const removedOrphanedAttachments = removeOrphanedAttachmentFiles(db, env.EIDON_DATA_DIR);
+  removeLegacyBrowserState();
   startStorageCleanupScheduler();
   state[RUNTIME_BOOTSTRAP_KEY] = true;
   state[RUNTIME_RESUME_KEY] = recovered.conversationIds;

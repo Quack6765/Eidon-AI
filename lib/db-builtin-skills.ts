@@ -47,7 +47,8 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 
 ## Important
 
-- Always close the browser when done: \`agent-browser close\`
+- The browser stays open between tasks and keeps its sign-ins, so you do not need to close it
+- Never ask the user to paste a password or one-time code into the chat
 - Use snapshot + refs for reliable element interaction
 - For screenshots, save to /tmp/ and use the path`
 };
