@@ -521,32 +521,35 @@ export async function resolveAssistantTurn(input: {
     }
   }
 
-  const latestUserContent = getLatestUserPromptContent(promptMessages);
-  const invokedSkillNames = findReferencedNames(
-    latestUserContent,
-    "/",
-    turnSkills.map((skill) => getSkillResolvedName(skill))
-  ).map((name) => name.toLowerCase());
-  const invokedSkillContents: string[] = [];
-  for (const skill of turnSkills) {
-    if (!invokedSkillNames.includes(getSkillResolvedName(skill).toLowerCase())) continue;
-    invokedSkillContents.push(await loadSkillIntoTurn(skill, input, loadedSkillIds));
-    timelineSortOrder += 1;
-  }
-  if (invokedSkillContents.length) {
-    promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
-  }
-
-  if (input.botTeam && !latestUserContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
-    const mentionedBots = findReferencedNames(
-      latestUserContent,
-      "@",
-      input.botTeam.roster.map((entry) => entry.name)
-    );
-    if (mentionedBots.length) {
-      promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+  const applyComposerReferences = async (userContent: string) => {
+    const invokedSkillNames = findReferencedNames(
+      userContent,
+      "/",
+      turnSkills.map((skill) => getSkillResolvedName(skill))
+    ).map((name) => name.toLowerCase());
+    const invokedSkillContents: string[] = [];
+    for (const skill of turnSkills) {
+      if (loadedSkillIds.has(skill.id) || !invokedSkillNames.includes(getSkillResolvedName(skill).toLowerCase())) continue;
+      invokedSkillContents.push(await loadSkillIntoTurn(skill, input, loadedSkillIds));
+      timelineSortOrder += 1;
     }
-  }
+    if (invokedSkillContents.length) {
+      promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
+    }
+
+    if (input.botTeam && !userContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
+      const mentionedBots = findReferencedNames(
+        userContent,
+        "@",
+        input.botTeam.roster.map((entry) => entry.name)
+      );
+      if (mentionedBots.length) {
+        promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+      }
+    }
+  };
+
+  await applyComposerReferences(getLatestUserPromptContent(promptMessages));
 
   const commitAnswerSegment = async (segment: string) => {
     if (!segment) return;
@@ -564,6 +567,7 @@ export async function resolveAssistantTurn(input: {
       ...(answeredMessage ? [answeredMessage] : []),
       { role: "user", content: redirect.content }
     ];
+    await applyComposerReferences(redirect.content);
     return true;
   };
 

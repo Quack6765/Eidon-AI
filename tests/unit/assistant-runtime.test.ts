@@ -4343,6 +4343,36 @@ Run browser commands.`
       expect(systemPrompt).toContain("message_bot");
     });
 
+    it("applies /skill and @bot references in a mid-run redirect", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(createProviderStream([], { answer: "First draft.", thinking: "", usage: {} }))
+        .mockReturnValueOnce(createProviderStream([], { answer: "Redirected.", thinking: "", usage: {} }));
+      const redirects = [{ content: "Hand it to @Writer and use /Release Notes", assistantMessageId: "msg_redirect" }];
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Draft the launch post" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        botTeam: { isChief: true, roster },
+        takeRedirect: async () => redirects.shift() ?? null,
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual(["skill_load"]);
+      const firstSystem = systemPromptOfFirstCall();
+      expect(firstSystem).not.toContain("The user invoked the skills below");
+      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
+      const secondSystem = String(secondCall.promptMessages.find((message) => message.role === "system")?.content ?? "");
+      expect(secondSystem).toContain("Summarize changes for end users in concise release notes.");
+      expect(secondSystem).toContain("The user addressed this message to @Writer.");
+    });
+
     it("ignores @mentions outside bot conversations and in bot-authored deliveries", async () => {
       answerOnce();
       answerOnce();
