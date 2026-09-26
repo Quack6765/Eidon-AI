@@ -45,6 +45,7 @@ import {
   isMessageDraftAction,
   MessageDraftCard
 } from "@/components/message-draft-card";
+import { ComputerSessionCard, isBrowserAction } from "@/components/computer-session-card";
 import {
   AttachmentTile,
   MessageAttachments,
@@ -475,7 +476,8 @@ function MessageBubbleImpl({
   onDiscardMessageDraft,
   onPreviewAttachment,
   readOnly = false,
-  referenceCandidates
+  referenceCandidates,
+  liveComputerConversationId
 }: {
   message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
@@ -514,6 +516,7 @@ function MessageBubbleImpl({
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
   referenceCandidates?: ReferenceCandidate[];
+  liveComputerConversationId?: string;
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -761,6 +764,13 @@ function MessageBubbleImpl({
       ),
     [assistantBlocks]
   );
+  const browserSession = useMemo(() => {
+    const actions = assistantBlocks.filter(
+      (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+        item.timelineKind === "action" && isBrowserAction(item)
+    );
+    return { headId: actions[0]?.id ?? null, actions };
+  }, [assistantBlocks]);
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
   const isRestartResume = message.role === "user" && content.startsWith(RESTART_RESUME_NOTICE_HEADER);
 
@@ -910,6 +920,33 @@ function MessageBubbleImpl({
             onDismiss={onDismissToolApproval}
             readOnly={readOnly}
           />
+        </div>
+      );
+    }
+
+    if (isBrowserAction(item)) {
+      if (item.id !== browserSession.headId) {
+        return null;
+      }
+      const stepsKey = `browser_${item.id}`;
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ComputerSessionCard
+            actions={browserSession.actions}
+            liveConversationId={liveComputerConversationId}
+            stepsOpen={toolOpenItems[stepsKey] ?? false}
+            onToggleSteps={() => toggleToolItem(stepsKey)}
+          >
+            {browserSession.actions.map((action) => (
+              <CollapsibleActionRow
+                key={action.id}
+                action={action}
+                isOpen={toolOpenItems[action.id] ?? false}
+                onToggle={() => toggleToolItem(action.id)}
+              />
+            ))}
+          </ComputerSessionCard>
         </div>
       );
     }

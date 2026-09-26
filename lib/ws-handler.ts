@@ -6,6 +6,7 @@ import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import {
   deleteQueuedMessage,
+  getConversationOwnerId,
   getConversationSnapshot,
   getMessage,
   listActiveConversations,
@@ -29,7 +30,8 @@ import { getDb } from "@/lib/db";
 import { sendWebSocketData } from "@/lib/ws-send";
 import { bootstrapRuntimeState, resumeRuntimeWork } from "@/lib/runtime-bootstrap";
 import { truncateText } from "@/lib/bounded-text";
-import { sanitizeMobilePayload } from "@/lib/mobile-api";
+import { isSecureMobileRequest, sanitizeMobilePayload } from "@/lib/mobile-api";
+import { attachComputerViewer, conversationBrowserTarget } from "@/lib/agent-computer-relay";
 import {
   claimWebSocketUpgradeRouting,
   resolveWebSocketAuthMode,
@@ -114,6 +116,73 @@ function extractBearerToken(req: import("http").IncomingMessage): string | null 
   if (!authorization || Array.isArray(authorization)) return null;
   const match = authorization.match(/^Bearer ([^\s,]+)$/);
   return match?.[1] ?? null;
+}
+
+type WebSocketAuthFailure = "missing" | "invalid" | "no-local-user";
+type WebSocketAuthResult = { userId: string } | { failure: WebSocketAuthFailure };
+
+const WEB_AUTH_FAILURE_MESSAGES: Record<WebSocketAuthFailure, string> = {
+  missing: "Authentication required",
+  invalid: "Invalid session",
+  "no-local-user": "Unable to resolve the local user"
+};
+
+async function resolveWebSocketUser(token: string | null, authMode: "browser" | "mobile"): Promise<WebSocketAuthResult> {
+  if (authMode === "mobile" || isPasswordLoginEnabled()) {
+    if (!token) return { failure: "missing" };
+    const session = authMode === "mobile" ? await verifyMobileSessionToken(token) : await verifySessionToken(token);
+    return session ? { userId: session.userId } : { failure: "invalid" };
+  }
+  const user = await getCurrentUser();
+  return user ? { userId: user.id } : { failure: "no-local-user" };
+}
+
+function isSameOriginUpgrade(req: import("http").IncomingMessage) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)?.split(",")[0]?.trim() || req.headers.host;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function toWebRequest(req: import("http").IncomingMessage) {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === "string") headers.set(name, value);
+    else if (Array.isArray(value)) headers.set(name, value.join(", "));
+  }
+  return new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, { headers });
+}
+
+export function setupComputerWebSocketHandler(
+  wss: WebSocketServer,
+  options: { authModeForRequest?: (request: import("http").IncomingMessage) => "browser" | "mobile" } = {}
+) {
+  wss.on("connection", async (ws, req) => {
+    ws.on("error", () => ws.terminate());
+    const authMode = options.authModeForRequest?.(req) ?? "browser";
+    if (authMode === "mobile" ? !isSecureMobileRequest(toWebRequest(req)) : !isSameOriginUpgrade(req)) {
+      ws.close(1008, "Forbidden origin");
+      return;
+    }
+    const token = authMode === "mobile" ? extractBearerToken(req) : extractToken(req);
+    const auth = await resolveWebSocketUser(token, authMode);
+    if (!("userId" in auth)) {
+      ws.close(1008, "Authentication required");
+      return;
+    }
+    const conversationId = new URL(req.url ?? "/", "http://localhost").searchParams.get("conversationId") ?? "";
+    if (!conversationId || getConversationOwnerId(conversationId) !== auth.userId) {
+      ws.close(1008, "Conversation not found");
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) return;
+    attachComputerViewer(ws, conversationBrowserTarget(conversationId), { mobile: authMode === "mobile" });
+  });
 }
 
 export function setupWebSocketHandler(
@@ -229,47 +298,19 @@ export async function handleConnection(
     mgr = null;
   });
 
-  let sessionUserId: string;
-
-  if (authMode === "mobile") {
-    if (!token) {
-      sendError(ws, "Authentication required", "authentication_required", true);
-      ws.close(1008, "Authentication required");
-      return;
-    }
-
-    const session = await verifyMobileSessionToken(token);
-    if (!session) {
-      sendError(ws, "Invalid or expired mobile session", "authentication_required", true);
-      ws.close(1008, "Invalid mobile session");
-      return;
-    }
-
-    sessionUserId = session.userId;
-  } else if (isPasswordLoginEnabled()) {
-    if (!token) {
-      sendError(ws, "Authentication required");
+  const auth = await resolveWebSocketUser(token, authMode);
+  if (!("userId" in auth)) {
+    if (authMode === "mobile") {
+      const expired = auth.failure === "invalid";
+      sendError(ws, expired ? "Invalid or expired mobile session" : "Authentication required", "authentication_required", true);
+      ws.close(1008, expired ? "Invalid mobile session" : "Authentication required");
+    } else {
+      sendError(ws, WEB_AUTH_FAILURE_MESSAGES[auth.failure]);
       ws.close();
-      return;
     }
-
-    const session = await verifySessionToken(token);
-    if (!session) {
-      sendError(ws, "Invalid session");
-      ws.close();
-      return;
-    }
-
-    sessionUserId = session.userId;
-  } else {
-    const user = await getCurrentUser();
-    if (!user) {
-      sendError(ws, "Unable to resolve the local user");
-      ws.close();
-      return;
-    }
-    sessionUserId = user.id;
+    return;
   }
+  const sessionUserId = auth.userId;
 
   if (closed || ws.readyState !== WebSocket.OPEN) {
     return;

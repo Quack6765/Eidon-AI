@@ -422,6 +422,11 @@ export async function openBrowserSession(target: BrowserSessionTarget) {
   }
 }
 
+export function touchBrowserSession(target: BrowserSessionTarget) {
+  const session = getRegistry().hosts.get(target.ownerKey)?.sessions.get(target.socketDir);
+  if (session) session.lastUsedAt = Date.now();
+}
+
 export async function prepareBrowserEnv(target: BrowserSessionTarget, launch: boolean) {
   mkdirSync(target.socketDir, { recursive: true });
   if (launch) return openBrowserSession(target);

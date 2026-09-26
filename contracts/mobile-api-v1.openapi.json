@@ -64,6 +64,10 @@
       "get": { "operationId": "getConversationShare", "tags": ["Conversations"], "responses": { "200": { "$ref": "#/components/responses/ConversationShare" } } },
       "patch": { "operationId": "updateConversationShare", "tags": ["Conversations"], "requestBody": { "$ref": "#/components/requestBodies/ConversationShareUpdate" }, "responses": { "200": { "$ref": "#/components/responses/ConversationShare" } } }
     },
+    "/conversations/{conversationId}/computer": {
+      "parameters": [{ "$ref": "#/components/parameters/conversationId" }],
+      "get": { "operationId": "getConversationComputer", "tags": ["Conversations"], "description": "Current state of the conversation's live browser tab. Frames stream over the /api/v1/ws/computer WebSocket.", "responses": { "200": { "$ref": "#/components/responses/ConversationComputer" } } }
+    },
     "/conversations/{conversationId}/chat": {
       "parameters": [{ "$ref": "#/components/parameters/conversationId" }],
       "post": { "operationId": "sendConversationMessage", "tags": ["Messages"], "requestBody": { "$ref": "#/components/requestBodies/ChatMessage" }, "responses": { "200": { "description": "Server-sent chat stream", "content": { "text/event-stream": { "schema": { "type": "string" } } } } } }
@@ -264,6 +268,7 @@
       "ConversationSearch": { "description": "Owned conversation search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationSearchEnvelope" } } } },
       "Conversation": { "description": "Owned conversation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationEnvelope" } } } },
       "ConversationDelete": { "description": "Conversation deletion result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationDeleteEnvelope" } } } },
+      "ConversationComputer": { "description": "Live browser state for the conversation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationComputerEnvelope" } } } },
       "ConversationShare": { "description": "Conversation sharing state and public HTTPS URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationShareEnvelope" } } } },
       "ConversationSnapshot": { "description": "Authoritative conversation snapshot", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationSnapshotEnvelope" } } } },
       "ConversationFork": { "description": "Newly created fork and the composer draft it should open with", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationForkEnvelope" } } } },
@@ -431,6 +436,9 @@
       "ConversationSearchEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["conversations"], "properties": { "conversations": { "type": "array", "items": { "$ref": "#/components/schemas/Conversation" } } } } } },
       "ConversationEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["conversation"], "properties": { "conversation": { "$ref": "#/components/schemas/Conversation" } } } } },
       "ConversationDeleteEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["success", "deleted"], "properties": { "success": { "type": "boolean" }, "deleted": { "type": "boolean" } } } } },
+      "ComputerViewport": { "type": ["object", "null"], "additionalProperties": false, "required": ["width", "height"], "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } } },
+      "ComputerState": { "type": "object", "additionalProperties": false, "required": ["live", "url", "caption", "viewport"], "properties": { "live": { "type": "boolean", "description": "True while frames are streaming from the tab." }, "url": { "type": ["string", "null"] }, "caption": { "type": ["string", "null"], "description": "The browser command the bot is running right now, if any." }, "viewport": { "$ref": "#/components/schemas/ComputerViewport" } } },
+      "ConversationComputerEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["computer"], "properties": { "computer": { "$ref": "#/components/schemas/ComputerState" } } } } },
       "ConversationShareEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["enabled", "url"], "properties": { "enabled": { "type": "boolean" }, "url": { "type": ["string", "null"], "format": "uri" } } } } },
       "ConversationSnapshotData": { "type": "object", "additionalProperties": false, "required": ["conversation", "messages", "queuedMessages"], "properties": { "conversation": { "$ref": "#/components/schemas/Conversation" }, "messages": { "type": "array", "items": { "$ref": "#/components/schemas/Message" } }, "queuedMessages": { "type": "array", "items": { "$ref": "#/components/schemas/QueuedMessage" } } } },
       "ConversationSnapshotEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ConversationSnapshotData" } } },

@@ -2493,6 +2493,7 @@ export function ChatView({
                   isRetrying={retryingMessageId === message.id}
                   isRegenerating={regeneratingMessageId === message.id}
                   referenceCandidates={referenceCandidates}
+                  computerConversationId={isStreamingMessage ? payload.conversation.id : undefined}
                 />
               </div>
             );

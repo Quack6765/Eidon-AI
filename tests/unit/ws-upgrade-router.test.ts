@@ -46,6 +46,8 @@ describe("WebSocket upgrade routing", () => {
   it.each([
     ["/ws?client=browser", "browser"],
     ["/api/v1/ws?client=native", "mobile"],
+    ["/api/v1/ws/computer?conversationId=conv_1", "mobile"],
+    ["/ws/computer?conversationId=conv_1", "browser"],
     ["/_next/webpack-hmr", "browser"]
   ])("resolves %s as %s authentication", (url, expectedMode) => {
     expect(resolveWebSocketAuthMode(request(url))).toBe(expectedMode);

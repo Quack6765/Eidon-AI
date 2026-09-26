@@ -1,0 +1,126 @@
+"use client";
+
+import { ChevronDown, Globe } from "lucide-react";
+import type { ReactNode } from "react";
+
+import { useComputerStream } from "@/hooks/use-computer-stream";
+import type { MessageTimelineItem } from "@/lib/types";
+
+type ActionItem = Extract<MessageTimelineItem, { timelineKind: "action" }>;
+
+const OPEN_COMMAND = /agent-browser\s+(?:open|goto|navigate)\s+(\S+)/g;
+
+export function isBrowserAction(item: MessageTimelineItem) {
+  return item.timelineKind === "action" && item.kind === "shell_command" && item.label === "Web browser";
+}
+
+export function lastOpenedUrl(actions: ActionItem[]) {
+  for (let index = actions.length - 1; index >= 0; index -= 1) {
+    const matches = [...(actions[index].detail ?? "").matchAll(OPEN_COMMAND)];
+    const url = matches.at(-1)?.[1];
+    if (url) return url.replace(/^["']|["']$/g, "");
+  }
+  return null;
+}
+
+function displayUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+export function ComputerSessionCard({
+  actions,
+  liveConversationId,
+  stepsOpen,
+  onToggleSteps,
+  children
+}: {
+  actions: ActionItem[];
+  liveConversationId?: string;
+  stepsOpen: boolean;
+  onToggleSteps: () => void;
+  children?: ReactNode;
+}) {
+  const view = useComputerStream(liveConversationId);
+  const isLive = Boolean(liveConversationId);
+  const url = view.url ?? lastOpenedUrl(actions);
+  const runningAction = [...actions].reverse().find((action) => action.status === "running");
+  const caption = view.caption ?? runningAction?.detail ?? null;
+  const aspectRatio = view.viewport ? `${view.viewport.width} / ${view.viewport.height}` : "16 / 10";
+  const stepLabel = `${actions.length} ${actions.length === 1 ? "step" : "steps"}`;
+
+  return (
+    <div className="w-full rounded-lg border border-white/6 bg-white/[0.02] px-3 py-2.5" data-testid="computer-session-card">
+      <div className="flex min-w-0 items-center gap-2">
+        {!isLive && view.frameUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- Frames are in-memory blob URLs from the live browser stream that next/image cannot load.
+          <img
+            src={view.frameUrl}
+            alt=""
+            className="h-9 w-14 shrink-0 rounded-md border border-white/6 bg-black/40 object-cover object-top"
+          />
+        ) : (
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+            <Globe className="h-3 w-3 text-indigo-300" aria-hidden="true" />
+          </span>
+        )}
+        <span className="text-[12px] font-medium text-white/88">Browser</span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-white/45" title={url ?? undefined}>
+          {url ? displayUrl(url) : null}
+        </span>
+        {isLive ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-300/90" data-testid="computer-live-badge">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Live
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={onToggleSteps}
+          aria-expanded={stepsOpen}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+        >
+          {stepLabel}
+          <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${stepsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+        </button>
+      </div>
+
+      {isLive ? (
+        <div className="mt-2.5">
+          <div
+            className="relative w-full overflow-hidden rounded-md border border-white/6 bg-black/40"
+            style={{ aspectRatio }}
+          >
+            {view.frameUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- Frames are in-memory blob URLs from the live browser stream that next/image cannot load.
+              <img
+                src={view.frameUrl}
+                alt={url ? `Live view of ${displayUrl(url)}` : "Live view of the browser"}
+                className="absolute inset-0 h-full w-full object-contain"
+                data-testid="computer-live-frame"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/40">
+                Waiting for the browser…
+              </div>
+            )}
+          </div>
+          {caption ? (
+            <p className="mt-1.5 truncate font-mono text-[11px] text-white/50" title={caption} data-testid="computer-caption">
+              {caption}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {stepsOpen && children ? <div className="mt-2 flex flex-col gap-1.5">{children}</div> : null}
+    </div>
+  );
+}
