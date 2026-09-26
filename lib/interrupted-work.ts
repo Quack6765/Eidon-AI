@@ -9,6 +9,7 @@ export const MAX_CONSECUTIVE_RESTART_RESUMES = 2;
 
 const INTERRUPTED_BY_RESTART = "Interrupted by a server restart";
 const STOPPED_APPROVAL_SUMMARY = "Approval request stopped by a server restart";
+const STOPPED_HANDOFF_SUMMARY = "Browser hand-off stopped by a server restart";
 const RESUMABLE_DELEGATED_RUN = "trigger_source = 'delegated' AND prompt IS NOT NULL";
 const WAITING_BOT_RUN_STATUSES = "'waiting_user', 'waiting_approval'";
 const ACTION_DETAIL_CHARS = 200;
@@ -118,6 +119,18 @@ export function reconcileInterruptedRuntimeState(
          WHERE status = 'pending' AND kind = 'tool_approval' AND proposal_state = 'pending'`
       )
       .run(STOPPED_APPROVAL_SUMMARY, timestamp, timestamp).changes;
+    const computerHandoffs = db
+      .prepare(
+        `UPDATE message_actions
+         SET status = 'completed',
+             result_summary = ?,
+             completed_at = COALESCE(completed_at, ?),
+             proposal_state = 'dismissed',
+             proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
+             proposal_updated_at = ?
+         WHERE status = 'pending' AND kind = 'computer_handoff' AND proposal_state = 'pending'`
+      )
+      .run(STOPPED_HANDOFF_SUMMARY, timestamp, timestamp).changes;
 
     const ownedConversationIds = new Set(
       (
@@ -146,6 +159,7 @@ export function reconcileInterruptedRuntimeState(
       botRuns,
       delegationActions,
       toolApprovals,
+      computerHandoffs,
       conversationIds
     };
   });
@@ -186,6 +200,9 @@ export function buildRestartResumeNotice(conversationId: string, task?: string |
   const interruptedSteps = actions.filter(
     (action) => action.kind !== "tool_approval" && action.resultSummary === INTERRUPTED_BY_RESTART
   );
+  const cancelledHandoffs = actions.filter(
+    (action) => action.kind === "computer_handoff" && action.resultSummary === STOPPED_HANDOFF_SUMMARY
+  );
   const cancelledApprovals = actions.filter(
     (action) => action.kind === "tool_approval" && action.resultSummary === STOPPED_APPROVAL_SUMMARY
   );
@@ -206,6 +223,13 @@ export function buildRestartResumeNotice(conversationId: string, task?: string |
       "",
       "These approval requests were cancelled — ask again if you still need them:",
       ...cancelledApprovals.map(describeAction)
+    );
+  }
+  if (cancelledHandoffs.length) {
+    lines.push(
+      "",
+      "These requests for the user to take over your browser were cancelled, and your browser tab may have been reset — check the page, then ask again if you still need them:",
+      ...cancelledHandoffs.map(describeAction)
     );
   }
   if (task) {

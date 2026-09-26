@@ -154,6 +154,7 @@ describe("Mobile API v1 contracts", () => {
       "/conversations/search",
       "/conversations/{conversationId}/queue/order",
       "/conversations/{conversationId}/computer",
+      "/conversations/{conversationId}/computer/control",
       "/folders/{folderId}",
       "/attachments/{attachmentId}",
       "/speech/transcription/prepare",
@@ -323,8 +324,8 @@ describe("Mobile API v1 contracts", () => {
         }
       }
     });
-    expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(124);
+    expect(compileOpenApiJsonRequestBodies()).toBe(44);
+    expect(compileOpenApiJsonResponses()).toBe(125);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -338,7 +339,7 @@ describe("Mobile API v1 contracts", () => {
     };
 
     expect(contract.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(contract.oneOf).toHaveLength(3);
+    expect(contract.oneOf).toHaveLength(4);
     expect(Object.keys(contract.$defs)).toEqual(expect.arrayContaining([
       "Attachment",
       "Action",
@@ -391,11 +392,22 @@ describe("Mobile API v1 contracts", () => {
     expect(serverMessages).toContain("bot_activity");
     expect(serverMessages).toContain("code");
 
-    const computerState = { type: "computer_state", live: true, url: "https://example.com/", caption: "agent-browser open https://example.com", viewport: { width: 1280, height: 720 } };
+    const computerState = { type: "computer_state", live: true, controlOwner: "bot", url: "https://example.com/", caption: "agent-browser open https://example.com", viewport: { width: 1280, height: 720 } };
     expect(() => assertWebSocketMessage("ComputerServerMessage", computerState)).not.toThrow();
     expect(() => assertWebSocketMessage("ComputerServerMessage", { ...computerState, viewport: null, url: null, caption: null, live: false })).not.toThrow();
     expect(() => assertWebSocketMessage("ComputerServerMessage", { ...computerState, frame: "base64" })).toThrow(
       /ComputerServerMessage failed contract validation/
+    );
+    for (const input of [
+      { type: "computer_pointer", action: "down", x: 0.5, y: 0.25, button: "left", clickCount: 1 },
+      { type: "computer_wheel", x: 0.5, y: 0.5, deltaX: 0, deltaY: 120 },
+      { type: "computer_key", action: "down", key: "Enter", modifiers: 4 },
+      { type: "computer_text", text: "hello" }
+    ]) {
+      expect(() => assertWebSocketMessage("ComputerClientMessage", input)).not.toThrow();
+    }
+    expect(() => assertWebSocketMessage("ComputerClientMessage", { type: "computer_pointer", action: "down", x: 1.5, y: 0 })).toThrow(
+      /ComputerClientMessage failed contract validation/
     );
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");

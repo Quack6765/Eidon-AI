@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message";
+export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -496,11 +496,21 @@ export type MessageDraftProposalPayload = {
   sendError?: string | null;
 };
 
+export type ComputerHandoffResolution = "returned" | "expired" | "stopped";
+
+export type ComputerHandoffProposalPayload = {
+  operation: "computer_handoff";
+  reason: string;
+  resolution?: ComputerHandoffResolution;
+  note?: string;
+};
+
 export type ProposalPayload =
   | MemoryProposalPayload
   | AutomationProposalPayload
   | ToolApprovalProposalPayload
-  | MessageDraftProposalPayload;
+  | MessageDraftProposalPayload
+  | ComputerHandoffProposalPayload;
 
 export type UserMemory = {
   id: string;
@@ -554,9 +564,12 @@ export type MessageAttachment = {
   createdAt: string;
 };
 
+export type ComputerControlOwner = "bot" | "user";
+
 export type ComputerState = {
   type: "computer_state";
   live: boolean;
+  controlOwner: ComputerControlOwner;
   url: string | null;
   caption: string | null;
   viewport: { width: number; height: number } | null;

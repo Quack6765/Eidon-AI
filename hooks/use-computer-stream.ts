@@ -1,22 +1,40 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ComputerState } from "@/lib/types";
 
 export type ComputerView = Omit<ComputerState, "type"> & { frameUrl: string | null };
 
-const INITIAL_VIEW: ComputerView = { live: false, url: null, caption: null, viewport: null, frameUrl: null };
+export type ComputerInput =
+  | { type: "computer_pointer"; action: "down" | "up" | "move"; x: number; y: number; button?: "left" | "right" | "middle"; clickCount?: number }
+  | { type: "computer_wheel"; x: number; y: number; deltaX: number; deltaY: number }
+  | { type: "computer_key"; action: "down" | "up"; key: string; modifiers?: number }
+  | { type: "computer_text"; text: string };
+
+const INITIAL_VIEW: ComputerView = {
+  live: false,
+  controlOwner: "bot",
+  url: null,
+  caption: null,
+  viewport: null,
+  frameUrl: null
+};
 const MAX_RETRY_MS = 10_000;
 const FRAME_REVOKE_DELAY_MS = 2_000;
 
 export function useComputerStream(conversationId: string | undefined) {
   const [view, setView] = useState<ComputerView>(INITIAL_VIEW);
   const frameUrlRef = useRef<string | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!conversationId) {
-      setView((previous) => (previous.live ? { ...previous, live: false, caption: null } : previous));
+      setView((previous) =>
+        previous.live || previous.controlOwner === "user"
+          ? { ...previous, live: false, caption: null, controlOwner: "bot" }
+          : previous
+      );
       return;
     }
 
@@ -31,6 +49,7 @@ export function useComputerStream(conversationId: string | undefined) {
         `${protocol}//${window.location.host}/ws/computer?conversationId=${encodeURIComponent(conversationId)}`
       );
       socket.binaryType = "blob";
+      socketRef.current = socket;
       socket.onopen = () => {
         attempt = 0;
       };
@@ -42,6 +61,7 @@ export function useComputerStream(conversationId: string | undefined) {
             setView((previous) => ({
               ...previous,
               live: state.live,
+              controlOwner: state.controlOwner === "user" ? "user" : "bot",
               url: state.url ?? previous.url,
               caption: state.caption,
               viewport: state.viewport ?? previous.viewport
@@ -70,8 +90,14 @@ export function useComputerStream(conversationId: string | undefined) {
       closed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
+      socketRef.current = null;
     };
   }, [conversationId]);
+
+  const send = useCallback((input: ComputerInput) => {
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(input));
+  }, []);
 
   useEffect(
     () => () => {
@@ -80,5 +106,5 @@ export function useComputerStream(conversationId: string | undefined) {
     []
   );
 
-  return view;
+  return { view, send };
 }

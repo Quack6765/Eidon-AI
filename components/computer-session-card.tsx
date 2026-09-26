@@ -47,7 +47,7 @@ export function ComputerSessionCard({
   onToggleSteps: () => void;
   children?: ReactNode;
 }) {
-  const view = useComputerStream(liveConversationId);
+  const { view } = useComputerStream(liveConversationId);
   const isLive = Boolean(liveConversationId);
   const url = displayUrl(view.url ?? (isLive ? null : lastOpenedUrl(actions)));
   const runningAction = [...actions].reverse().find((action) => action.status === "running");

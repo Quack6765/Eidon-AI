@@ -613,7 +613,7 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
   const status = getBotStatus(target);
   const run = getLatestBotRun(target.id);
   const activity = getTurnActivity(target.homeConversationId);
-  const lines = [`${target.name} is ${status === "waiting_user" ? "waiting for approval" : status}.`];
+  const lines = [`${target.name} is ${status === "waiting_user" ? "waiting for the user" : status}.`];
 
   if (status === "running") {
     const since = activity?.startedAt ?? run?.startedAt ?? null;

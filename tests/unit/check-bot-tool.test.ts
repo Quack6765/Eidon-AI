@@ -89,7 +89,7 @@ describe("check_bot tool", () => {
     });
 
     const content = String((await runCheckBot(user.id, "Deployer")).promptMessages.at(-1)?.content);
-    expect(content).toContain("Deployer is waiting for approval.");
+    expect(content).toContain("Deployer is waiting for the user.");
     expect(content).toMatch(/Blocked: waiting \d+s for the user to answer "Allow "git" commands\?" \(git push origin main\)\./);
     expect(content).toContain("answers the approval card in Deployer's conversation");
     setConversationActive(worker.homeConversationId, false);

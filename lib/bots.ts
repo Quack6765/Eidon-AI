@@ -517,7 +517,7 @@ export function getBotStatus(bot: Bot): BotStatus {
   const waitingRun = getDb()
     .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_user' LIMIT 1")
     .get(bot.id);
-  if (waitingRun && hasPendingToolApproval(bot)) return "waiting_user";
+  if (waitingRun && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
 
   const conversation = getConversation(bot.homeConversationId);
   if (conversation?.isActive) return "running";
@@ -539,6 +539,7 @@ export function getBotLastRunAt(botId: string): string | null {
 
 const PENDING_INPUT_CONDITION = "ma.status = 'pending' AND ma.proposal_state = 'pending'";
 const PENDING_TOOL_APPROVAL_CONDITION = `ma.kind = 'tool_approval' AND ${PENDING_INPUT_CONDITION}`;
+const PENDING_USER_WAIT_CONDITION = `ma.kind IN ('tool_approval', 'computer_handoff') AND ${PENDING_INPUT_CONDITION}`;
 
 function hasPendingAction(bot: Bot, condition: string) {
   return Boolean(
@@ -551,10 +552,6 @@ function hasPendingAction(bot: Bot, condition: string) {
       )
       .get(bot.homeConversationId)
   );
-}
-
-function hasPendingToolApproval(bot: Bot) {
-  return hasPendingAction(bot, PENDING_TOOL_APPROVAL_CONDITION);
 }
 
 export function listPendingBotApprovals(input: { userId?: string; botId?: string } = {}): PendingBotApproval[] {

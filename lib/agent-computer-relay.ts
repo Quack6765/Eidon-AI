@@ -9,7 +9,7 @@ import {
 } from "@/lib/agent-computer";
 import { getBotByConversationId } from "@/lib/bots";
 import { getConversationOwnerId } from "@/lib/conversations";
-import type { ComputerState } from "@/lib/types";
+import type { ComputerControlOwner, ComputerState } from "@/lib/types";
 
 const REGISTRY_KEY = Symbol.for("eidon.agent-computer-relay");
 const MAX_BUFFERED_BYTES = 256 * 1024;
@@ -18,12 +18,37 @@ const TOUCH_INTERVAL_MS = 60_000;
 const BROWSER_VIEWER_FPS = 15;
 const MOBILE_VIEWER_FPS = 8;
 const UPSTREAM_MAX_FPS = 15;
+const MAX_INPUTS_PER_SECOND = 120;
+const MAX_TEXT_CHARS = 2_000;
+const MODIFIER_ALT = 1;
+const MODIFIER_CTRL = 2;
+const MODIFIER_META = 4;
+const MODIFIER_SHIFT = 8;
+
+const VIRTUAL_KEY_CODES: Record<string, number> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Escape: 27,
+  " ": 32,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Delete: 46
+};
 
 type Viewer = {
   socket: WebSocket;
   minIntervalMs: number;
   lastSentAt: number;
   timer: ReturnType<typeof setTimeout> | null;
+  inputWindowStartedAt: number;
+  inputsInWindow: number;
 };
 
 type Channel = {
@@ -39,11 +64,13 @@ type Channel = {
 type Registry = {
   channels: Map<string, Channel>;
   captions: Map<string, string>;
+  userControlled: Set<string>;
+  handoffs: Map<string, string>;
 };
 
 function getRegistry() {
   const scope = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
-  scope[REGISTRY_KEY] ??= { channels: new Map(), captions: new Map() };
+  scope[REGISTRY_KEY] ??= { channels: new Map(), captions: new Map(), userControlled: new Set(), handoffs: new Map() };
   return scope[REGISTRY_KEY];
 }
 
@@ -57,6 +84,7 @@ function idleState(target: BrowserSessionTarget): ComputerState {
   return {
     type: "computer_state",
     live: false,
+    controlOwner: getComputerControl(target),
     url: null,
     caption: getRegistry().captions.get(target.socketDir) ?? null,
     viewport: null
@@ -83,6 +111,31 @@ function updateState(channel: Channel, patch: Partial<ComputerState>) {
   if (JSON.stringify(next) === JSON.stringify(channel.state)) return;
   channel.state = next;
   broadcastState(channel);
+}
+
+export function getComputerControl(target: BrowserSessionTarget): ComputerControlOwner {
+  return getRegistry().userControlled.has(target.socketDir) ? "user" : "bot";
+}
+
+export function setComputerControl(target: BrowserSessionTarget, owner: ComputerControlOwner) {
+  const registry = getRegistry();
+  if (owner === "user") registry.userControlled.add(target.socketDir);
+  else registry.userControlled.delete(target.socketDir);
+  const channel = registry.channels.get(target.socketDir);
+  if (channel) updateState(channel, { controlOwner: owner });
+}
+
+export function registerComputerHandoff(target: BrowserSessionTarget, actionId: string) {
+  getRegistry().handoffs.set(target.socketDir, actionId);
+}
+
+export function clearComputerHandoff(target: BrowserSessionTarget, actionId: string) {
+  const handoffs = getRegistry().handoffs;
+  if (handoffs.get(target.socketDir) === actionId) handoffs.delete(target.socketDir);
+}
+
+export function getComputerHandoff(target: BrowserSessionTarget) {
+  return getRegistry().handoffs.get(target.socketDir) ?? null;
 }
 
 export function setComputerCaption(target: BrowserSessionTarget, caption: string | null) {
@@ -211,6 +264,102 @@ function connectUpstream(channel: Channel) {
   });
 }
 
+type ViewerInput =
+  | { type: "computer_pointer"; action: "down" | "up" | "move"; x: number; y: number; button?: string; clickCount?: number }
+  | { type: "computer_wheel"; x: number; y: number; deltaX: number; deltaY: number }
+  | { type: "computer_key"; action: "down" | "up"; key: string; code?: string; modifiers?: number }
+  | { type: "computer_text"; text: string };
+
+function keyCode(key: string) {
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  if (key === " ") return "Space";
+  return key;
+}
+
+function virtualKeyCode(key: string) {
+  if (VIRTUAL_KEY_CODES[key]) return VIRTUAL_KEY_CODES[key];
+  if (/^[a-z0-9]$/i.test(key)) return key.toUpperCase().charCodeAt(0);
+  return 0;
+}
+
+function toPageModifiers(modifiers: number | undefined) {
+  const bits = Number.isInteger(modifiers) ? (modifiers as number) & 15 : 0;
+  return bits & MODIFIER_META ? (bits & ~MODIFIER_META) | MODIFIER_CTRL : bits;
+}
+
+function keyEvents(key: string, action: "down" | "up", modifiers: number) {
+  const code = keyCode(key);
+  const printable = key.length === 1 && !(modifiers & (MODIFIER_CTRL | MODIFIER_ALT));
+  return {
+    type: "input_keyboard",
+    eventType: action === "down" ? "keyDown" : "keyUp",
+    key,
+    code,
+    windowsVirtualKeyCode: virtualKeyCode(key),
+    modifiers,
+    ...(action === "down" && printable ? { text: key } : action === "down" && key === "Enter" ? { text: "\r" } : {})
+  };
+}
+
+function clampUnit(value: number) {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+}
+
+function toUpstreamInputs(channel: Channel, input: ViewerInput): unknown[] {
+  const width = channel.state.viewport?.width ?? 0;
+  const height = channel.state.viewport?.height ?? 0;
+  if (input.type === "computer_text") {
+    return [...input.text.slice(0, MAX_TEXT_CHARS)].flatMap((char) => [
+      keyEvents(char, "down", 0),
+      keyEvents(char, "up", 0)
+    ]);
+  }
+  if (input.type === "computer_key") {
+    if (typeof input.key !== "string" || !input.key || input.key.length > 32) return [];
+    return [keyEvents(input.key, input.action === "up" ? "up" : "down", toPageModifiers(input.modifiers))];
+  }
+  if (!width || !height) return [];
+  const x = Math.round(clampUnit(input.x) * width);
+  const y = Math.round(clampUnit(input.y) * height);
+  if (input.type === "computer_wheel") {
+    const deltaX = Math.max(-2_000, Math.min(2_000, Number(input.deltaX) || 0));
+    const deltaY = Math.max(-2_000, Math.min(2_000, Number(input.deltaY) || 0));
+    return [{ type: "input_mouse", eventType: "mouseWheel", x, y, deltaX, deltaY }];
+  }
+  const eventType = input.action === "down" ? "mousePressed" : input.action === "up" ? "mouseReleased" : "mouseMoved";
+  const button = input.button === "right" || input.button === "middle" ? input.button : input.action === "move" ? "none" : "left";
+  const clickCount = input.action === "move" ? 0 : Math.min(3, Math.max(1, Number(input.clickCount) || 1));
+  return [{ type: "input_mouse", eventType, x, y, button, clickCount }];
+}
+
+function allowInput(viewer: Viewer, now = Date.now()) {
+  if (now - viewer.inputWindowStartedAt >= 1000) {
+    viewer.inputWindowStartedAt = now;
+    viewer.inputsInWindow = 0;
+  }
+  viewer.inputsInWindow += 1;
+  return viewer.inputsInWindow <= MAX_INPUTS_PER_SECOND;
+}
+
+function handleViewerMessage(channel: Channel, viewer: Viewer, raw: WebSocket.RawData) {
+  if (getComputerControl(channel.target) !== "user" || !allowInput(viewer)) return;
+  const upstream = channel.upstream;
+  if (!upstream || upstream.readyState !== WebSocket.OPEN) return;
+  let input: ViewerInput;
+  try {
+    input = JSON.parse(raw.toString()) as ViewerInput;
+  } catch {
+    return;
+  }
+  if (!input || typeof input !== "object" || typeof input.type !== "string") return;
+  if (input.type === "computer_text" && typeof input.text !== "string") return;
+  if (input.type !== "computer_pointer" && input.type !== "computer_wheel" && input.type !== "computer_key" && input.type !== "computer_text") return;
+  for (const message of toUpstreamInputs(channel, input)) {
+    upstream.send(JSON.stringify(message));
+  }
+}
+
 function closeChannel(channel: Channel) {
   if (channel.reconnect) clearTimeout(channel.reconnect);
   if (channel.touch) clearInterval(channel.touch);
@@ -242,7 +391,9 @@ export function attachComputerViewer(socket: WebSocket, target: BrowserSessionTa
     socket,
     minIntervalMs: 1000 / (options.mobile ? MOBILE_VIEWER_FPS : BROWSER_VIEWER_FPS),
     lastSentAt: 0,
-    timer: null
+    timer: null,
+    inputWindowStartedAt: 0,
+    inputsInWindow: 0
   };
   active.viewers.add(viewer);
   sendJson(socket, active.state);
@@ -252,6 +403,7 @@ export function attachComputerViewer(socket: WebSocket, target: BrowserSessionTa
   active.touch.unref?.();
   connectUpstream(active);
 
+  socket.on("message", (raw: WebSocket.RawData) => handleViewerMessage(active, viewer, raw));
   socket.on("close", () => {
     if (viewer.timer) clearTimeout(viewer.timer);
     active.viewers.delete(viewer);
@@ -263,4 +415,6 @@ export function resetAgentComputerRelayForTests() {
   const registry = getRegistry();
   for (const channel of [...registry.channels.values()]) closeChannel(channel);
   registry.captions.clear();
+  registry.userControlled.clear();
+  registry.handoffs.clear();
 }

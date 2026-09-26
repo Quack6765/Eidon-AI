@@ -100,11 +100,11 @@ describe("AgentsNav", () => {
     }));
     global.fetch = fetchMock as unknown as typeof fetch;
     render(<AgentsNav bots={[buildBot({ status: "waiting_user" })]} onCloseAction={() => {}} />);
-    expect(screen.getByText("Needs approval")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for you")).toBeInTheDocument();
 
     for (const onReconnect of wsMocks.reconnectListeners) onReconnect();
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/bots"));
-    await waitFor(() => expect(screen.queryByText("Needs approval")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Waiting for you")).not.toBeInTheDocument());
   });
 });
