@@ -20,7 +20,7 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("ENV XDG_RUNTIME_DIR=/app/data/runtime");
     expect(dockerfile).toContain("ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser");
     expect(dockerfile).toContain(
-      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser"
+      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data-workspaces"
     );
     expect(dockerfile).toContain("--chown=eidon:eidon");
   });

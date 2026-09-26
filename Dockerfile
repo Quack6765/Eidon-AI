@@ -48,7 +48,7 @@ COPY --from=builder --chown=eidon:eidon /app/ws-handler-compiled.cjs ./ws-handle
 COPY --from=builder --chown=eidon:eidon /app/seed-native-test.cjs ./seed-native-test.cjs
 COPY --from=prod-deps --chown=eidon:eidon /app/node_modules ./node_modules
 RUN rm -rf ./node_modules/onnxruntime-web/dist \
-    && install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser
+    && install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data-workspaces
 USER eidon
 EXPOSE 3000
 VOLUME ["/app/data"]
