@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://eidon.example/contracts/mobile-api-v1.websocket.schema.json",
   "title": "Eidon Mobile WebSocket Protocol v1",
-  "description": "Messages exchanged over /api/v1/ws. Clients ignore unknown optional future server events and request an authoritative snapshot whenever accumulated delta state is uncertain. The live-browser socket /api/v1/ws/computer?conversationId=<id> sends ComputerServerMessage JSON text frames plus binary frames, each one complete JPEG image of the conversation's browser tab.",
+  "description": "Messages exchanged over /api/v1/ws. Clients ignore unknown optional future server events and request an authoritative snapshot whenever accumulated delta state is uncertain. The live-browser socket /api/v1/ws/computer?conversationId=<id> sends ComputerServerMessage JSON text frames plus binary frames, each one complete JPEG image of the conversation's browser tab, and accepts ComputerClientMessage input while the user has control.",
   "oneOf": [
     { "$ref": "#/$defs/ClientMessage" },
     { "$ref": "#/$defs/ServerMessage" },
+    { "$ref": "#/$defs/ComputerClientMessage" },
     { "$ref": "#/$defs/ComputerServerMessage" }
   ],
   "$defs": {
@@ -77,6 +78,17 @@
         "resolution": { "type": "string", "enum": ["once", "always", "denied", "expired", "stopped"] }
       }
     },
+    "ComputerHandoffProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "reason"],
+      "properties": {
+        "operation": { "const": "computer_handoff" },
+        "reason": { "type": "string" },
+        "resolution": { "type": "string", "enum": ["returned", "expired", "stopped"] },
+        "note": { "type": "string" }
+      }
+    },
     "MessageDraftProposalPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -129,7 +141,7 @@
         "id": { "$ref": "#/$defs/OpaqueId" },
         "messageId": { "$ref": "#/$defs/OpaqueId" },
         "timelineKind": { "const": "action" },
-        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan", "draft_message"] },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan", "draft_message", "computer_handoff"] },
         "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
         "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
@@ -142,7 +154,7 @@
         "startedAt": { "$ref": "#/$defs/Timestamp" },
         "completedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "proposalState": { "type": ["string", "null"], "enum": ["pending", "approved", "dismissed", "superseded", null] },
-        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "$ref": "#/$defs/MessageDraftProposalPayload" }, { "type": "null" }] },
+        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "$ref": "#/$defs/MessageDraftProposalPayload" }, { "$ref": "#/$defs/ComputerHandoffProposalPayload" }, { "type": "null" }] },
         "proposalUpdatedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
       }
     },
@@ -316,13 +328,23 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageIds"], "properties": { "type": { "const": "reorder_queued_messages" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageIds": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/OpaqueId" } } } }
       ]
     },
+    "ComputerClientMessage": {
+      "description": "Input from the viewer to the tab, applied only while controlOwner is user. Coordinates are 0-1 fractions of the frame.",
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "action", "x", "y"], "properties": { "type": { "const": "computer_pointer" }, "action": { "type": "string", "enum": ["down", "up", "move"] }, "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 }, "button": { "type": "string", "enum": ["left", "right", "middle"] }, "clickCount": { "type": "integer", "minimum": 1, "maximum": 3 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "x", "y", "deltaX", "deltaY"], "properties": { "type": { "const": "computer_wheel" }, "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 }, "deltaX": { "type": "number" }, "deltaY": { "type": "number" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "action", "key"], "properties": { "type": { "const": "computer_key" }, "action": { "type": "string", "enum": ["down", "up"] }, "key": { "type": "string", "minLength": 1, "maxLength": 32 }, "modifiers": { "type": "integer", "minimum": 0, "maximum": 15, "description": "Bit mask: 1 Alt, 2 Ctrl, 4 Meta (sent to the page as Ctrl), 8 Shift." } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "const": "computer_text" }, "text": { "type": "string", "minLength": 1, "maxLength": 2000 } } }
+      ]
+    },
     "ComputerServerMessage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "live", "url", "caption", "viewport"],
+      "required": ["type", "live", "controlOwner", "url", "caption", "viewport"],
       "properties": {
         "type": { "const": "computer_state" },
         "live": { "type": "boolean" },
+        "controlOwner": { "type": "string", "enum": ["bot", "user"] },
         "url": { "type": ["string", "null"] },
         "caption": { "type": ["string", "null"] },
         "viewport": {

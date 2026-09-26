@@ -24,6 +24,7 @@ import * as botsRoute from "@/app/api/bots/route";
 import * as conversationRoute from "@/app/api/conversations/[conversationId]/route";
 import * as conversationChatRoute from "@/app/api/conversations/[conversationId]/chat/route";
 import * as conversationComputerRoute from "@/app/api/conversations/[conversationId]/computer/route";
+import * as conversationComputerControlRoute from "@/app/api/conversations/[conversationId]/computer/control/route";
 import * as conversationShareRoute from "@/app/api/conversations/[conversationId]/share/route";
 import * as conversationsRoute from "@/app/api/conversations/route";
 import * as conversationSearchRoute from "@/app/api/conversations/search/route";
@@ -96,6 +97,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["conversations", "search"], module: conversationSearchRoute },
   { pattern: ["conversations"], module: conversationsRoute },
   { pattern: ["conversations", ":conversationId", "chat"], module: conversationChatRoute },
+  { pattern: ["conversations", ":conversationId", "computer", "control"], module: conversationComputerControlRoute },
   { pattern: ["conversations", ":conversationId", "computer"], module: conversationComputerRoute },
   { pattern: ["conversations", ":conversationId", "share"], module: conversationShareRoute },
   { pattern: ["conversations", ":conversationId"], module: conversationRoute },

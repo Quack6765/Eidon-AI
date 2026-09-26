@@ -248,6 +248,34 @@ describe("interrupted work", () => {
     expect(buildRestartResumeNotice(chat.id)).toBeNull();
   });
 
+  it("stops a pending browser hand-off on restart and tells the resumed bot to check the page", async () => {
+    const owner = await createOwner("handoff-restart-owner");
+    const bot = createBot({ name: "Shopper" }, owner.id);
+    const partial = createMessage({ conversationId: bot.homeConversationId, role: "assistant", status: "streaming" });
+    const handoff = createMessageAction({
+      messageId: partial.id,
+      kind: "computer_handoff",
+      label: "Your turn in the browser",
+      detail: "Enter the SMS code",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: { operation: "computer_handoff", reason: "Enter the SMS code" }
+    });
+
+    const { computerHandoffs } = reconcileInterruptedRuntimeState(getDb());
+
+    expect(computerHandoffs).toBe(1);
+    const row = getDb()
+      .prepare("SELECT status, proposal_state, proposal_payload_json FROM message_actions WHERE id = ?")
+      .get(handoff.id) as { status: string; proposal_state: string; proposal_payload_json: string };
+    expect(row.status).toBe("completed");
+    expect(row.proposal_state).toBe("dismissed");
+    expect(JSON.parse(row.proposal_payload_json).resolution).toBe("stopped");
+    const notice = buildRestartResumeNotice(bot.homeConversationId);
+    expect(notice).toContain("requests for the user to take over your browser were cancelled");
+    expect(notice).toContain("- Your turn in the browser: Enter the SMS code");
+  });
+
   it("resumes interrupted conversations with a notice, unattended only for bots", async () => {
     const owner = await createOwner("resume-owner");
     const chat = createConversation("Chat", null, {}, owner.id);

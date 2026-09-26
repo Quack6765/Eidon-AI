@@ -172,7 +172,7 @@ const websocketAjv = createAjv();
 const websocketValidators = new Map<string, ValidateFunction>();
 
 export function assertWebSocketMessage(
-  kind: "ClientMessage" | "ServerMessage" | "ComputerServerMessage",
+  kind: "ClientMessage" | "ServerMessage" | "ComputerClientMessage" | "ComputerServerMessage",
   message: unknown
 ) {
   let validate = websocketValidators.get(kind);

@@ -696,7 +696,21 @@ describe("Mobile API v1 REST adapter", () => {
       ["conversations", conversationId, "computer"],
       "GET"
     ) as { data: { computer: Record<string, unknown> } };
-    expect(computerBody.data.computer).toEqual({ live: false, url: null, caption: null, viewport: null });
+    expect(computerBody.data.computer).toEqual({ live: false, controlOwner: "bot", url: null, caption: null, viewport: null });
+    const takenBody = await call(
+      "/conversations/{conversationId}/computer/control",
+      ["conversations", conversationId, "computer", "control"],
+      "POST",
+      { action: "take" }
+    ) as { data: { computer: { controlOwner: string } } };
+    expect(takenBody.data.computer.controlOwner).toBe("user");
+    const returnedBody = await call(
+      "/conversations/{conversationId}/computer/control",
+      ["conversations", conversationId, "computer", "control"],
+      "POST",
+      { action: "return", note: "Signed in" }
+    ) as { data: { computer: { controlOwner: string } } };
+    expect(returnedBody.data.computer.controlOwner).toBe("bot");
 
     const message = createMessage({
       conversationId,

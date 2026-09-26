@@ -42,7 +42,8 @@ import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdate
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import { prepareBrowserEnv } from "@/lib/agent-computer";
-import { conversationBrowserTarget, setComputerCaption } from "@/lib/agent-computer-relay";
+import { conversationBrowserTarget, getComputerControl, setComputerCaption } from "@/lib/agent-computer-relay";
+import { requestComputerHandoff } from "@/lib/computer-handoff";
 import { resolveBotSandbox } from "./bot-sandbox";
 import type {
   AutomationCalendarFrequency,
@@ -806,6 +807,17 @@ export async function executeShellCommand(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  if (
+    getShellCommandLabel(command) === "Web browser" &&
+    getComputerControl(conversationBrowserTarget(context.input.conversationId)) === "user"
+  ) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: The user has control of the browser right now. Wait until they return it, then try again. Use request_takeover if you need them to do a step for you."
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const classification = classifyShellCommand(command);
   const approvalPayload: ToolApprovalProposalPayload = {
     operation: "tool_approval",
@@ -908,6 +920,36 @@ export async function executeShellCommand(
   } finally {
     if (usesBrowser) setComputerCaption(browserTarget, null);
   }
+}
+
+async function executeRequestTakeover(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const reason = String(args.reason ?? "").trim().slice(0, 500) || "Finish a step in the browser";
+  const resultText = await requestComputerHandoff({
+    conversationId: context.input.conversationId,
+    reason,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
 }
 
 function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
@@ -1573,6 +1615,10 @@ export async function executeToolCall(
 
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name === "request_takeover") {
+    return executeRequestTakeover(toolCallId, args, context);
   }
 
   if (name === "message_bot") {

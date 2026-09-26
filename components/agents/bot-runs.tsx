@@ -52,7 +52,7 @@ export function BotRunStatusChip({ status, compact = false }: { status: BotRunSt
     <span
       className={`shrink-0 rounded-md border font-medium ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} ${runStatusClasses(status)}`}
     >
-      {status === "waiting_user" ? "needs approval" : status}
+      {status === "waiting_user" ? "waiting for you" : status}
     </span>
   );
 }

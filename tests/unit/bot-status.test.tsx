@@ -56,7 +56,7 @@ describe("BotStatusChip", () => {
 
   it("labels a bot paused on a tool approval as needing approval", () => {
     render(<BotStatusChip status="waiting_user" waitingForInput />);
-    expect(screen.getByText("Needs approval")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for you")).toBeInTheDocument();
     expect(screen.queryByText("Waiting for input")).toBeNull();
   });
 
@@ -83,7 +83,7 @@ describe("unread state", () => {
   });
 
   it("labels the most urgent attention state for list rows", () => {
-    expect(botAttentionLabel({ status: "waiting_user", waitingForInput: true }, true)).toBe("Needs approval");
+    expect(botAttentionLabel({ status: "waiting_user", waitingForInput: true }, true)).toBe("Waiting for you");
     expect(botAttentionLabel({ status: "running", waitingForInput: true }, true)).toBe("Waiting for input");
     expect(botAttentionLabel({ status: "queued", waitingForInput: false }, true)).toBe("Queued");
     expect(botAttentionLabel({ status: "idle", waitingForInput: false }, true)).toBe("Unread");

@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<BotStatus, string> = {
   idle: "Idle",
   queued: "Queued",
   running: "Running",
-  waiting_user: "Needs approval"
+  waiting_user: "Waiting for you"
 };
 
 const WAITING_FOR_INPUT_CHIP_CLASSES =

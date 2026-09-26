@@ -1,4 +1,5 @@
 import { broadcastActionUpdate } from "@/lib/action-broadcast";
+import { settleUserGate, waitForUserGate } from "@/lib/user-gate";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
@@ -471,21 +472,6 @@ function loadPendingToolApprovalAction(actionId: string, userId?: string) {
   };
 }
 
-type PendingToolApprovalEntry = {
-  settle: (approved: boolean) => void;
-};
-
-const PENDING_TOOL_APPROVALS_KEY = Symbol.for("eidon:pending-tool-approvals");
-
-function getPendingToolApprovals() {
-  const registry = globalThis as Record<
-    symbol,
-    Map<string, PendingToolApprovalEntry> | undefined
-  >;
-  registry[PENDING_TOOL_APPROVALS_KEY] ??= new Map<string, PendingToolApprovalEntry>();
-  return registry[PENDING_TOOL_APPROVALS_KEY];
-}
-
 function readProposalState(actionId: string) {
   const row = getDb()
     .prepare("SELECT proposal_state, proposal_payload_json FROM message_actions WHERE id = ?")
@@ -500,15 +486,12 @@ function readProposalState(actionId: string) {
 }
 
 function settlePendingToolApproval(actionId: string, approved: boolean) {
-  const pendingToolApprovals = getPendingToolApprovals();
-  const entry = pendingToolApprovals.get(actionId);
-  if (!entry) {
-    return false;
-  }
-
-  pendingToolApprovals.delete(actionId);
-  entry.settle(approved);
-  return true;
+  return settleUserGate(
+    actionId,
+    approved
+      ? { approved: true }
+      : { approved: false, message: USER_DENIED_MESSAGE, promptActionId: actionId }
+  );
 }
 
 function resolvePendingToolApprovalAction(
@@ -664,28 +647,16 @@ function waitForToolApprovalDecision(
   timeoutMs: number | undefined,
   abortSignal: AbortSignal | undefined
 ) {
-  return new Promise<ToolApprovalGateOutcome>((resolve) => {
-    let settled = false;
-
-    const finish = (outcome: ToolApprovalGateOutcome) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      abortSignal?.removeEventListener("abort", handleAbort);
-      getPendingToolApprovals().delete(actionId);
-      resolve(outcome);
-    };
-
-    const adoptRecordedDecision = () => {
+  return waitForUserGate<ToolApprovalGateOutcome>(actionId, {
+    timeoutMs: timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS,
+    abortSignal,
+    readRecorded: () => {
       const { state, resolution } = readProposalState(actionId);
       if (state === "approved") {
-        finish({ approved: true });
-        return true;
+        return { approved: true };
       }
       if (state === "dismissed") {
-        finish({
+        return {
           approved: false,
           message:
             resolution === "expired"
@@ -694,45 +665,17 @@ function waitForToolApprovalDecision(
                 ? STOPPED_MESSAGE
                 : USER_DENIED_MESSAGE,
           promptActionId: actionId
-        });
-        return true;
+        };
       }
-      return false;
-    };
-
-    const timer = setTimeout(() => {
-      getPendingToolApprovals().delete(actionId);
-      if (adoptRecordedDecision()) {
-        return;
-      }
+      return null;
+    },
+    onExpire: () => {
       resolvePendingToolApprovalAction(actionId, payload, "expired", "Approval request expired", false);
-      finish({ approved: false, message: EXPIRED_MESSAGE, promptActionId: actionId });
-    }, timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS);
-    timer.unref?.();
-
-    function handleAbort() {
-      getPendingToolApprovals().delete(actionId);
-      if (adoptRecordedDecision()) {
-        return;
-      }
+      return { approved: false, message: EXPIRED_MESSAGE, promptActionId: actionId };
+    },
+    onStop: () => {
       resolvePendingToolApprovalAction(actionId, payload, "stopped", "Approval request stopped", false);
-      finish({ approved: false, message: STOPPED_MESSAGE, promptActionId: actionId });
-    }
-
-    abortSignal?.addEventListener("abort", handleAbort, { once: true });
-
-    getPendingToolApprovals().set(actionId, {
-      settle: (approved) => {
-        finish(
-          approved
-            ? { approved: true }
-            : { approved: false, message: USER_DENIED_MESSAGE, promptActionId: actionId }
-        );
-      }
-    });
-
-    if (!adoptRecordedDecision() && abortSignal?.aborted) {
-      handleAbort();
+      return { approved: false, message: STOPPED_MESSAGE, promptActionId: actionId };
     }
   });
 }

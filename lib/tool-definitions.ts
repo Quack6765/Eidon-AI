@@ -51,6 +51,7 @@ export function buildToolDefinitions(input: {
     roster: BotRosterEntry[];
   };
   semanticRecallAvailable?: boolean;
+  computerHandoffEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -267,6 +268,27 @@ export function buildToolDefinitions(input: {
       }
     }
   });
+
+  if (input.botTeam || input.computerHandoffEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "request_takeover",
+        description:
+          "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
+        parameters: {
+          type: "object",
+          properties: {
+            reason: {
+              type: "string",
+              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
+            }
+          },
+          required: ["reason"]
+        }
+      }
+    });
+  }
 
   if (input.botTeam) {
     const rosterSummary = input.botTeam.roster.length
