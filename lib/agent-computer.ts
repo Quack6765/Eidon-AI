@@ -57,7 +57,7 @@ export type BrowserSessionTarget = {
   ownerKey: string;
   sessionName: string;
   socketDir: string;
-  sandbox?: { homeDir: string; readWrite: string[] };
+  sandbox?: { homeDir: string; workDir: string; readWrite: string[] };
 };
 
 type BrowserSession = {
@@ -110,11 +110,12 @@ export function getBotBrowserSocketDir(bot: { id: string }) {
 
 export function botBrowserTarget(bot: { id: string; userId: string | null }): BrowserSessionTarget {
   const homeDir = getBotHomeDir(bot);
+  const workDir = getBotWorkspaceDir(bot);
   return {
     ownerKey: getBrowserOwnerKey(bot.userId),
     sessionName: SESSION_NAME,
     socketDir: getBotBrowserSocketDir(bot),
-    sandbox: { homeDir, readWrite: [getBotWorkspaceDir(bot), getSharedBotWorkspaceDir(bot), homeDir] }
+    sandbox: { homeDir, workDir, readWrite: [workDir, getSharedBotWorkspaceDir(bot), homeDir] }
   };
 }
 
@@ -359,6 +360,7 @@ type AgentBrowserResult = { ok: boolean; output: string };
 
 function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: number | null) {
   mkdirSync(target.socketDir, { recursive: true });
+  if (target.sandbox) mkdirSync(target.sandbox.workDir, { recursive: true });
   return new Promise<AgentBrowserResult>((resolve) => {
     let output = "";
     let settled = false;
@@ -376,6 +378,7 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
           })
         : { command: "agent-browser", args };
     const child = spawn(daemon.command, daemon.args, {
+      cwd: target.sandbox?.workDir,
       env: buildShellEnv({ ...browserSessionEnv(target, port), ...(target.sandbox ? { HOME: target.sandbox.homeDir } : {}) }),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32"

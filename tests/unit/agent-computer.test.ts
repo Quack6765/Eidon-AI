@@ -60,16 +60,16 @@ class FakeProcess extends EventEmitter {
 }
 
 const browserByUrl = new Map<string, FakeProcess>();
-const sandboxed: Array<{ command: string; rules: string[]; env: Record<string, string> }> = [];
+const sandboxed: Array<{ command: string; rules: string[]; env: Record<string, string>; cwd?: string }> = [];
 const browsers: Array<{ child: FakeProcess; args: string[]; port: number }> = [];
 const agentBrowserCalls: Array<{ args: string[]; env: Record<string, string> }> = [];
 let nextPort = 41_000;
 let agentBrowserFailure: string | null = null;
 
-function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string> }): FakeProcess {
+function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string>; cwd?: string }): FakeProcess {
   if (command === "python3") {
     const split = args.indexOf("--");
-    sandboxed.push({ command: args[split + 1], rules: args.slice(1, split), env: options.env ?? {} });
+    sandboxed.push({ command: args[split + 1], rules: args.slice(1, split), env: options.env ?? {}, cwd: options.cwd });
     return fakeSpawn(args[split + 1], args.slice(split + 2), options);
   }
   const child = new FakeProcess();
@@ -515,6 +515,7 @@ describe("agent computer browser host", () => {
       expect(sandboxed[1].rules.join(" ")).toContain(`--rw ${target.socketDir}`);
       expect(sandboxed[1].rules.slice(-2)).toEqual(["--connect", String(browsers[0].port)]);
       expect(sandboxed[1].env.HOME).toBe(getBotHomeDir(bot));
+      expect(sandboxed[1].cwd).toBe(getBotWorkspaceDir(bot));
       expect(agentBrowserCalls).toHaveLength(2);
     } finally {
       resetShellIsolationForTests(0);
