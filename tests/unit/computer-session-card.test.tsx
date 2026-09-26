@@ -120,7 +120,7 @@ describe("ComputerSessionCard", () => {
     expect(screen.queryByText("blank")).not.toBeInTheDocument();
     const frame = screen.getByText("Waiting for the browser…").parentElement as HTMLElement;
     expect(frame.style.aspectRatio).toBe("1280 / 713");
-    expect(frame.style.width).toMatch(/^min\(100%, 107\.71\d*vh\)$/);
+    expect(frame.style.width).toMatch(/^min\(100%, 1280px, 107\.71\d*vh\)$/);
   });
 
   it("names the last page the bot opened on a finished run", () => {

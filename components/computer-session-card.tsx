@@ -111,7 +111,7 @@ export function ComputerSessionCard({
         <div className="mt-2.5">
           <div
             className="relative mx-auto overflow-hidden rounded-md border border-white/6 bg-black/40"
-            style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, calc(60vh * ${width} / ${height}))` }}
+            style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, ${view.viewport ? `${width}px` : "100%"}, calc(60vh * ${width} / ${height}))` }}
           >
             {view.frameUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- Frames are in-memory blob URLs from the live browser stream that next/image cannot load.
