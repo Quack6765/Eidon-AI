@@ -212,7 +212,8 @@ The measured facts also still hold:
   - Chromium gets `--proxy-server`, `--proxy-bypass-list=<-loopback>` (Chromium otherwise bypasses the proxy for loopback) and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
   - Behavior change: bots and the browser can no longer reach the local network or the Eidon server itself.
 - **Settings status:** a "Bot sandbox" card (Active / Files only / Unavailable) in Settings → General → Bots, following the semantic-recall card. The server page passes it as a prop, so no API or contract change. No badge on the bot page, which would need an API field.
-- **Known limits:** without ABI 6 (kernel 6.12) a sandboxed shell can still signal other processes of the app user, including the server; UDP (DNS) is not filtered; regular (non-bot) chat shells stay unsandboxed, as before.
+- **Known limits:** without ABI 6 (kernel 6.12) a sandboxed shell can still signal other processes of the app user, including the server; UDP (DNS) is not filtered; regular (non-bot) chat shells stay unsandboxed, as before. A bot that somehow learned another bot's exact socket path could still make that daemon restart (its tab is rebound on the next command); the path is a per-boot HMAC in a directory bots cannot list. A bot can start extra agent-browser daemons on paths it owns; they inherit its sandbox but are not swept until a restart.
+- **Daemon working directory:** each bot's daemon runs in the bot's workspace, so relative paths such as `agent-browser screenshot shot.png` land there (they used to land in the app directory).
 - **Tests:**
   - Launcher arguments and probe caching, with the probe mocked; the launcher's own fail-closed argument handling.
   - Proxy allow/deny matrix, CONNECT and plain HTTP forwarding, hop-by-hop header stripping, hostnames that resolve to private addresses.
