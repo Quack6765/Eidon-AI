@@ -281,7 +281,7 @@ export function buildToolDefinitions(input: {
           properties: {
             reason: {
               type: "string",
-              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to GitHub — it is asking for a two-factor code'"
+              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
             }
           },
           required: ["reason"]

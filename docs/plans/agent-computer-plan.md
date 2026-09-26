@@ -192,11 +192,11 @@ The measured facts also still hold:
 - **Relay input:** owner-only while `controlOwner==="user"`; clamp coordinates and rate-limit; always fill `code`; map Cmd→Ctrl.
 - **Card:** `components/computer-handoff-card.tsx`, following the draft-card template in `components/message-bubble.tsx`:
   - a guard plus the card;
-  - add it to the deferral at :636-642 and the status-line exclusion at :1054-1062;
-  - a branch after the tool-approval branch (:904-915), rendered during streaming;
-  - props threaded through `streaming-message.tsx` and `chat-view.tsx`, as with `postMessageDraftAction` (:2001-2034).
+  - kept in place in the thread (not deferred), so a resolved hand-off reads as history where the bot paused, and excluded from the status-line insertion index;
+  - a branch after the tool-approval branch, rendered during streaming;
+  - the conversation id is threaded through `streaming-message.tsx` and `chat-view.tsx` for every message, so a pending hand-off can be taken after a reload.
 
-  Visuals go behind the design gate.
+  Visuals follow the chosen "Live card in the thread" direction: "Take control" on the live card and "Take over" on the hand-off card open a full-screen stage with a control strip (note, Return control, Minimize). Control goes back to the bot when the user returns it or stops watching, unless the bot asked for the hand-off.
 - **Tests:** the existing tool-approval, bot-tool-approvals and interrupted-work tests still pass; plus the executor guard, the control route, input authorisation, restart reconciliation of the new kinds, and the attention label.
 
 ### PR 4: Hardening: Landlock + egress proxy (before secrets)

@@ -23,6 +23,29 @@ const INITIAL_VIEW: ComputerView = {
 const MAX_RETRY_MS = 10_000;
 const FRAME_REVOKE_DELAY_MS = 2_000;
 
+export function displayComputerUrl(url: string | null) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+export async function requestComputerControl(conversationId: string, action: "take" | "return", note?: string) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/computer/control`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...(note ? { note } : {}) })
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || (action === "take" ? "Could not take control" : "Could not return control"));
+  }
+}
+
 export function useComputerStream(conversationId: string | undefined) {
   const [view, setView] = useState<ComputerView>(INITIAL_VIEW);
   const frameUrlRef = useRef<string | null>(null);

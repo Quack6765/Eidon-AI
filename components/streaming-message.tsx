@@ -143,7 +143,8 @@ function StreamingMessageImpl({
       isRetrying={isRetrying}
       isRegenerating={isRegenerating}
       referenceCandidates={referenceCandidates}
-      liveComputerConversationId={active ? computerConversationId : undefined}
+      computerConversationId={computerConversationId}
+      computerLive={active}
     />
   );
 }

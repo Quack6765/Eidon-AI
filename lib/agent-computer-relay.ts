@@ -407,7 +407,9 @@ export function attachComputerViewer(socket: WebSocket, target: BrowserSessionTa
   socket.on("close", () => {
     if (viewer.timer) clearTimeout(viewer.timer);
     active.viewers.delete(viewer);
-    if (active.viewers.size === 0) closeChannel(active);
+    if (active.viewers.size > 0) return;
+    if (!getComputerHandoff(target)) setComputerControl(target, "bot");
+    closeChannel(active);
   });
 }
 

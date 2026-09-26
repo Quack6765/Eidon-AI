@@ -312,7 +312,8 @@ describe("message bubble", () => {
         React.createElement(MessageBubble, {
           message: { ...createAssistantMessage(), actions: [createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com" })] },
           toolCallDisplay: "status_line",
-          liveComputerConversationId: "conv_1"
+          computerConversationId: "conv_1",
+          computerLive: true
         })
       );
       expect(screen.getByTestId("computer-live-badge")).toBeInTheDocument();

@@ -3,8 +3,9 @@
 import { Keyboard, LoaderCircle, Minimize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 
-import type { ComputerInput, ComputerView } from "@/hooks/use-computer-stream";
+import { displayComputerUrl, requestComputerControl, useComputerStream } from "@/hooks/use-computer-stream";
 
 const POINTER_MOVE_INTERVAL_MS = 50;
 
@@ -17,30 +18,35 @@ function pointerButton(button: number): "left" | "middle" | "right" {
 }
 
 export function ComputerStage({
-  view,
-  send,
-  displayUrl,
-  onReturn,
-  onMinimize
+  conversationId,
+  askForNote = false,
+  onClose
 }: {
-  view: ComputerView;
-  send: (input: ComputerInput) => void;
-  displayUrl: string | null;
-  onReturn: (note: string) => Promise<void>;
-  onMinimize: () => void;
+  conversationId: string;
+  askForNote?: boolean;
+  onClose: () => void;
 }) {
+  const { view, send } = useComputerStream(conversationId);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const typingRef = useRef<HTMLTextAreaElement | null>(null);
   const lastMoveRef = useRef(0);
+  const hadControlRef = useRef(false);
   const [note, setNote] = useState("");
   const [isReturning, setIsReturning] = useState(false);
   const [error, setError] = useState("");
-  const aspectRatio = view.viewport ? `${view.viewport.width} / ${view.viewport.height}` : "16 / 10";
+  const width = view.viewport?.width ?? 16;
+  const height = view.viewport?.height ?? 9;
+  const url = displayComputerUrl(view.url);
 
   useEffect(() => {
     stageRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (view.controlOwner === "user") hadControlRef.current = true;
+    else if (hadControlRef.current) onClose();
+  }, [view.controlOwner, onClose]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -90,16 +96,17 @@ export function ComputerStage({
     setIsReturning(true);
     setError("");
     try {
-      await onReturn(note.trim());
+      await requestComputerControl(conversationId, "return", note.trim());
+      onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not return control");
       setIsReturning(false);
     }
   }
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex flex-col bg-black/85 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="You're in control of the browser"
@@ -111,21 +118,23 @@ export function ComputerStage({
           You&apos;re in control
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-white/45">
-          {displayUrl ? `${displayUrl} · the bot is paused` : "The bot is paused"}
+          {url ? `${url} · the bot can't use the browser until you return control` : "The bot can't use the browser until you return control"}
         </span>
-        <input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          maxLength={1000}
-          placeholder="Note for the bot (optional)"
-          aria-label="Note for the bot"
-          className="h-9 w-full rounded-md border border-white/8 bg-white/[0.03] px-3 text-[16px] text-white placeholder:text-white/30 focus:border-[var(--accent)]/40 focus:outline-none md:w-64 md:text-[12px]"
-        />
+        {askForNote ? (
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={1000}
+            placeholder="Note for the bot (optional)"
+            aria-label="Note for the bot"
+            className="h-9 w-full rounded-md border border-white/8 bg-white/[0.03] px-3 text-[16px] text-white placeholder:text-white/30 focus:border-white/20 focus:outline-none md:w-64 md:text-[12px]"
+          />
+        ) : null}
         <button
           type="button"
           onClick={() => void handleReturn()}
           disabled={isReturning}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 text-[12px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[12px] font-medium text-white transition hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isReturning ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
           Return control
@@ -140,9 +149,10 @@ export function ComputerStage({
         </button>
         <button
           type="button"
-          onClick={onMinimize}
+          onClick={onClose}
           aria-label="Minimize the browser"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+          title="Minimize — you keep control"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-white/60 transition hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
         >
           <Minimize2 className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -161,6 +171,7 @@ export function ComputerStage({
           send({ type: "computer_text", text });
         }}
         className="flex min-h-0 flex-1 items-center justify-center px-3 pb-[max(12px,env(safe-area-inset-bottom))] focus:outline-none md:px-6"
+        data-testid="computer-stage-keys"
       >
         <div
           ref={frameRef}
@@ -168,13 +179,13 @@ export function ComputerStage({
           onPointerUp={(event) => pointer(event, "up")}
           onPointerMove={(event) => pointer(event, "move")}
           onContextMenu={(event) => event.preventDefault()}
-          className="relative max-h-full w-full max-w-6xl touch-none overflow-hidden rounded-md border border-white/10 bg-black/60"
-          style={{ aspectRatio, maxHeight: "100%" }}
+          className="relative touch-none overflow-hidden rounded-md border border-white/10 bg-black/60"
+          style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, 72rem, calc((100dvh - 7rem) * ${width} / ${height}))` }}
           data-testid="computer-stage-frame"
         >
           {view.frameUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- Frames are in-memory blob URLs from the live browser stream that next/image cannot load.
-            <img src={view.frameUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-contain" />
+            <img src={view.frameUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/40">
               Waiting for the browser…
@@ -200,6 +211,7 @@ export function ComputerStage({
           if (text) send({ type: "computer_text", text });
         }}
       />
-    </div>
+    </div>,
+    document.body
   );
 }

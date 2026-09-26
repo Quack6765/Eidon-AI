@@ -45,6 +45,7 @@ import {
   isMessageDraftAction,
   MessageDraftCard
 } from "@/components/message-draft-card";
+import { ComputerHandoffCard, isComputerHandoffAction } from "@/components/computer-handoff-card";
 import { ComputerSessionCard, isBrowserAction } from "@/components/computer-session-card";
 import {
   AttachmentTile,
@@ -477,7 +478,8 @@ function MessageBubbleImpl({
   onPreviewAttachment,
   readOnly = false,
   referenceCandidates,
-  liveComputerConversationId
+  computerConversationId,
+  computerLive = false
 }: {
   message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
@@ -516,7 +518,8 @@ function MessageBubbleImpl({
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
   referenceCandidates?: ReferenceCandidate[];
-  liveComputerConversationId?: string;
+  computerConversationId?: string;
+  computerLive?: boolean;
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -924,6 +927,14 @@ function MessageBubbleImpl({
       );
     }
 
+    if (isComputerHandoffAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ComputerHandoffCard action={item} conversationId={computerConversationId} readOnly={readOnly} />
+        </div>
+      );
+    }
+
     if (isBrowserAction(item)) {
       if (item.id !== browserSession.headId) {
         return null;
@@ -934,7 +945,7 @@ function MessageBubbleImpl({
         <div key={item.id} data-testid="assistant-actions-shell">
           <ComputerSessionCard
             actions={browserSession.actions}
-            liveConversationId={liveComputerConversationId}
+            liveConversationId={computerLive ? computerConversationId : undefined}
             stepsOpen={toolOpenItems[stepsKey] ?? false}
             onToggleSteps={() => toggleToolItem(stepsKey)}
           >
@@ -1094,7 +1105,8 @@ function MessageBubbleImpl({
         !isMemoryProposalAction(item) &&
         !isAutomationProposalAction(item) &&
         !isToolApprovalAction(item) &&
-        !isMessageDraftAction(item));
+        !isMessageDraftAction(item) &&
+        !isComputerHandoffAction(item));
 
     return isActivity ? index + 1 : insertionIndex;
   }, 0);
