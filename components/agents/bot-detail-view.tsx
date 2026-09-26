@@ -6,11 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
-  ChevronRight,
   Eraser,
-  FileText,
-  Folder,
-  FolderOpen,
   LoaderCircle,
   PanelRight,
   Pencil,
@@ -23,6 +19,7 @@ import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip } from "@/components/agents/bot-status";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
 import { BotSkillModal } from "@/components/agents/bot-skill-modal";
+import { BotWorkspaceFiles } from "@/components/agents/bot-workspace-files";
 import { ChatView } from "@/components/chat-view";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -45,75 +42,6 @@ const headerControlButton =
   "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.03] px-3 text-sm font-medium transition-colors";
 
 const BOT_SUBTITLE_DESCRIPTION_MAX_CHARS = 90;
-
-function WorkspaceTreeNode({
-  node,
-  openPaths,
-  onToggle,
-  depth
-}: {
-  node: BotWorkspaceNode;
-  openPaths: string[];
-  onToggle: (path: string) => void;
-  depth: number;
-}) {
-  const isOpen = openPaths.includes(node.path);
-  if (node.isDirectory) {
-    return (
-      <div>
-        <button
-          type="button"
-          onClick={() => onToggle(node.path)}
-          aria-expanded={isOpen}
-          className={`flex w-full items-center gap-1 rounded-md py-[3px] pr-2 text-left text-[11px] transition-colors hover:text-[#f4f4f5] ${
-            depth === 0 ? "text-[#f4f4f5]" : "text-[var(--muted)]"
-          }`}
-          style={{ paddingLeft: depth * 10 + 4, fontSize: 11 }}
-        >
-          <ChevronRight
-            className={`h-3 w-3 shrink-0 text-[#71717a] transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
-            aria-hidden="true"
-          />
-          {isOpen ? (
-            <FolderOpen className="h-3 w-3 shrink-0 text-[#a1a1aa]" aria-hidden="true" />
-          ) : (
-            <Folder className="h-3 w-3 shrink-0 text-[#a1a1aa]" aria-hidden="true" />
-          )}
-          <span className="truncate">{node.name}</span>
-        </button>
-        {isOpen ? (
-          <div>
-            {node.children.length === 0 && depth === 0 ? (
-              <p className="py-[3px] pr-2 text-[11px] text-[var(--muted)]" style={{ paddingLeft: 10 + 4 + 18, fontSize: 11 }}>
-                No workspace files yet.
-              </p>
-            ) : (
-              node.children.map((child) => (
-                <WorkspaceTreeNode
-                  key={child.path}
-                  node={child}
-                  openPaths={openPaths}
-                  onToggle={onToggle}
-                  depth={depth + 1}
-                />
-              ))
-            )}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-  return (
-    <div
-      className="flex items-center gap-1 py-[3px] pr-2 text-[11px] text-[var(--muted)]"
-      style={{ paddingLeft: depth * 10 + 4, fontSize: 11 }}
-    >
-      <span className="w-3 shrink-0" aria-hidden="true" />
-      <FileText className="h-3 w-3 shrink-0 text-[#52525b]" aria-hidden="true" />
-      <span className="truncate">{node.name}</span>
-    </div>
-  );
-}
 
 function buildBotSubtitle(bot: BotSummary) {
   const description = bot.description.trim();
@@ -182,8 +110,11 @@ export function BotDetailView({
   const [clearNotice, setClearNotice] = useState<string | null>(null);
   const [showPanel, setShowPanel] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [workspaceTree, setWorkspaceTree] = useState<BotWorkspaceNode | null>(null);
-  const [workspaceOpenPaths, setWorkspaceOpenPaths] = useState<string[]>([]);
+  const [workspace, setWorkspace] = useState<{
+    tree: BotWorkspaceNode;
+    sharedTree: BotWorkspaceNode;
+    version: number;
+  } | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [botMemories, setBotMemories] = useState<UserMemory[] | null>(null);
   const [botMemoriesError, setBotMemoriesError] = useState<string | null>(null);
@@ -195,6 +126,7 @@ export function BotDetailView({
   const [skillDeleteTarget, setSkillDeleteTarget] = useState<Skill | null>(null);
   const resetNoticeHandle = useRef<number | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
+  const workspaceRefreshTimerRef = useRef<number | null>(null);
 
   const refreshBot = useCallback(async () => {
     try {
@@ -218,8 +150,13 @@ export function BotDetailView({
         setWorkspaceError("Unable to load workspace files");
         return;
       }
-      const payload = (await response.json()) as { tree?: BotWorkspaceNode };
-      setWorkspaceTree(payload.tree ?? null);
+      const payload = (await response.json()) as { tree?: BotWorkspaceNode; sharedTree?: BotWorkspaceNode };
+      if (!payload.tree || !payload.sharedTree) {
+        setWorkspaceError("Unable to load workspace files");
+        return;
+      }
+      const { tree, sharedTree } = payload;
+      setWorkspace((prev) => ({ tree, sharedTree, version: (prev?.version ?? 0) + 1 }));
       setWorkspaceError(null);
     } catch {
       setWorkspaceError("Unable to load workspace files");
@@ -282,7 +219,21 @@ export function BotDetailView({
   }, [loadMemories, loadSkills, loadWorkspace]);
 
   useEffect(() => {
-    return addGlobalWsListener((msg) => {
+    const workspaceRefreshHandle = workspaceRefreshTimerRef;
+    const scheduleWorkspaceReload = () => {
+      if (workspaceRefreshHandle.current !== null) {
+        return;
+      }
+      workspaceRefreshHandle.current = window.setTimeout(() => {
+        workspaceRefreshHandle.current = null;
+        void loadWorkspace();
+      }, 250);
+    };
+
+    const removeListener = addGlobalWsListener((msg) => {
+      if (msg.type === "bot_updated" || msg.type === "bot_run_updated") {
+        scheduleWorkspaceReload();
+      }
       if (msg.type === "bot_updated" && msg.bot.id === initialBot.id) {
         setBot(msg.bot);
         return;
@@ -301,8 +252,22 @@ export function BotDetailView({
           void loadSkills();
         }, 250);
       }
+    }, {
+      onReconnect() {
+        void refreshBot();
+        void loadSkills();
+        void loadWorkspace();
+      }
     });
-  }, [initialBot.id, loadSkills, refreshBot, router]);
+
+    return () => {
+      removeListener();
+      if (workspaceRefreshHandle.current !== null) {
+        window.clearTimeout(workspaceRefreshHandle.current);
+        workspaceRefreshHandle.current = null;
+      }
+    };
+  }, [initialBot.id, loadSkills, loadWorkspace, refreshBot, router]);
 
   async function handleEdit(values: {
     name: string;
@@ -515,7 +480,7 @@ export function BotDetailView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className={`${showPanel ? "hidden lg:flex" : "flex"} min-h-0 flex-1 flex-col`}>
+        <div className={`${showPanel ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
           <ChatView
             payload={conversationPayload}
             retainEmptyConversation
@@ -559,26 +524,22 @@ export function BotDetailView({
 
           <PanelSection title="Workspace">
             <p className="text-xs leading-5 text-[var(--muted)]">
-              This bot keeps its files in its own dedicated workspace.
+              This bot keeps its files in its own workspace. Every bot on your team can use the shared
+              folder. Open a file to preview or download it.
             </p>
             <div className="mt-3">
               {workspaceError ? (
                 <div className="text-xs text-red-200">{workspaceError}</div>
-              ) : workspaceTree === null ? (
+              ) : workspace === null ? (
                 <div className="text-xs text-[var(--muted)]">Loading files…</div>
               ) : (
-                <div className="rounded-xl border border-white/6 bg-white/[0.02] p-2">
-                  <WorkspaceTreeNode
-                    node={workspaceTree}
-                    openPaths={workspaceOpenPaths}
-                    onToggle={(path) =>
-                      setWorkspaceOpenPaths((prev) =>
-                        prev.includes(path) ? prev.filter((entry) => entry !== path) : [...prev, path]
-                      )
-                    }
-                    depth={0}
-                  />
-                </div>
+                <BotWorkspaceFiles
+                  botId={bot.id}
+                  botName={bot.name}
+                  tree={workspace.tree}
+                  sharedTree={workspace.sharedTree}
+                  version={workspace.version}
+                />
               )}
             </div>
           </PanelSection>

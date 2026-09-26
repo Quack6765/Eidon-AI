@@ -462,6 +462,10 @@ export type ToolApprovalProposalPayload = {
   resolution?: ToolApprovalResolution;
 };
 
+export type DelegationChain = {
+  messagesSent: number;
+};
+
 export type ToolApprovalContext = {
   userId: string | null;
   unattended: boolean;
@@ -527,6 +531,11 @@ export type ConversationSnapshot = {
   queuedMessages: QueuedMessage[];
 };
 
+export type ComposerDraft = {
+  content: string;
+  attachments: MessageAttachment[];
+};
+
 export type MessageAttachment = {
   id: string;
   conversationId: string;
@@ -538,6 +547,7 @@ export type MessageAttachment = {
   relativePath: string;
   kind: AttachmentKind;
   extractedText: string;
+  sourcePath?: string | null;
   createdAt: string;
 };
 

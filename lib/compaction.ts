@@ -1,3 +1,4 @@
+import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemoriesForPrompt } from "@/lib/memories";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
@@ -321,14 +322,15 @@ export function buildPromptMessages(input: {
       }
 
       const replayableActions = collectReplayableActions(message.actions);
+      const content = appendDeliveredFileLinks(message.content, message.attachments);
 
-      if (!message.content.trim() && replayableActions.length === 0) {
+      if (!content.trim() && replayableActions.length === 0) {
         return;
       }
 
       promptMessages.push({
         role: "assistant",
-        content: message.content,
+        content,
         ...(replayableActions.length
           ? { toolCalls: replayableActions.map(toProviderToolCall) }
           : {})

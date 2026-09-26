@@ -13,7 +13,7 @@ import type {
   TurnActivity
 } from "@/lib/types";
 
-export type MobileAttachmentDto = Omit<MessageAttachment, "relativePath" | "extractedText">;
+export type MobileAttachmentDto = Omit<MessageAttachment, "relativePath" | "extractedText" | "sourcePath">;
 export type MobileMessageDto = Omit<Message, "attachments"> & {
   attachments?: MobileAttachmentDto[];
 };
@@ -42,6 +42,7 @@ export type ServerMessage =
   | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
   | { type: "conversation_activity"; conversationId: string; isActive: boolean }
   | { type: "conversation_cleared"; conversationId: string }
+  | { type: "messages_deleted"; conversationId: string; messageIds: string[] }
   | { type: "conversation_title_updated"; conversationId: string; title: string }
   | { type: "bot_updated"; bot: BotSummary }
   | { type: "bot_deleted"; botId: string }

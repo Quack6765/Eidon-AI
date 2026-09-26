@@ -836,107 +836,6 @@ export function migrateBotConversationsToFollowDefaultProvider(db: Database.Data
   });
 }
 
-export function reconcileInterruptedRuntimeState(
-  db: Database.Database,
-  timestamp = new Date().toISOString()
-) {
-  const transaction = db.transaction(() => {
-    const conversations = db
-      .prepare("UPDATE conversations SET is_active = 0 WHERE is_active = 1")
-      .run().changes;
-    const messages = db
-      .prepare("UPDATE messages SET status = 'error' WHERE status = 'streaming'")
-      .run().changes;
-    const actions = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'error',
-             detail = CASE WHEN detail = '' THEN ? ELSE detail END,
-             completed_at = COALESCE(completed_at, ?)
-         WHERE status = 'running'`
-      )
-      .run("Interrupted by server restart", timestamp).changes;
-    const titles = db
-      .prepare(
-        `UPDATE conversations
-         SET title_generation_status = 'failed'
-         WHERE title_generation_status = 'running'`
-      )
-      .run().changes;
-    const queuedMessages = db
-      .prepare(
-        `UPDATE queued_messages
-         SET status = 'failed',
-             failure_message = 'Queued follow-up was interrupted by server restart',
-             processing_started_at = NULL,
-             updated_at = ?
-         WHERE status = 'processing'`
-      )
-      .run(timestamp).changes;
-    const automationRuns = db
-      .prepare(
-        `UPDATE automation_runs
-         SET status = 'failed',
-             error_message = 'Automation run was interrupted by server restart',
-             finished_at = COALESCE(finished_at, ?)
-         WHERE status = 'running'`
-      )
-      .run(timestamp).changes;
-    const botRuns = db
-      .prepare(
-        `UPDATE bot_runs
-         SET status = 'failed',
-             error_message = 'Bot run was interrupted by server restart',
-             finished_at = COALESCE(finished_at, ?)
-         WHERE status IN ('queued', 'running', 'waiting_approval')`
-      )
-      .run(timestamp).changes;
-    const delegationActions = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'error',
-             result_summary = 'The bot run was interrupted by a server restart.',
-             completed_at = COALESCE(completed_at, ?)
-         WHERE status = 'pending' AND kind IN ('message_bot', 'delegate_task')`
-      )
-      .run(timestamp).changes;
-    const toolApprovals = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'completed',
-             result_summary = 'Approval request stopped by a server restart',
-             completed_at = COALESCE(completed_at, ?),
-             proposal_state = 'dismissed',
-             proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
-             proposal_updated_at = ?
-         WHERE status = 'pending' AND kind = 'tool_approval' AND proposal_state = 'pending'`
-      )
-      .run(timestamp, timestamp).changes;
-
-    db.prepare(
-      `UPDATE automations
-       SET last_status = 'failed',
-           last_finished_at = COALESCE(last_finished_at, ?),
-           updated_at = ?
-       WHERE last_status = 'running'`
-    ).run(timestamp, timestamp);
-
-    return {
-      conversations,
-      messages,
-      actions,
-      titles,
-      queuedMessages,
-      automationRuns,
-      botRuns,
-      delegationActions,
-      toolApprovals
-    };
-  });
-
-  return transaction.immediate();
-}
-
 export function migrate(db: Database.Database) {
   const isFreshDatabase = !tableExists(db, "users");
   if (isFreshDatabase) {
@@ -1282,6 +1181,10 @@ export function migrate(db: Database.Database) {
       finished_at TEXT,
       parent_message_id TEXT,
       error_message TEXT,
+      prompt TEXT,
+      reply_conversation_id TEXT,
+      reply_action_id TEXT,
+      pending_reply TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
@@ -1807,6 +1710,15 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE queued_messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'");
   }
 
+  const botRunColNames = (db.prepare("PRAGMA table_info(bot_runs)").all() as Array<{ name: string }>).map(
+    (column) => column.name
+  );
+  for (const column of ["prompt", "reply_conversation_id", "reply_action_id", "pending_reply"]) {
+    if (!botRunColNames.includes(column)) {
+      db.exec(`ALTER TABLE bot_runs ADD COLUMN ${column} TEXT`);
+    }
+  }
+
   const existingSkills = db
     .prepare("SELECT id, name, content, description FROM skills")
     .all() as Array<{ id: string; name: string; content: string; description: string }>;
@@ -2135,6 +2047,11 @@ export function migrate(db: Database.Database) {
   const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
   if (!userMemoryCols.some((column) => column.name === "pinned")) {
     db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const attachmentCols = db.prepare("PRAGMA table_info(message_attachments)").all() as Array<{ name: string }>;
+  if (!attachmentCols.some((column) => column.name === "source_path")) {
+    db.exec("ALTER TABLE message_attachments ADD COLUMN source_path TEXT");
   }
 
   const hadSemanticChunksTable = tableExists(db, "semantic_chunks");

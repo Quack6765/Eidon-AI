@@ -72,15 +72,20 @@ describe("bots", () => {
     expect(() => deleteBot(chief.id, user.id)).toThrow(/cannot be deleted/i);
   });
 
-  it("keeps the chief when its home conversation is deleted", async () => {
-    const user = await createLocalUser({ username: "chiefconversation", password: "password-123", role: "user" as const });
+  it("keeps a bot when its home thread is deleted like a regular conversation", async () => {
+    const user = await createLocalUser({ username: "threadkeeper", password: "password-123", role: "user" as const });
     const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Keeper" }, user.id);
+    createMessage({ conversationId: worker.homeConversationId, role: "user", content: "hello" });
 
     expect(deleteConversationIfEmpty(chief.homeConversationId, user.id)).toBe(false);
     expect(deleteConversation(chief.homeConversationId, user.id)).toBe(false);
+    expect(deleteConversation(worker.homeConversationId, user.id)).toBe(false);
 
-    expect(getBot(chief.id, user.id)).not.toBeNull();
-    expect(getConversation(chief.homeConversationId, user.id)).not.toBeNull();
+    for (const bot of [chief, worker]) {
+      expect(getBot(bot.id, user.id)).not.toBeNull();
+      expect(getConversation(bot.homeConversationId, user.id)).not.toBeNull();
+    }
   });
 
   it("builds the chief prompt with the current roster", async () => {
@@ -147,6 +152,26 @@ describe("bots", () => {
     expect(curated).toContain("Only the chief of staff can create bots");
     expect(curated).toContain("update your own instructions with update_own_instructions");
     expect(curated).toContain("always tell the user what you changed");
+  });
+
+  it("tells every bot where its workspace and the shared workspace are and how to deliver files", async () => {
+    const user = await createLocalUser({ username: "botfiles", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    const { getBotWorkspaceDir, getSharedBotWorkspaceDir } = await import("@/lib/bot-sandbox");
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Analyst" }, user.id);
+
+    for (const bot of [chief, worker]) {
+      const prompt = buildBotSystemPrompt(bot);
+      expect(prompt).toContain(`Your workspace is ${getBotWorkspaceDir(bot)}`);
+      expect(prompt).toContain(`The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}`);
+      expect(prompt).toMatch(/\[report\.csv\]\(<?\S*report\.csv>?\)/);
+      expect(prompt).toContain("inside a sentence of your reply");
+      expect(prompt).toContain("edit that same file in place and link it again");
+      expect(prompt).toContain("Do not paste its absolute path into the text unless the user asks for it");
+      expect(prompt).toContain("link them again in your answer to pass them on");
+    }
+    expect(getSharedBotWorkspaceDir(chief)).toBe(getSharedBotWorkspaceDir(worker));
   });
 
   it("builds the chief prompt with a cautious creation policy requiring confirmation", async () => {

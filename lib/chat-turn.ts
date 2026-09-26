@@ -42,6 +42,7 @@ import {
 import { createEmitter } from "@/lib/emitter";
 import { nowIso } from "@/lib/utils";
 import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId, toBotSummary } from "@/lib/bots";
+import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
@@ -60,7 +61,7 @@ import {
   startTurnAction,
   touchTurnActivity
 } from "@/lib/turn-activity";
-import type { ChatResearchOptions, ChatStreamEvent, ToolApprovalContext } from "@/lib/types";
+import type { ChatResearchOptions, ChatStreamEvent, DelegationChain, ToolApprovalContext } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -90,6 +91,7 @@ export type StartChatTurn = (
     quietWhenBusy?: boolean;
     unattended?: boolean;
     providerProfileId?: string;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
@@ -300,6 +302,7 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
@@ -354,7 +357,11 @@ async function startAssistantTurn(
         estimatedTokens: 0
       });
     assistantMessageId = assistantMessage.id;
-    contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
+    contentPersistence = createAssistantContentPersistenceTracker(
+      conversationId,
+      assistantMessageId,
+      bot ? [getBotTeamWorkspacesDir(bot)] : []
+    );
 
     if (options?.userMessageId && options.onMessagesCreated) {
       options.onMessagesCreated({
@@ -468,6 +475,7 @@ async function startAssistantTurn(
       botTeam,
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
+      delegationChain: options?.delegationChain ?? { messagesSent: 0 },
       async onEvent(event: ChatStreamEvent) {
         touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
@@ -809,6 +817,7 @@ export async function startChatTurn(
     quietWhenBusy?: boolean;
     unattended?: boolean;
     providerProfileId?: string;
+    delegationChain?: DelegationChain;
     onApprovalWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
@@ -881,6 +890,7 @@ export async function startChatTurn(
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
       unattended: options?.unattended,
+      delegationChain: options?.delegationChain,
       async onApprovalWait(waiting) {
         if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
         await options?.onApprovalWait?.(waiting);

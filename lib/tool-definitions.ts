@@ -164,11 +164,11 @@ export function buildToolDefinitions(input: {
       function: {
         name: "save_skill",
         description:
-          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Use it whenever you develop a workflow or set of instructions worth reusing later.",
+          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Saving under an existing skill's exact name updates it. Use it whenever you develop a workflow or set of instructions worth reusing later.",
         parameters: {
           type: "object",
           properties: {
-            name: { type: "string", description: "Short skill name (lowercase letters, digits, and hyphens)" },
+            name: { type: "string", description: "Short skill name, e.g. \"Release Notes\". Use an existing skill's exact name to update it." },
             description: { type: "string", description: "One-line description of when the skill applies" },
             instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
           },
@@ -213,7 +213,7 @@ export function buildToolDefinitions(input: {
         type: "object",
         properties: {
           command: { type: "string", description: "The command to execute" },
-          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
+          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" }
         },
         required: ["command"]
       }

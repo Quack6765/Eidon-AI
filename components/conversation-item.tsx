@@ -28,27 +28,55 @@ import type { SidebarConversation } from "@/lib/sidebar-helpers";
 import { RenameModal } from "@/components/ui/rename-modal";
 import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 
+const DROPDOWN_WIDTH = 224;
+const DROPDOWN_GAP = 4;
+const DROPDOWN_VIEWPORT_MARGIN = 8;
+
 export function DropdownPortal({
   anchorRef,
   children,
   open,
+  side = "bottom",
+  align = "end",
 }: {
   anchorRef: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
   open: boolean;
+  side?: "top" | "bottom";
+  align?: "start" | "end";
 }) {
-  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [coords, setCoords] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const computeCoords = useCallback(() => {
     if (!anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
-    setCoords({ top: rect.bottom + 4, left: Math.max(8, rect.right - 224), width: 224 });
-  }, [anchorRef]);
+    const preferredLeft = align === "start" ? rect.left : rect.right - DROPDOWN_WIDTH;
+    const left = Math.max(
+      DROPDOWN_VIEWPORT_MARGIN,
+      Math.min(preferredLeft, window.innerWidth - DROPDOWN_WIDTH - DROPDOWN_VIEWPORT_MARGIN)
+    );
+    const contentHeight = contentRef.current?.offsetHeight ?? 0;
+    const fitsAbove = rect.top - DROPDOWN_GAP - contentHeight >= DROPDOWN_VIEWPORT_MARGIN;
+    setCoords(
+      side === "top" && fitsAbove
+        ? { bottom: window.innerHeight - rect.top + DROPDOWN_GAP, left }
+        : { top: rect.bottom + DROPDOWN_GAP, left }
+    );
+  }, [align, anchorRef, side]);
 
   React.useLayoutEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setCoords(null);
+      return;
+    }
     computeCoords();
   }, [computeCoords, open]);
+
+  const hasCoords = coords !== null;
+  React.useLayoutEffect(() => {
+    if (open && hasCoords && side === "top") computeCoords();
+  }, [computeCoords, hasCoords, open, side]);
 
   useEffect(() => {
     if (!open) return;
@@ -59,7 +87,10 @@ export function DropdownPortal({
   if (!open || !coords || typeof document === "undefined") return null;
 
   return createPortal(
-    <div style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width, zIndex: 9999 }}>
+    <div
+      ref={contentRef}
+      style={{ position: "fixed", top: coords.top, bottom: coords.bottom, left: coords.left, width: DROPDOWN_WIDTH, zIndex: 9999 }}
+    >
       {children}
     </div>,
     document.body
