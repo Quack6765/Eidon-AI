@@ -66,6 +66,11 @@ describe("secret and saved-login routes", () => {
     expect(response.status).toBe(200);
     expect(body.action.resultSummary).toBe("You declined");
     expect(body.action.proposalPayload.resolution).toBe("declined");
+
+    const stranger = await createLocalUser({ username: "secret-route-stranger", password: "Password123!", role: "user" });
+    const other = await pendingSecretRequest("secret-route-victim");
+    requireUserMock.mockResolvedValue(stranger);
+    expect((await dismiss(post({}), actionContext(other.action.id))).status).toBe(404);
   });
 
   it("lists saved logins without values and deletes only the user's own", async () => {

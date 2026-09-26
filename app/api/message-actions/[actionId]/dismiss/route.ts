@@ -7,7 +7,7 @@ import { dismissMemoryProposal } from "@/lib/memory-proposals";
 import { dismissAutomationProposal } from "@/lib/automation-proposals";
 import { dismissToolApproval } from "@/lib/tool-approvals";
 import { discardMessageDraft } from "@/lib/message-drafts";
-import { declineComputerSecret } from "@/lib/computer-secrets";
+import { declineComputerSecret, SecretRequestError } from "@/lib/computer-secrets";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -46,6 +46,7 @@ export async function POST(
     const action = dismissMemoryProposal(params.actionId, user.id);
     return ok({ action });
   } catch (error) {
+    if (error instanceof SecretRequestError) return badRequest(error.message, error.status);
     return badRequest(error instanceof Error ? error.message : "Unable to dismiss proposal");
   }
 }
