@@ -171,7 +171,8 @@ export type Bot = {
   systemPrompt: string;
   isChief: boolean;
   homeConversationId: string;
-  pendingInputSeenAt: string | null;
+  lastReadAt: string | null;
+  lastResultAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -185,6 +186,7 @@ export type BotRun = {
   startedAt: string | null;
   finishedAt: string | null;
   parentMessageId: string | null;
+  requestedByBotId: string | null;
   errorMessage: string | null;
   createdAt: string;
 };
@@ -216,6 +218,7 @@ export type BotSummary = {
   providerProfileId: string | null;
   status: BotStatus;
   waitingForInput: boolean;
+  unread: boolean;
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;

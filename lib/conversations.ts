@@ -60,7 +60,8 @@ export {
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
   reorderQueuedMessages,
-  claimNextQueuedMessageForDispatch
+  claimNextQueuedMessageForDispatch,
+  claimQueuedRedirectMessage
 } from "@/lib/conversation-queued-messages";
 import { listQueuedMessages } from "@/lib/conversation-queued-messages";
 

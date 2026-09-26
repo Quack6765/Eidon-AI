@@ -405,6 +405,7 @@ export async function resolveAssistantTurn(input: {
   };
   botWorkspaceSkillsEnabled?: boolean;
   research?: import("@/lib/types").ChatResearchOptions;
+  takeRedirect?: () => Promise<{ content: string; assistantMessageId: string } | null>;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const baseSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
@@ -554,8 +555,24 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
+  const applyRedirect = async (answeredMessage?: PromptMessage) => {
+    const redirect = await input.takeRedirect?.();
+    if (!redirect) return false;
+    toolRuntimeInput.assistantMessageId = redirect.assistantMessageId;
+    promptMessages = [
+      ...promptMessages,
+      ...(answeredMessage ? [answeredMessage] : []),
+      { role: "user", content: redirect.content }
+    ];
+    return true;
+  };
+
   for (let step = 0; step < maxSteps; step += 1) {
     assertRunning();
+
+    if (step > 0 && (await applyRedirect())) {
+      step = 0;
+    }
 
     if (researchCollapseThreshold !== null && estimatePromptTokens(promptMessages) > researchCollapseThreshold) {
       promptMessages = collapseOlderToolResults(promptMessages);
@@ -620,7 +637,7 @@ export async function resolveAssistantTurn(input: {
           visionProfile: input.visionProfile,
           appSettings: input.appSettings,
           conversationId: input.conversationId,
-          assistantMessageId: input.assistantMessageId,
+          assistantMessageId: toolRuntimeInput.assistantMessageId,
           promptMessages,
           mcpToolSets: input.mcpToolSets,
           skills: turnSkills,
@@ -714,6 +731,18 @@ export async function resolveAssistantTurn(input: {
         throw new Error("Provider returned an empty response");
       }
       await commitAnswerSegment(answer);
+      if (
+        await applyRedirect({
+          role: "assistant",
+          content: answer,
+          reasoningContent: thinking || undefined,
+          reasoningSignature,
+          responseItems
+        })
+      ) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
 
@@ -848,6 +877,10 @@ export async function resolveAssistantTurn(input: {
     }
 
     if (isProposalFinalStep) {
+      if (await applyRedirect()) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
   }

@@ -246,6 +246,55 @@ ${JSON.stringify({
     expect(result.answer).toBe("Done");
   });
 
+  it("delivers a redirect at the next step boundary and after a final answer, resetting the tool budget", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+          usage: {}
+        })
+      )
+      .mockReturnValueOnce(createProviderStream([], { answer: "Notes for Canada.", thinking: "", usage: {} }))
+      .mockReturnValueOnce(createProviderStream([], { answer: "Shorter notes.", thinking: "", usage: {} }));
+
+    const redirects = [
+      { content: "Make it about Canada", assistantMessageId: "msg_second" },
+      { content: "Shorter please", assistantMessageId: "msg_third" }
+    ];
+    const takeRedirect = vi.fn(async () => redirects.shift() ?? null);
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Write release notes" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      assistantMessageId: "msg_first",
+      appSettings: createAppSettings({ maxAssistantToolSteps: 2 }),
+      takeRedirect,
+      onActionStart: () => "act_skill"
+    });
+
+    expect(result.answer).toBe("Shorter notes.");
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
+    const secondCall = streamProviderResponse.mock.calls[1][0] as {
+      promptMessages: PromptMessage[];
+      runtimeToolContext: { assistantMessageId?: string };
+    };
+    expect(secondCall.promptMessages.filter((message) => message.role === "user").map((message) => message.content)).toContain(
+      "Make it about Canada"
+    );
+    expect(secondCall.runtimeToolContext.assistantMessageId).toBe("msg_second");
+    const thirdCall = streamProviderResponse.mock.calls[2][0] as { promptMessages: PromptMessage[] };
+    const answeredIndex = thirdCall.promptMessages.findIndex(
+      (message) => message.role === "assistant" && message.content === "Notes for Canada."
+    );
+    expect(answeredIndex).toBeGreaterThan(0);
+    expect(thirdCall.promptMessages[answeredIndex + 1]).toEqual({ role: "user", content: "Shorter please" });
+  });
+
   it("reports the final provider call's usage, not the sum across tool steps", async () => {
     streamProviderResponse
       .mockReturnValueOnce(

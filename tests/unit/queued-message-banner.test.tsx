@@ -105,6 +105,22 @@ describe("queued message banner", () => {
     expect(onSendNow).toHaveBeenCalledWith("queue_send_now");
   });
 
+  it("marks redirecting items as joining the run and hides their Send now action", () => {
+    render(
+      <QueuedMessageBanner
+        items={[createQueuedMessage({ id: "queue_redirect" }), createQueuedMessage({ id: "queue_later", sortOrder: 1 })]}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onSendNow={vi.fn()}
+        redirectingIds={new Set(["queue_redirect"])}
+      />
+    );
+
+    expect(screen.getByText("Joins the current run at its next step")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Send now" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(2);
+  });
+
   it("supports inline editing for pending items", () => {
     const onEdit = vi.fn();
 

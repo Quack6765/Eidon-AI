@@ -137,6 +137,10 @@ describe("ChatComposer responsive controls", () => {
     rerenderComposer({ queueingEnabled: true });
 
     expect(screen.getByPlaceholderText("Queue a message")).toBeInTheDocument();
+
+    rerenderComposer({ queueingEnabled: true, redirectsWhileBusy: true });
+
+    expect(screen.getByPlaceholderText("Redirect the current run")).toBeInTheDocument();
   });
 
   it("keeps the text entry surface visually distinct from the composer shell", () => {
