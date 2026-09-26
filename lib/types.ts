@@ -513,6 +513,11 @@ export type ConversationSnapshot = {
   queuedMessages: QueuedMessage[];
 };
 
+export type ComposerDraft = {
+  content: string;
+  attachments: MessageAttachment[];
+};
+
 export type MessageAttachment = {
   id: string;
   conversationId: string;

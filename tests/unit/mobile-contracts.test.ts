@@ -170,6 +170,8 @@ describe("Mobile API v1 contracts", () => {
       "/bots/{botId}/workspace/file",
       "/avatars/{seed}",
       "/messages/{messageId}/edit-restart",
+      "/messages/{messageId}/fork",
+      "/messages/{messageId}/rewind",
       "/message-actions/{actionId}/approve",
       "/settings/providers",
       "/settings/general",
@@ -321,7 +323,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(122);
+    expect(compileOpenApiJsonResponses()).toBe(123);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -371,6 +373,17 @@ describe("Mobile API v1 contracts", () => {
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
     expect(serverMessages).toContain("conversation_cleared");
+    expect(serverMessages).toContain("messages_deleted");
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "messages_deleted",
+      conversationId: "conv_1",
+      messageIds: ["msg_1", "msg_2"]
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "messages_deleted",
+      conversationId: "conv_1",
+      messageIds: []
+    })).toThrow(/ServerMessage failed contract validation/);
     expect(serverMessages).toContain("bot_updated");
     expect(serverMessages).toContain("bot_deleted");
     expect(serverMessages).toContain("bot_run_updated");
