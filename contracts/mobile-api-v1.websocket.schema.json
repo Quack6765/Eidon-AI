@@ -268,7 +268,7 @@
     "BotSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "providerProfileId", "status", "waitingForInput", "lastRunAt", "createdAt", "updatedAt"],
+      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "providerProfileId", "status", "waitingForInput", "unread", "lastRunAt", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "name": { "type": "string" },
@@ -280,6 +280,7 @@
         "providerProfileId": { "oneOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "status": { "type": "string", "enum": ["idle", "queued", "running", "waiting_approval"] },
         "waitingForInput": { "type": "boolean" },
+        "unread": { "type": "boolean" },
         "lastRunAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "createdAt": { "$ref": "#/$defs/Timestamp" },
         "updatedAt": { "$ref": "#/$defs/Timestamp" }
@@ -289,7 +290,7 @@
     "BotRun": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "botId", "conversationId", "triggerSource", "status", "startedAt", "finishedAt", "parentMessageId", "errorMessage", "createdAt"],
+      "required": ["id", "botId", "conversationId", "triggerSource", "status", "startedAt", "finishedAt", "parentMessageId", "requestedByBotId", "errorMessage", "createdAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "botId": { "$ref": "#/$defs/OpaqueId" },
@@ -299,6 +300,7 @@
         "startedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "finishedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "parentMessageId": { "type": ["string", "null"] },
+        "requestedByBotId": { "type": ["string", "null"] },
         "errorMessage": { "type": ["string", "null"] },
         "createdAt": { "$ref": "#/$defs/Timestamp" }
       }

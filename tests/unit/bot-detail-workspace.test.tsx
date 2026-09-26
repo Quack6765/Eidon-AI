@@ -7,15 +7,13 @@ import { BotDetailView } from "@/components/agents/bot-detail-view";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
 import type { BotSummary } from "@/lib/types";
 
-const routerMocks = vi.hoisted(() => ({
-  push: vi.fn()
-}));
+const routerMocks = vi.hoisted(() => {
+  const push = vi.fn();
+  return { push, router: { push, refresh: vi.fn() } };
+});
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: routerMocks.push,
-    refresh: vi.fn()
-  })
+  useRouter: () => routerMocks.router
 }));
 
 vi.mock("next/link", () => ({
@@ -65,6 +63,7 @@ const bot: BotSummary = {
   providerProfileId: null,
   status: "idle",
   waitingForInput: false,
+  unread: false,
   lastRunAt: null,
   createdAt: "2026-04-10T12:00:00.000Z",
   updatedAt: "2026-04-10T12:00:00.000Z"
@@ -126,7 +125,9 @@ function renderWithWorkspace() {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
 
@@ -191,7 +192,9 @@ describe("bot detail workspace files", () => {
         bot,
         systemPrompt: "You are a research bot.",
         conversationPayload: {} as ConversationViewPayload,
-        routines: []
+        routines: [],
+        runs: [],
+        botNames: {}
       })
     );
     const toggle = screen.getAllByRole("button").find((button) => button.textContent?.includes("Details"));
@@ -252,7 +255,9 @@ describe("bot detail workspace files", () => {
         bot,
         systemPrompt: "You are a research bot.",
         conversationPayload: {} as ConversationViewPayload,
-        routines: []
+        routines: [],
+        runs: [],
+        botNames: {}
       })
     );
     const toggle = screen.getAllByRole("button").find((button) => button.textContent?.includes("Details"));

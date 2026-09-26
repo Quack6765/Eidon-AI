@@ -35,9 +35,7 @@ export async function GET(
     return badRequest("Bot not found", 404);
   }
 
-  const runs = listRecentBotRuns({ userId: user.id, limit: 20 }).filter(
-    (run) => run.botId === bot.id
-  );
+  const runs = listRecentBotRuns({ userId: user.id, botId: bot.id, limit: 30 });
 
   return ok({ bot: toBotSummary(bot), runs });
 }

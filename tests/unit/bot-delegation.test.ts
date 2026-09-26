@@ -13,7 +13,14 @@ import { buildBotSystemPrompt, createBot, ensureChiefBot, getBot, listBots, MAX_
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createMessage } from "@/lib/conversations";
-import { getBotRun, getBotRunDelegation, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
+import {
+  getBotRun,
+  getBotRunDelegation,
+  listRecentBotRuns,
+  stopBotRun,
+  stopConversationWork,
+  updateBotRunStatus
+} from "@/lib/bot-runs";
 import { configureBotRunLimits, enqueueSerialTask, releaseBotUserSlot, resetBotRunLimiter, tryAcquireBotUserSlot } from "@/lib/bot-run-limiter";
 import { claimChatTurnStart, hasActiveChatTurn, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import {
@@ -902,6 +909,77 @@ describe("bot-delegation", () => {
       startChatTurnMock.mock.calls.filter(
         ([, conversationId]) => conversationId === worker.homeConversationId
       )
+    ).toHaveLength(0);
+  });
+
+  it("does not wake the sender when the user stops a queued hand-off", async () => {
+    const user = await createLocalUser({ username: "userstopqueued", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    void enqueueSerialTask(worker.id, () => blocker);
+    startChatTurnMock.mockImplementation(async () => ({ status: "completed" as const }));
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_user_stop", { bot: "researcher", message: "find sources" }, context);
+    const queuedRun = listRecentBotRuns({ userId: user.id, botId: worker.id })[0];
+
+    expect(stopBotRun(queuedRun.id)?.status).toBe("stopped");
+    releaseBlocker();
+    await enqueueSerialTask(worker.id, async () => {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(getBotRun(queuedRun.id)?.status).toBe("stopped");
+    expect(startChatTurnMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the sender's thread", "chief"],
+    ["the worker's own thread", "worker"]
+  ] as const)("stops a running hand-off when %s is stopped, without waking the sender", async (_label, stoppedThread) => {
+    const user = await createLocalUser({ username: `cascade${stoppedThread}`, password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+    const handoff = createMessage({ conversationId: chief.homeConversationId, role: "assistant", content: "" });
+    const observed: { runId?: string; aborted?: boolean } = {};
+
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _personaId: string | undefined,
+        options: { botRun?: { runId?: string }; onMessagesCreated?: (ids: { userMessageId: string; assistantMessageId: string }) => void }
+      ) => {
+        const claimed = claimChatTurnStart(conversationId);
+        if (!claimed.ok) return { status: "failed" as const, errorMessage: "Conversation already has an active assistant turn" };
+        claimed.control.botRunId = options.botRun?.runId ?? null;
+        observed.runId = options.botRun?.runId;
+        options.onMessagesCreated?.({ userMessageId: "msg_task", assistantMessageId: "msg_reply" });
+        await new Promise<void>((resolve) => claimed.control.abortController.signal.addEventListener("abort", () => resolve()));
+        observed.aborted = true;
+        releaseChatTurnStart(conversationId, claimed.control);
+        return { status: "stopped" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id, handoff.id, chief.homeConversationId);
+    await executeMessageBot("call_cascade", { bot: "researcher", message: "dig deeper" }, context);
+    await vi.waitFor(() => expect(hasActiveChatTurn(worker.homeConversationId)).toBe(true));
+
+    stopConversationWork(stoppedThread === "chief" ? chief.homeConversationId : worker.homeConversationId);
+
+    await vi.waitFor(() => expect(observed.aborted).toBe(true));
+    await vi.waitFor(() => expect(hasActiveChatTurn(worker.homeConversationId)).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getBotRun(observed.runId!)?.status).toBe("stopped");
+    expect(
+      startChatTurnMock.mock.calls.filter(([, conversationId]) => conversationId === chief.homeConversationId)
     ).toHaveLength(0);
   });
 

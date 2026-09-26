@@ -12,10 +12,12 @@ import * as botApprovalsRoute from "@/app/api/bots/approvals/route";
 import * as botRoute from "@/app/api/bots/[botId]/route";
 import * as botClearContextRoute from "@/app/api/bots/[botId]/clear-context/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
+import * as botReadRoute from "@/app/api/bots/[botId]/read/route";
 import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-session/route";
-import * as botSeenInputRoute from "@/app/api/bots/[botId]/seen-input/route";
+import * as botRunStopRoute from "@/app/api/bots/[botId]/runs/[runId]/stop/route";
 import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
 import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
+import * as botStopRoute from "@/app/api/bots/[botId]/stop/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
 import * as botWorkspaceFileRoute from "@/app/api/bots/[botId]/workspace/file/route";
 import * as botsRoute from "@/app/api/bots/route";
@@ -67,15 +69,14 @@ import {
   runWithMobileUser
 } from "@/lib/auth";
 import {
-  createQueuedMessage,
   deleteQueuedMessage,
   getConversationSnapshot,
   listQueuedMessages,
-  moveQueuedMessageToFront,
   reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
-import { requestStop } from "@/lib/chat-turn-control";
+import { stopConversationWork } from "@/lib/bot-runs";
+import { queueFollowUpMessage, sendQueuedMessageNow } from "@/lib/queued-chat-dispatcher";
 import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
 import { MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
 import {
@@ -104,10 +105,12 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["bots", "approvals"], module: botApprovalsRoute },
   { pattern: ["bots", ":botId", "clear-context"], module: botClearContextRoute },
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
+  { pattern: ["bots", ":botId", "read"], module: botReadRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
-  { pattern: ["bots", ":botId", "seen-input"], module: botSeenInputRoute },
+  { pattern: ["bots", ":botId", "runs", ":runId", "stop"], module: botRunStopRoute },
   { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
   { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
+  { pattern: ["bots", ":botId", "stop"], module: botStopRoute },
   { pattern: ["bots", ":botId", "workspace", "file"], module: botWorkspaceFileRoute },
   { pattern: ["bots", ":botId", "workspace"], module: botWorkspaceRoute },
   { pattern: ["bots", ":botId"], module: botRoute },
@@ -204,7 +207,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
   }
 
   if (path.length === 3 && path[2] === "stop" && request.method === "POST") {
-    requestStop(conversationId);
+    stopConversationWork(conversationId);
     return Response.json({ success: true });
   }
 
@@ -224,7 +227,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
       ) {
         return Response.json({ error: "Invalid queued message payload" }, { status: 400 });
       }
-      const queuedMessage = createQueuedMessage({
+      const queuedMessage = queueFollowUpMessage({
         conversationId,
         content: body.content,
         mode: body.mode
@@ -278,10 +281,9 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
     path[4] === "send-now" &&
     request.method === "POST"
   ) {
-    if (!moveQueuedMessageToFront({ conversationId, queuedMessageId })) {
+    if (!sendQueuedMessageNow({ conversationId, queuedMessageId })) {
       return Response.json({ error: "Queued message not found" }, { status: 404 });
     }
-    requestStop(conversationId);
     broadcastQueue(conversationId);
     return Response.json({ success: true });
   }

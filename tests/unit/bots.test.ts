@@ -370,8 +370,8 @@ describe("bot pending input summary", () => {
     });
   }
 
-  it("flags waitingForInput while a proposal is pending, clears it once seen, and re-lights for newer input", async () => {
-    const { markBotPendingInputSeen } = await import("@/lib/bots");
+  it("keeps waitingForInput on while a proposal is pending, even after the bot is read", async () => {
+    const { markBotRead } = await import("@/lib/bots");
     const user = await createLocalUser({ username: "botpending", password: "password-123", role: "user" as const });
     const bot = createBot({ name: "Pending Bot" }, user.id);
 
@@ -380,16 +380,30 @@ describe("bot pending input summary", () => {
     await createPendingProposal(bot.id, bot.homeConversationId, "Likes tea");
     expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
 
-    await sleep(5);
-    const seen = markBotPendingInputSeen(bot.id, user.id);
-    expect(seen?.pendingInputSeenAt).toBeTruthy();
-    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
-
-    await sleep(5);
-    await createPendingProposal(bot.id, bot.homeConversationId, "Also likes biscuits");
+    const read = markBotRead(bot.id, user.id);
+    expect(read?.lastReadAt).toBeTruthy();
     expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
 
-    expect(markBotPendingInputSeen("bot-missing", user.id)).toBeNull();
+    expect(markBotRead("bot-missing", user.id)).toBeNull();
+  });
+
+  it("flags a new result as unread until the bot is read, and re-lights for a later result", async () => {
+    const { markBotRead, recordBotResult } = await import("@/lib/bots");
+    const user = await createLocalUser({ username: "botunread", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Unread Bot" }, user.id);
+
+    expect(toBotSummary(bot).unread).toBe(false);
+
+    recordBotResult(bot.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(true);
+
+    await sleep(5);
+    markBotRead(bot.id, user.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(false);
+
+    await sleep(5);
+    recordBotResult(bot.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(true);
   });
 
   it("clears waitingForInput when the pending proposal is resolved", async () => {

@@ -15,10 +15,12 @@ import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   broadcastBotRunUpdate,
   broadcastBotUpsert,
+  consumeUserStoppedBotRun,
   createBotRunRecord,
   getBotRun,
   getBotRunDelegation,
   getLatestBotRun,
+  isBotRunStopped,
   listBotRunIdsWithPendingReply,
   listResumableDelegatedBotRunIds,
   setBotRunAwaitingApproval,
@@ -29,6 +31,7 @@ import {
 import { getDb } from "@/lib/db";
 import { buildRestartResumeNotice } from "@/lib/interrupted-work";
 import { createPausableTimeout } from "@/lib/pausable-timeout";
+import { formatDurationSeconds } from "@/lib/utils";
 import {
   DELEGATED_TURN_STALL_STOP_MS,
   consumeStallStop,
@@ -136,6 +139,8 @@ async function startTurnWhenIdle(input: {
   busyErrorMessage: string;
   unattended?: boolean;
   recordBotRun?: boolean;
+  botRunId?: string;
+  isCancelled?: () => boolean;
   personaId?: string;
   providerProfileId?: string;
   research?: ChatResearchOptions;
@@ -149,8 +154,11 @@ async function startTurnWhenIdle(input: {
   const deadline = Date.now() + input.maxWaitMs;
 
   while (true) {
+    if (input.isCancelled?.()) {
+      return { status: "stopped" };
+    }
     const result = await startChatTurn(manager, input.conversationId, input.content, [], input.personaId, {
-      botRun: input.recordBotRun ? undefined : { record: false },
+      botRun: input.recordBotRun ? undefined : { record: false, runId: input.botRunId },
       quietWhenBusy: true,
       unattended: input.unattended,
       providerProfileId: input.providerProfileId,
@@ -239,11 +247,14 @@ export function runBotTurn(input: {
         research: input.research,
         startChatTurn: input.startChatTurn,
         delegationChain: input.delegationChain,
+        botRunId: runId,
+        isCancelled: () => isBotRunStopped(runId),
         onTurnStarted: (payload) => {
           turnStarted = true;
           setTurnStallStop(bot.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
           timer.resume();
           input.onMessagesCreated?.(payload);
+          if (isBotRunStopped(runId)) requestStop(bot.homeConversationId);
         },
         onApprovalWait: async (waiting) => {
           setBotRunAwaitingApproval(runId, waiting);
@@ -453,6 +464,7 @@ async function runDelegation(runId: string, delegationChain?: DelegationChain) {
           errorMessage: error instanceof Error ? error.message : "Message delivery failed"
         })
       );
+  if (consumeUserStoppedBotRun(runId)) return;
 
   settleDelegationRun({ runId, target, delegation, outcome });
   await deliverPendingReply(runId, delegationChain);
@@ -575,11 +587,7 @@ export async function executeMessageBot(
 const CHECK_BOT_OUTPUT_CHARS = 1_500;
 
 function formatElapsed(fromIso: string, toMs = Date.now()) {
-  const seconds = Math.max(0, Math.round((toMs - Date.parse(fromIso)) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return formatDurationSeconds((toMs - Date.parse(fromIso)) / 1000);
 }
 
 function getLatestOutputSnippet(conversationId: string) {

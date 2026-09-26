@@ -12,7 +12,7 @@ import {
   renameConversation,
   updateConversationProviderProfile
 } from "@/lib/conversations";
-import { claimChatTurnStart, releaseChatTurnStart, requestStop } from "@/lib/chat-turn-control";
+import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
@@ -43,12 +43,13 @@ type BotRow = {
   system_prompt: string;
   is_chief: number;
   home_conversation_id: string;
-  pending_input_seen_at: string | null;
+  last_read_at: string | null;
+  last_result_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, pending_input_seen_at, created_at, updated_at`;
+const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, last_read_at, last_result_at, created_at, updated_at`;
 
 function rowToBot(row: BotRow): Bot {
   return {
@@ -61,7 +62,8 @@ function rowToBot(row: BotRow): Bot {
     systemPrompt: row.system_prompt,
     isChief: row.is_chief === 1,
     homeConversationId: row.home_conversation_id,
-    pendingInputSeenAt: row.pending_input_seen_at,
+    lastReadAt: row.last_read_at,
+    lastResultAt: row.last_result_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -257,7 +259,8 @@ function insertBot(input: {
     systemPrompt: input.systemPrompt,
     isChief: input.isChief,
     homeConversationId: input.homeConversationId,
-    pendingInputSeenAt: null,
+    lastReadAt: null,
+    lastResultAt: null,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -455,19 +458,6 @@ function delay(ms: number) {
   });
 }
 
-async function stopQueuedBotRuns(bot: Bot) {
-  const rows = getDb()
-    .prepare("SELECT id FROM bot_runs WHERE bot_id = ? AND status = 'queued'")
-    .all(bot.id) as Array<{ id: string }>;
-  if (!rows.length) return;
-
-  const { broadcastBotRunUpdate, updateBotRunStatus } = await import("@/lib/bot-runs");
-  for (const row of rows) {
-    const run = updateBotRunStatus(row.id, { status: "stopped", finishedAt: nowIso() });
-    if (run) broadcastBotRunUpdate(run);
-  }
-}
-
 async function claimTurnForClear(conversationId: string) {
   const deadline = Date.now() + CLEAR_CONTEXT_WAIT_TIMEOUT_MS;
   for (;;) {
@@ -482,8 +472,7 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
   const bot = getBot(botId, userId);
   if (!bot) throw new Error("Bot not found");
 
-  await stopQueuedBotRuns(bot);
-
+  const { stopBotWork } = await import("@/lib/bot-runs");
   const manager = getConversationManager();
   getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(bot.homeConversationId);
   manager.broadcast(bot.homeConversationId, {
@@ -492,7 +481,7 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
     queuedMessages: []
   });
 
-  requestStop(bot.homeConversationId);
+  stopBotWork(bot);
 
   const control = await claimTurnForClear(bot.homeConversationId);
   if (!control) {
@@ -548,32 +537,24 @@ export function getBotLastRunAt(botId: string): string | null {
   return row?.last_at ?? null;
 }
 
-export function getBotPendingInputAt(bot: Bot): string | null {
-  const row = getDb()
-    .prepare(
-      `SELECT MAX(COALESCE(ma.proposal_updated_at, ma.started_at)) AS pending_at
-       FROM message_actions ma
-       INNER JOIN messages m ON m.id = ma.message_id
-       WHERE m.conversation_id = ? AND ma.status = 'pending' AND ma.proposal_state = 'pending'`
-    )
-    .get(bot.homeConversationId) as { pending_at: string | null } | undefined;
-  return row?.pending_at ?? null;
-}
+const PENDING_INPUT_CONDITION = "ma.status = 'pending' AND ma.proposal_state = 'pending'";
+const PENDING_TOOL_APPROVAL_CONDITION = `ma.kind = 'tool_approval' AND ${PENDING_INPUT_CONDITION}`;
 
-const PENDING_TOOL_APPROVAL_CONDITION =
-  "ma.kind = 'tool_approval' AND ma.status = 'pending' AND ma.proposal_state = 'pending'";
-
-function hasPendingToolApproval(bot: Bot) {
+function hasPendingAction(bot: Bot, condition: string) {
   return Boolean(
     getDb()
       .prepare(
         `SELECT 1 FROM message_actions ma
          INNER JOIN messages m ON m.id = ma.message_id
-         WHERE m.conversation_id = ? AND ${PENDING_TOOL_APPROVAL_CONDITION}
+         WHERE m.conversation_id = ? AND ${condition}
          LIMIT 1`
       )
       .get(bot.homeConversationId)
   );
+}
+
+function hasPendingToolApproval(bot: Bot) {
+  return hasPendingAction(bot, PENDING_TOOL_APPROVAL_CONDITION);
 }
 
 export function listPendingBotApprovals(input: { userId?: string; botId?: string } = {}): PendingBotApproval[] {
@@ -614,17 +595,18 @@ export function listPendingBotApprovals(input: { userId?: string; botId?: string
   });
 }
 
-export function markBotPendingInputSeen(botId: string, userId?: string): Bot | null {
+export function markBotRead(botId: string, userId?: string): Bot | null {
   const current = getBot(botId, userId);
   if (!current) return null;
-  getDb()
-    .prepare("UPDATE bots SET pending_input_seen_at = ? WHERE id = ?")
-    .run(nowIso(), botId);
+  getDb().prepare("UPDATE bots SET last_read_at = ? WHERE id = ?").run(nowIso(), botId);
   return getBot(botId, userId);
 }
 
+export function recordBotResult(botId: string) {
+  getDb().prepare("UPDATE bots SET last_result_at = ? WHERE id = ?").run(nowIso(), botId);
+}
+
 export function toBotSummary(bot: Bot): BotSummary {
-  const pendingInputAt = getBotPendingInputAt(bot);
   return {
     providerProfileId: getConversation(bot.homeConversationId)?.providerProfileId ?? null,
     id: bot.id,
@@ -635,10 +617,8 @@ export function toBotSummary(bot: Bot): BotSummary {
     isChief: bot.isChief,
     homeConversationId: bot.homeConversationId,
     status: getBotStatus(bot),
-    waitingForInput:
-      hasPendingToolApproval(bot) ||
-      (pendingInputAt !== null &&
-        (bot.pendingInputSeenAt === null || pendingInputAt > bot.pendingInputSeenAt)),
+    waitingForInput: hasPendingAction(bot, PENDING_INPUT_CONDITION),
+    unread: bot.lastResultAt !== null && (bot.lastReadAt === null || bot.lastResultAt > bot.lastReadAt),
     lastRunAt: getBotLastRunAt(bot.id),
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt
