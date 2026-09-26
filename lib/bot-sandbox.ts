@@ -8,6 +8,8 @@ import type { AttachmentKind, Bot } from "@/lib/types";
 export type BotSandbox = {
   botId: string;
   workspaceDir: string;
+  sharedDir: string;
+  homeDir: string;
   cwd: string;
 };
 
@@ -26,6 +28,11 @@ export function getSharedBotWorkspaceDir(bot: Pick<Bot, "userId">) {
   return join(getBotTeamWorkspacesDir(bot), "shared");
 }
 
+export function getBotHomeDir(bot: Pick<Bot, "id" | "userId">) {
+  const ownerSegment = bot.userId ? toPosixSegment(bot.userId, "bot") : "shared";
+  return join(env.EIDON_DATA_DIR, "bot-homes", ownerSegment, toPosixSegment(bot.id, "bot"));
+}
+
 function getBotWorkspaceScopeDir(bot: Pick<Bot, "id" | "userId">, scope: BotWorkspaceScope) {
   return scope === "shared" ? getSharedBotWorkspaceDir(bot) : getBotWorkspaceDir(bot);
 }
@@ -38,17 +45,23 @@ export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
 
 export function removeBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
   rmSync(getBotWorkspaceDir(bot), { recursive: true, force: true });
+  rmSync(getBotHomeDir(bot), { recursive: true, force: true });
 }
 
 export function resolveBotSandbox(bot: Pick<Bot, "id" | "userId">): BotSandbox {
   const workspaceDir = getBotWorkspaceDir(bot);
+  const sharedDir = getSharedBotWorkspaceDir(bot);
+  const homeDir = getBotHomeDir(bot);
 
   mkdirSync(workspaceDir, { recursive: true });
-  mkdirSync(getSharedBotWorkspaceDir(bot), { recursive: true });
+  mkdirSync(sharedDir, { recursive: true });
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
 
   return {
     botId: bot.id,
     workspaceDir,
+    sharedDir,
+    homeDir,
     cwd: workspaceDir
   };
 }

@@ -60,19 +60,25 @@ class FakeProcess extends EventEmitter {
 }
 
 const browserByUrl = new Map<string, FakeProcess>();
+const sandboxed: Array<{ command: string; rules: string[]; env: Record<string, string>; cwd?: string }> = [];
 const browsers: Array<{ child: FakeProcess; args: string[]; port: number }> = [];
 const agentBrowserCalls: Array<{ args: string[]; env: Record<string, string> }> = [];
 let nextPort = 41_000;
 let agentBrowserFailure: string | null = null;
 
-function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string> }) {
+function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string>; cwd?: string }): FakeProcess {
+  if (command === "python3") {
+    const split = args.indexOf("--");
+    sandboxed.push({ command: args[split + 1], rules: args.slice(1, split), env: options.env ?? {}, cwd: options.cwd });
+    return fakeSpawn(args[split + 1], args.slice(split + 2), options);
+  }
   const child = new FakeProcess();
   if (command === "agent-browser") {
     agentBrowserCalls.push({ args, env: options.env ?? {} });
     const failure = agentBrowserFailure && args[0] === "open" ? agentBrowserFailure : null;
     const socketDir = options.env?.AGENT_BROWSER_SOCKET_DIR;
     if (!failure && socketDir && args[0] === "open") {
-      writeFileSync(join(socketDir, "tab.pid"), "999999");
+      writeFileSync(join(socketDir, "tab.pid"), String(process.pid));
       if (!existsSync(join(socketDir, "tab.target"))) {
         writeFileSync(join(socketDir, "tab.target"), JSON.stringify({ targetId: `T-${agentBrowserCalls.length}`, pinned: true }));
       }
@@ -116,6 +122,7 @@ describe("agent computer browser host", () => {
     spawnSyncMock.mockReturnValue({ status: 1, stdout: "" });
     browsers.length = 0;
     agentBrowserCalls.length = 0;
+    sandboxed.length = 0;
     sockets.length = 0;
     browserByUrl.clear();
     agentBrowserFailure = null;
@@ -194,14 +201,18 @@ describe("agent computer browser host", () => {
     expect(browsers[1].args.join(" ")).toContain(join("agent-computer", "user_bob", "profile"));
   });
 
-  it("keeps regular-chat socket paths short however long the user id is", async () => {
-    const { userBrowserTarget } = await loadModule();
+  it("keeps socket paths short and impossible to guess from a bot or user id", async () => {
+    const { botBrowserTarget, userBrowserTarget } = await loadModule();
     const short = userBrowserTarget("u1");
     const long = userBrowserTarget("user_432c1a69-311f-4e66-b18e-22abc05960f3");
+    const bot = botBrowserTarget({ id: "bot-a6jh2z", userId: "u1" });
 
     expect(long.socketDir.length).toBe(short.socketDir.length);
     expect(long.socketDir).not.toBe(short.socketDir);
-    expect(long.socketDir).toMatch(/users\/[0-9a-f]{12}$/);
+    expect(long.socketDir).toMatch(/users\/[0-9a-f]{16}$/);
+    expect(bot.socketDir).toMatch(/bots\/[0-9a-f]{16}$/);
+    expect(bot.socketDir).not.toContain("a6jh2z");
+    expect(userBrowserTarget("u1")).toEqual(short);
   });
 
   it("rebinds a bot's tab after the browser restarts", async () => {
@@ -471,5 +482,72 @@ describe("agent computer browser host", () => {
     expect(existsSync(join(sessions, "bot-bot.json"))).toBe(false);
     expect(readFileSync(join(sessions, "mine-default.json"), "utf8")).toBe("{}");
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("sandboxes the browser and each bot's daemon and sends web traffic through Eidon's filter", async () => {
+    const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+    const { ensureEgressProxy, stopEgressProxy } = await import("@/lib/egress-proxy");
+    const { getBotHomeDir, getBotWorkspaceDir } = await import("@/lib/bot-sandbox");
+    const { botBrowserTarget, getAgentComputerProfileDir, openBrowserSession, userBrowserTarget } = await loadModule();
+    resetShellIsolationForTests(4);
+    const bot = { id: "bot-sandboxed", userId: "user_a" };
+    const target = botBrowserTarget(bot);
+
+    try {
+      await openBrowserSession(target);
+      await openBrowserSession(userBrowserTarget("user_a"));
+      const proxyPort = await ensureEgressProxy();
+      const profileDir = getAgentComputerProfileDir("user_a");
+      const browserHome = join(profileDir, "..", "home");
+
+      expect(browsers[0].args).toEqual(
+        expect.arrayContaining([
+          `--proxy-server=http://127.0.0.1:${proxyPort}`,
+          "--proxy-bypass-list=<-loopback>",
+          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"
+        ])
+      );
+      expect(sandboxed.map((entry) => entry.command)).toEqual([fakeBrowser, "agent-browser"]);
+      expect(sandboxed[0].rules.join(" ")).toContain(`--rw ${profileDir} --rw ${browserHome}`);
+      expect(sandboxed[0].rules.slice(-2)).toEqual(["--connect", String(proxyPort)]);
+      expect(sandboxed[0].env.HOME).toBe(browserHome);
+      expect(sandboxed[1].rules.join(" ")).toContain(`--rw ${getBotWorkspaceDir(bot)}`);
+      expect(sandboxed[1].rules.join(" ")).toContain(`--rw ${target.socketDir}`);
+      expect(sandboxed[1].rules.slice(-2)).toEqual(["--connect", String(browsers[0].port)]);
+      expect(sandboxed[1].env.HOME).toBe(getBotHomeDir(bot));
+      expect(sandboxed[1].cwd).toBe(getBotWorkspaceDir(bot));
+      expect(agentBrowserCalls).toHaveLength(2);
+    } finally {
+      resetShellIsolationForTests(0);
+      await stopEgressProxy();
+    }
+  });
+
+  it("rebinds a bot whose daemon died and closes the tab it left behind", async () => {
+    const { botBrowserTarget, openBrowserSession } = await loadModule();
+    const target = botBrowserTarget({ id: "bot-crashed", userId: "user_a" });
+
+    await openBrowserSession(target);
+    writeFileSync(join(target.socketDir, "tab.pid"), "999999");
+    await openBrowserSession(target);
+
+    expect(agentBrowserCalls.filter((call) => call.args[0] === "open")).toHaveLength(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toContain(`http://127.0.0.1:${browsers[0].port}/json/close/W-1`);
+  });
+
+  it("clears socket folders left by daemons that no longer run", async () => {
+    const { removeLegacyBrowserState } = await loadModule();
+    const root = join(process.env.EIDON_DATA_DIR!, "runtime", "agent-browser");
+    const dead = join(root, "bots", "dead");
+    const live = join(root, "users", "live");
+    mkdirSync(dead, { recursive: true });
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(dead, "tab.pid"), "999999");
+    writeFileSync(join(live, "tab.pid"), String(process.pid));
+
+    removeLegacyBrowserState();
+
+    expect(existsSync(dead)).toBe(false);
+    expect(existsSync(live)).toBe(true);
   });
 });

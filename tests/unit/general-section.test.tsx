@@ -375,6 +375,27 @@ describe("general section", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows how well bots are sandboxed on this server in the Bots section", () => {
+    const { rerender } = render(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "active" }));
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    const status = () => screen.getByTestId("bot-isolation-status");
+    expect(status()).toHaveTextContent("Bot sandbox");
+    expect(status()).toHaveTextContent("Active");
+    expect(status()).toHaveTextContent("blocks this server and your local network");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "filesystem" }));
+    expect(status()).toHaveTextContent("Files only");
+    expect(status()).toHaveTextContent("older than 6.7");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "unavailable" }));
+    expect(status()).toHaveTextContent("Unavailable");
+    expect(status()).toHaveTextContent("could read Eidon's data");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings() }));
+    expect(screen.queryByTestId("bot-isolation-status")).not.toBeInTheDocument();
+  });
+
   it("edits and resets the bot base system prompt from the Bots section", async () => {
     const settings = makeSettings({ botSystemPrompt: "Custom team base." });
     vi.mocked(global.fetch).mockResolvedValueOnce({

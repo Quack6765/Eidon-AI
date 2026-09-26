@@ -15,6 +15,8 @@ import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
+import { BotIsolationStatus } from "@/components/settings/bot-isolation-status";
+import type { IsolationStatus } from "@/lib/shell-isolation";
 import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
@@ -104,8 +106,8 @@ const GENERAL_SECTIONS = [
   {
     id: "bots",
     label: "Bots",
-    description: "Team base prompt",
-    detail: "Set the base system prompt shared by every bot on the team.",
+    description: "Base prompt and sandbox",
+    detail: "Set the base system prompt shared by every bot on the team, and check the sandbox bots run in.",
     icon: Bot
   }
 ] as const;
@@ -114,10 +116,12 @@ type GeneralSectionId = (typeof GENERAL_SECTIONS)[number]["id"];
 
 export function GeneralSection({
   settings,
-  canManageGlobalIntegrations = false
+  canManageGlobalIntegrations = false,
+  botIsolation
 }: {
   settings: GeneralSectionSettings;
   canManageGlobalIntegrations?: boolean;
+  botIsolation?: IsolationStatus;
 }) {
   const router = useRouter();
   const toast = useToastState();
@@ -546,6 +550,7 @@ export function GeneralSection({
             </div>
           ) : null}
         </div>
+        {botIsolation ? <BotIsolationStatus status={botIsolation} /> : null}
       </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;

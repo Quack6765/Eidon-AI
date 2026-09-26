@@ -1,11 +1,23 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { accessSync, constants as fsConstants, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, hostname, totalmem } from "node:os";
-import { join } from "node:path";
+import { createHmac, randomBytes } from "node:crypto";
+import {
+  accessSync,
+  constants as fsConstants,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { homedir, hostname, tmpdir, totalmem } from "node:os";
+import { dirname, join } from "node:path";
 import WebSocket from "ws";
+import { getBotHomeDir, getBotWorkspaceDir, getSharedBotWorkspaceDir } from "@/lib/bot-sandbox";
+import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
 import { env } from "@/lib/env";
 import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
+import { isolateCommand } from "@/lib/shell-isolation";
 
 const REGISTRY_KEY = Symbol.for("eidon.agent-computer");
 const MB = 1024 * 1024;
@@ -45,6 +57,7 @@ export type BrowserSessionTarget = {
   ownerKey: string;
   sessionName: string;
   socketDir: string;
+  sandbox?: { homeDir: string; workDir: string; readWrite: string[] };
 };
 
 type BrowserSession = {
@@ -66,12 +79,21 @@ type Registry = {
   hosts: Map<string, BrowserHost>;
   waiters: Set<() => void>;
   sweep: ReturnType<typeof setInterval> | null;
+  socketKey: string;
 };
 
 function getRegistry() {
   const scope = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
-  scope[REGISTRY_KEY] ??= { hosts: new Map(), waiters: new Set(), sweep: null };
+  scope[REGISTRY_KEY] ??= { hosts: new Map(), waiters: new Set(), sweep: null, socketKey: randomBytes(32).toString("hex") };
   return scope[REGISTRY_KEY];
+}
+
+function socketSegment(value: string) {
+  return createHmac("sha256", getRegistry().socketKey).update(value).digest("hex").slice(0, 16);
+}
+
+function socketRoot() {
+  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser");
 }
 
 export function getAgentComputerProfileDir(ownerKey: string) {
@@ -83,25 +105,31 @@ export function getBrowserOwnerKey(userId: string | null | undefined) {
 }
 
 export function getBotBrowserSocketDir(bot: { id: string }) {
-  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id, "bot"));
+  return join(socketRoot(), "bots", socketSegment(`bot:${bot.id}`));
 }
 
 export function botBrowserTarget(bot: { id: string; userId: string | null }): BrowserSessionTarget {
+  const homeDir = getBotHomeDir(bot);
+  const workDir = getBotWorkspaceDir(bot);
   return {
     ownerKey: getBrowserOwnerKey(bot.userId),
     sessionName: SESSION_NAME,
-    socketDir: getBotBrowserSocketDir(bot)
+    socketDir: getBotBrowserSocketDir(bot),
+    sandbox: { homeDir, workDir, readWrite: [workDir, getSharedBotWorkspaceDir(bot), homeDir] }
   };
 }
 
 export function userBrowserTarget(userId: string | null | undefined): BrowserSessionTarget {
   const ownerKey = getBrowserOwnerKey(userId);
-  const shortKey = createHash("sha256").update(ownerKey).digest("hex").slice(0, 12);
   return {
     ownerKey,
     sessionName: SESSION_NAME,
-    socketDir: join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "users", shortKey)
+    socketDir: join(socketRoot(), "users", socketSegment(`user:${ownerKey}`))
   };
+}
+
+export function sandboxScratchDirs() {
+  return [...new Set([process.env.TMPDIR || tmpdir(), "/tmp"])];
 }
 
 export function browserSessionEnv(target: BrowserSessionTarget, port?: number | null): Record<string, string> {
@@ -272,8 +300,11 @@ function waitForDevTools(host: BrowserHost, child: ChildProcess) {
   });
 }
 
-function browserArgs(profileDir: string) {
+function browserArgs(profileDir: string, proxyPort: number) {
   return [
+    `--proxy-server=http://127.0.0.1:${proxyPort}`,
+    "--proxy-bypass-list=<-loopback>",
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     "--headless=new",
     `--user-data-dir=${profileDir}`,
     "--remote-debugging-address=127.0.0.1",
@@ -295,7 +326,14 @@ async function launchBrowser(host: BrowserHost) {
   await releaseStaleProfileLock(host.profileDir);
   rmSync(join(host.profileDir, "DevToolsActivePort"), { force: true });
 
-  const child = spawn(executable, browserArgs(host.profileDir), { stdio: "ignore", env: buildShellEnv() });
+  const proxyPort = await ensureEgressProxy();
+  const homeDir = join(dirname(host.profileDir), "home");
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+  const browser = isolateCommand(executable, browserArgs(host.profileDir, proxyPort), {
+    readWrite: [host.profileDir, homeDir, ...sandboxScratchDirs()],
+    connectPorts: [proxyPort]
+  });
+  const child = spawn(browser.command, browser.args, { stdio: "ignore", env: buildShellEnv({ HOME: homeDir }) });
   host.child = child;
   host.generation += 1;
   child.on("error", () => undefined);
@@ -322,6 +360,7 @@ type AgentBrowserResult = { ok: boolean; output: string };
 
 function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: number | null) {
   mkdirSync(target.socketDir, { recursive: true });
+  if (target.sandbox) mkdirSync(target.sandbox.workDir, { recursive: true });
   return new Promise<AgentBrowserResult>((resolve) => {
     let output = "";
     let settled = false;
@@ -331,8 +370,16 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
       clearTimeout(timer);
       resolve({ ok, output: output.trim() });
     };
-    const child = spawn("agent-browser", args, {
-      env: buildShellEnv(browserSessionEnv(target, port)),
+    const daemon =
+      target.sandbox && port
+        ? isolateCommand("agent-browser", args, {
+            readWrite: [...target.sandbox.readWrite, target.socketDir, ...sandboxScratchDirs()],
+            connectPorts: [port]
+          })
+        : { command: "agent-browser", args };
+    const child = spawn(daemon.command, daemon.args, {
+      cwd: target.sandbox?.workDir,
+      env: buildShellEnv({ ...browserSessionEnv(target, port), ...(target.sandbox ? { HOME: target.sandbox.homeDir } : {}) }),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32"
     });
@@ -398,6 +445,10 @@ async function openSessionWindow(host: BrowserHost, target: BrowserSessionTarget
 }
 
 async function bindSession(host: BrowserHost, target: BrowserSessionTarget, port: number) {
+  const previousTargetId = readBoundTargetId(target);
+  if (previousTargetId) {
+    await fetch(`http://127.0.0.1:${port}/json/close/${encodeURIComponent(previousTargetId)}`).catch(() => undefined);
+  }
   await stopSessionDaemon(target);
   await openSessionWindow(host, target, port);
   const result = await runAgentBrowser(target, ["open", "about:blank"], port);
@@ -415,7 +466,7 @@ async function tryOpenSession(host: BrowserHost, target: BrowserSessionTarget) {
   if (!port) return browserSessionEnv(target);
 
   const session = host.sessions.get(target.socketDir);
-  if (session && session.generation === host.generation) {
+  if (session && session.generation === host.generation && isDaemonRunning(target.socketDir)) {
     session.lastUsedAt = Date.now();
     return browserSessionEnv(target, port);
   }
@@ -556,9 +607,32 @@ export async function shutdownAgentComputer() {
   await Promise.all([...registry.hosts.values()].map((host) => runExclusive(host, () => stopBrowser(host))));
 }
 
+function isDaemonRunning(socketDir: string) {
+  try {
+    const pid = Number(readFileSync(join(socketDir, `${SESSION_NAME}.pid`), "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function removeLegacyBrowserState() {
   for (const name of ["bot-bot.json", "bot-bot.json.enc"]) {
     rmSync(join(homedir(), ".agent-browser", "sessions", name), { force: true });
+  }
+  for (const group of ["bots", "users"]) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(join(socketRoot(), group));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const socketDir = join(socketRoot(), group, entry);
+      if (!isDaemonRunning(socketDir)) rmSync(socketDir, { recursive: true, force: true });
+    }
   }
 }
 

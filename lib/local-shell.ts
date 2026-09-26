@@ -3,6 +3,7 @@ import { accessSync, constants as fsConstants, lstatSync, mkdirSync, realpathSyn
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { appendBoundedText, truncateText } from "@/lib/bounded-text";
 import { env } from "@/lib/env";
+import { isolateCommand, type IsolationRules } from "@/lib/shell-isolation";
 
 export const SHELL_ENV_ALLOWLIST = [
   "PATH",
@@ -22,7 +23,13 @@ export const SHELL_ENV_EXTRA_ALLOWLIST = [
   "AGENT_BROWSER_SOCKET_DIR",
   "AGENT_BROWSER_SESSION",
   "AGENT_BROWSER_CDP",
-  "AGENT_BROWSER_PIN_TAB"
+  "AGENT_BROWSER_PIN_TAB",
+  "HOME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "NODE_USE_ENV_PROXY"
 ] as const;
 
 export function buildShellEnv(extraEnv?: Record<string, string>) {
@@ -184,6 +191,7 @@ export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
   env?: Record<string, string>;
+  isolation?: IsolationRules;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
 }) {
@@ -197,7 +205,10 @@ export async function executeLocalShellCommand(input: {
   }
 
   return await new Promise<ShellExecutionResult>((resolve, reject) => {
-    const child = spawn(resolveShellPath(), ["-lc", command], {
+    const shell = input.isolation
+      ? isolateCommand(resolveShellPath(), ["-lc", command], input.isolation)
+      : { command: resolveShellPath(), args: ["-lc", command] };
+    const child = spawn(shell.command, shell.args, {
       cwd,
       env: shellEnv,
       detached: process.platform !== "win32"
