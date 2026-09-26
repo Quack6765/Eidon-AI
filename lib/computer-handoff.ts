@@ -3,6 +3,7 @@ import {
   clearComputerHandoff,
   conversationBrowserTarget,
   getComputerHandoff,
+  hasComputerStream,
   registerComputerHandoff,
   setComputerControl
 } from "@/lib/agent-computer-relay";
@@ -69,6 +70,10 @@ export async function requestComputerHandoff(input: {
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onWaitChange?: (waiting: boolean) => Promise<void> | void;
 }) {
+  const target = conversationBrowserTarget(input.conversationId);
+  if (input.conversationId && !hasComputerStream(target)) {
+    return "Your browser is not open yet. Open the page that needs the user first (agent-browser open <url>), then call request_takeover again.";
+  }
   const payload: ComputerHandoffProposalPayload = { operation: "computer_handoff", reason: input.reason };
   const handle = await input.onActionStart?.({
     kind: "computer_handoff",
@@ -83,7 +88,6 @@ export async function requestComputerHandoff(input: {
     return "The browser can't be handed to the user in this conversation. Ask them to do the step themselves.";
   }
 
-  const target = conversationBrowserTarget(input.conversationId);
   registerComputerHandoff(target, actionId);
   setComputerControl(target, "user");
   await input.onWaitChange?.(true);

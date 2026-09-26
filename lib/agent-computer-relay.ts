@@ -177,6 +177,10 @@ function readStreamPort(target: BrowserSessionTarget) {
   }
 }
 
+export function hasComputerStream(target: BrowserSessionTarget) {
+  return readStreamPort(target) !== null;
+}
+
 function readBoundTargetId(target: BrowserSessionTarget) {
   try {
     const bound = JSON.parse(readFileSync(join(target.socketDir, `${target.sessionName}.target`), "utf8")) as {

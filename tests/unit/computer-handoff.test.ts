@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -37,6 +39,9 @@ async function fixture(username: string) {
     status: "streaming",
     estimatedTokens: 0
   });
+  const { socketDir, sessionName } = conversationBrowserTarget(conversation.id);
+  mkdirSync(socketDir, { recursive: true });
+  writeFileSync(join(socketDir, `${sessionName}.stream`), "45123");
   const started: string[] = [];
   const onActionStart = vi.fn(async (action: RuntimeAction) => {
     const persisted = createMessageAction({ messageId: message.id, ...action });
@@ -202,8 +207,16 @@ describe("computer hand-off", () => {
     expect(getComputerControl(conversationBrowserTarget(stopping.conversation.id))).toBe("bot");
   });
 
-  it("says so when the conversation cannot show a hand-off card", async () => {
+  it("says so when the conversation cannot show a hand-off card or the browser is not open", async () => {
     await expect(requestComputerHandoff({ reason: "Sign in" })).resolves.toContain("can't be handed to the user");
+
+    const { conversation, onActionStart } = await fixture("handoff-closed");
+    const { socketDir, sessionName } = conversationBrowserTarget(conversation.id);
+    rmSync(join(socketDir, `${sessionName}.stream`));
+    await expect(
+      requestComputerHandoff({ conversationId: conversation.id, reason: "Sign in", onActionStart })
+    ).resolves.toContain("Your browser is not open yet");
+    expect(onActionStart).not.toHaveBeenCalled();
   });
 
   it("lets the user take and return control without a pending hand-off", async () => {
