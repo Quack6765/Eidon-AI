@@ -41,10 +41,16 @@ import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-dr
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
-import { prepareBrowserEnv } from "@/lib/agent-computer";
+import {
+  prepareBrowserEnv,
+  resolveBrowserExecutable,
+  sandboxScratchDirs,
+  type BrowserSessionTarget
+} from "@/lib/agent-computer";
 import { conversationBrowserTarget, getComputerControl, setComputerCaption } from "@/lib/agent-computer-relay";
 import { requestComputerHandoff } from "@/lib/computer-handoff";
-import { resolveBotSandbox } from "./bot-sandbox";
+import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
+import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -875,6 +881,7 @@ export async function executeShellCommand(
   try {
     const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
     const browserEnv = await prepareBrowserEnv(browserTarget, usesBrowser);
+    const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
     throwIfAborted(context.input.abortSignal);
     if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
     const result = await executeLocalShellCommand({
@@ -882,7 +889,8 @@ export async function executeShellCommand(
       timeoutMs,
       abortSignal: context.input.abortSignal,
       cwd,
-      env: browserEnv
+      env: { ...browserEnv, ...botShell?.env },
+      isolation: botShell?.rules
     });
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
@@ -920,6 +928,17 @@ export async function executeShellCommand(
   } finally {
     if (usesBrowser) setComputerCaption(browserTarget, null);
   }
+}
+
+async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget) {
+  const proxyPort = await ensureEgressProxy();
+  return {
+    env: { HOME: sandbox.homeDir, ...egressProxyEnv(proxyPort) },
+    rules: {
+      readWrite: [sandbox.workspaceDir, sandbox.sharedDir, sandbox.homeDir, browserTarget.socketDir, ...sandboxScratchDirs()],
+      connectPorts: resolveBrowserExecutable() ? [proxyPort] : undefined
+    }
+  };
 }
 
 async function executeRequestTakeover(

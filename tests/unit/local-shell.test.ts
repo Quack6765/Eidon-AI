@@ -44,6 +44,27 @@ describe("local shell", () => {
     ).rejects.toThrow("Shell command is required");
   });
 
+  it("starts sandboxed commands through the Landlock launcher in their own process group", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+    resetShellIsolationForTests(4);
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "ls",
+      cwd: "/tmp/eidon",
+      isolation: { readWrite: ["/tmp/eidon"], connectPorts: [4100] }
+    });
+
+    const [command, args, options] = spawnMock.mock.calls[0];
+    expect(command).toBe("python3");
+    expect(args.slice(-8)).toEqual(["--rw", "/tmp/eidon", "--connect", "4100", "--", expectedInitialShell, "-lc", "ls"]);
+    expect(options).toEqual(expect.objectContaining({ cwd: "/tmp/eidon", detached: process.platform !== "win32" }));
+    child.emit("close", 0);
+    await resultPromise;
+  });
+
   it("runs unrestricted commands and truncates long output", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();
@@ -465,15 +486,23 @@ describe("shell environment scrubbing", () => {
   });
 
   it("builds child environments from the allowlist only", async () => {
-    const { SHELL_ENV_ALLOWLIST, buildShellEnv } = await import("@/lib/local-shell");
-    const shellEnv = buildShellEnv({ HOME: "/somewhere/else" });
+    const { SHELL_ENV_ALLOWLIST, SHELL_ENV_EXTRA_ALLOWLIST, buildShellEnv } = await import("@/lib/local-shell");
+    const shellEnv = buildShellEnv({
+      HOME: "/somewhere/else",
+      HTTPS_PROXY: "http://127.0.0.1:4100",
+      PATH: "/evil/bin",
+      EIDON_SESSION_SECRET: "leaked"
+    });
 
-    expect(shellEnv.HOME).toBe(process.env.HOME);
+    expect(shellEnv.HOME).toBe("/somewhere/else");
+    expect(shellEnv.HTTPS_PROXY).toBe("http://127.0.0.1:4100");
+    expect(shellEnv.PATH).toBe(process.env.PATH);
+    expect(buildShellEnv().HOME).toBe(process.env.HOME);
     for (const name of ["EIDON_SESSION_SECRET", "EIDON_ENCRYPTION_SECRET", "EIDON_ADMIN_PASSWORD", "EIDON_GITHUB_APP_CLIENT_SECRET"]) {
       expect(shellEnv).not.toHaveProperty(name);
     }
     for (const name of Object.keys(shellEnv)) {
-      expect(SHELL_ENV_ALLOWLIST as readonly string[]).toContain(name);
+      expect([...SHELL_ENV_ALLOWLIST, ...SHELL_ENV_EXTRA_ALLOWLIST] as readonly string[]).toContain(name);
     }
   });
 });

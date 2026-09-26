@@ -200,24 +200,23 @@ The measured facts also still hold:
 - **Tests:** the existing tool-approval, bot-tool-approvals and interrupted-work tests still pass; plus the executor guard, the control route, input authorisation, restart reconciliation of the new kinds, and the attention label.
 
 ### PR 4: Hardening: Landlock + egress proxy (before secrets)
-- **New `scripts/landlock-exec.py`** (`python3` + `ctypes`, syscalls 444/445/446): probes the ABI, applies the rules, sets no-new-privs, then execs **in place** (fact 15). Two profiles:
-  - **shell:**
-    - read-only system paths;
-    - read-write: the bot's own workspace, `bot-workspaces/<owner>/shared`, `$TMPDIR`, `/tmp`, the bot's own socket dir, and a per-bot HOME;
-    - no access to `agent-computer/`, `eidon.db`, `.env`, other bots' private workspaces or other socket dirs;
-    - TCP connect only to the proxy port.
-
-    Bot shells get `HOME=<botWorkspace>/.home` instead of the shared `/app/data/home`, which holds `.agent-browser/` state for every user.
-  - **browser:** filesystem rules only, applied by `ensureUserBrowser`.
-- **Where it applies:** wrap bot spawns in `executeLocalShellCommand`, and copy the script in the `Dockerfile`.
-- **New `lib/egress-proxy.ts`:** an HTTP CONNECT proxy on loopback.
-  - Denies loopback (including the app port), RFC 1918, link-local and metadata, CGNAT and IPv6 ULA.
-  - Checks again after DNS resolution and on every redirect.
-  - Chromium gets `--proxy-server` and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
-- **Settings status:** "Browser isolation: active / unavailable" in `components/settings/sections/general-section.tsx`. Add a new section id to `GENERAL_SECTIONS` (ends :111) and to the `satisfies Record` switch (:551), following `semantic-recall-settings.tsx` (mounted :500). Also a badge in the Browser section.
+- **New `scripts/landlock-exec.py`** (`python3` + `ctypes`, syscalls 444/445/446): probes the ABI, applies `--ro`/`--rw`/`--dev` path rules and `--connect` port rules, sets no-new-privs, then execs **in place** (fact 15), so the shell's process-group kill keeps working. It fails closed (exit 126) when Landlock is missing or its rules are malformed; the server only wraps commands when the probe found Landlock. On ABI 6 and later it also scopes signals and abstract unix sockets.
+- **`lib/shell-isolation.ts`** caches the probe, reports `active` (ABI ≥ 4) / `filesystem` (ABI 1–3) / `unavailable`, and builds the launcher command. Read-only paths are the system dirs plus `PATH` and the Node prefix, never anything inside or above the data dir.
+- **Three sandboxed processes**, each with the same filesystem allow-list and its own TCP allow-list:
+  - **bot shell:** read-write on the bot's own workspace, `bot-workspaces/<owner>/shared`, a per-bot `HOME` (`<data>/bot-homes/<owner>/<bot>`, kept outside the workspace so it doesn't clutter the Files tree), its own socket dir, `$TMPDIR` and `/tmp`; TCP connect only to the proxy port. It also gets `HTTP(S)_PROXY` and `NODE_USE_ENV_PROXY=1`.
+  - **bot's agent-browser daemon** (started by the server): the same filesystem rules, TCP connect only to the owner's CDP port. Without this, the daemon would be a confused deputy: `agent-browser screenshot /app/data/eidon.db` or `upload … /app/data/.env` would run outside the sandbox, and `agent-browser connect <port>` could reach another user's browser.
+  - **Chromium:** read-write only on the user's profile, a per-user browser `HOME` and the scratch dirs; TCP connect only to the proxy port.
+- **Socket dirs are unguessable.** Landlock (through ABI 6) does not mediate `connect()` on pathname unix sockets, so another bot's daemon socket was reachable by path. Socket dir names are now an HMAC of the bot or user id with a per-boot random key, and boot removes socket dirs whose daemon no longer runs. A dead daemon is rebound by the server (never respawned from inside a sandboxed shell) and its old tab is closed.
+- **New `lib/egress-proxy.ts`:** one HTTP/CONNECT proxy per server on loopback.
+  - Denies loopback (including the app port), RFC 1918, link-local and metadata, CGNAT, IPv6 ULA and link-local, NAT64 and IPv4-mapped forms of those, and hostnames that resolve to any of them. It connects to the address it checked, so DNS rebinding can't swap it; redirects come back through the proxy and are checked again.
+  - Chromium gets `--proxy-server`, `--proxy-bypass-list=<-loopback>` (Chromium otherwise bypasses the proxy for loopback) and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+  - Behavior change: bots and the browser can no longer reach the local network or the Eidon server itself.
+- **Settings status:** a "Bot sandbox" card (Active / Files only / Unavailable) in Settings → General → Bots, following the semantic-recall card. The server page passes it as a prop, so no API or contract change. No badge on the bot page, which would need an API field.
+- **Known limits:** without ABI 6 (kernel 6.12) a sandboxed shell can still signal other processes of the app user, including the server; UDP (DNS) is not filtered; regular (non-bot) chat shells stay unsandboxed, as before.
 - **Tests:**
-  - Launcher arguments, with the probe mocked.
-  - Proxy allow/deny matrix including redirects and rebinding.
+  - Launcher arguments and probe caching, with the probe mocked; the launcher's own fail-closed argument handling.
+  - Proxy allow/deny matrix, CONNECT and plain HTTP forwarding, hop-by-hop header stripping, hostnames that resolve to private addresses.
+  - Host: Chromium and the daemon get their rules and proxy flags; dead daemons are rebound; stale socket dirs are cleared.
   - An image integration check: a sandboxed shell cannot read `/proc/1/environ`, `eidon.db` or another bot's workspace or socket dir, and cannot connect to the CDP port. It can still write to `shared/`, and the process-group kill still works.
 
 ### PR 5: Secure secret request + saved credentials

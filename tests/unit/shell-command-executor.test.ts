@@ -96,4 +96,30 @@ describe("shell command executor sandboxing", () => {
     expect(content).toContain("session=tab");
     expect(content).toContain("secret=[]");
   });
+
+  it("gives bot commands their own home and routes their web traffic through Eidon's filter", async () => {
+    const user = await createApprovalUser();
+    const bot = { id: "bot_exec_home", userId: user.id } as Bot;
+    botsMock.getBotByConversationId.mockReturnValue(bot);
+    const { executeShellCommand } = await import("@/lib/tool-executors");
+    const { getBotHomeDir } = await import("@/lib/bot-sandbox");
+    const { createToolApprovalRules } = await import("@/lib/tool-approvals");
+    const { stopEgressProxy } = await import("@/lib/egress-proxy");
+
+    createToolApprovalRules(user.id, "shell", ["echo"]);
+
+    try {
+      const result = await executeShellCommand(
+        "tc_bot_home",
+        { command: 'echo "home=$HOME proxy=$HTTPS_PROXY node=$NODE_USE_ENV_PROXY"' },
+        buildContext("conv_bot_home", user.id)
+      );
+      const content = String(result.promptMessages.at(-1)?.content);
+
+      expect(content).toContain(`home=${getBotHomeDir(bot)}`);
+      expect(content).toMatch(/proxy=http:\/\/127\.0\.0\.1:\d+ node=1/);
+    } finally {
+      await stopEgressProxy();
+    }
+  });
 });

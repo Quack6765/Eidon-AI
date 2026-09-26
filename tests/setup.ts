@@ -49,6 +49,7 @@ if (typeof window !== "undefined") {
 }
 
 beforeEach(async () => {
+  (globalThis as Record<symbol, unknown>)[Symbol.for("eidon.shell-isolation")] = { abi: 0 };
   const { resetDbForTests } = await import("@/lib/db");
   resetDbForTests();
   for (const dir of [dataDir, `${dataDir}-workspaces`]) {
