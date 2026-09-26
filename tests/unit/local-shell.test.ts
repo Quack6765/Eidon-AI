@@ -454,6 +454,16 @@ describe("shell environment scrubbing", () => {
     await resultPromise;
   });
 
+  it("passes the Chromium path agent-browser needs from the server environment", async () => {
+    const { buildShellEnv } = await import("@/lib/local-shell");
+    vi.stubEnv("AGENT_BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium");
+    try {
+      expect(buildShellEnv().AGENT_BROWSER_EXECUTABLE_PATH).toBe("/usr/bin/chromium");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("builds child environments from the allowlist only", async () => {
     const { SHELL_ENV_ALLOWLIST, buildShellEnv } = await import("@/lib/local-shell");
     const shellEnv = buildShellEnv({ HOME: "/somewhere/else" });

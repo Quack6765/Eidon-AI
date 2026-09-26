@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -27,6 +27,7 @@ ENV HOME=/app/data/home
 ENV TMPDIR=/app/data/tmp
 ENV XDG_RUNTIME_DIR=/app/data/runtime
 ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -34,10 +35,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN apt-get update && apt-get install -y --no-install-recommends chromium python3 \
     && ln -s /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g agent-browser \
-    && mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-core \
-    && printf '#!/bin/sh\nexec agent-browser-core --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser \
-    && chmod +x /usr/local/bin/agent-browser \
+    && npm install -g agent-browser@0.38.1 \
+    && find "$(npm root -g)/agent-browser/bin" -name 'agent-browser-*' ! -name "agent-browser-linux-$(node -p process.arch)" -delete \
     && npm cache clean --force
 
 RUN groupadd --system eidon && useradd --system --gid eidon eidon

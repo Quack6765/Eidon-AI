@@ -1,6 +1,6 @@
 services:
   fake-provider:
-    image: node:22-alpine
+    image: node:24-alpine
     command: ["node", "/app/native-fake-provider.mjs"]
     environment:
       PORT: "4010"
