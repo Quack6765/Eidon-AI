@@ -170,7 +170,7 @@ export function ComputerStage({
           event.preventDefault();
           send({ type: "computer_text", text });
         }}
-        className="flex min-h-0 flex-1 items-center justify-center px-3 pb-[max(12px,env(safe-area-inset-bottom))] focus:outline-none md:px-6"
+        className="flex min-h-0 flex-1 items-start justify-center px-3 pb-[max(12px,env(safe-area-inset-bottom))] focus:outline-none md:items-center md:px-6"
         data-testid="computer-stage-keys"
       >
         <div

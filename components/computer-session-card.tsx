@@ -31,12 +31,14 @@ const SECONDARY_BUTTON =
 export function ComputerSessionCard({
   actions,
   liveConversationId,
+  handoffPending = false,
   stepsOpen,
   onToggleSteps,
   children
 }: {
   actions: ActionItem[];
   liveConversationId?: string;
+  handoffPending?: boolean;
   stepsOpen: boolean;
   onToggleSteps: () => void;
   children?: ReactNode;
@@ -142,15 +144,17 @@ export function ComputerSessionCard({
                 <button type="button" onClick={() => setStageOpen(true)} className={SECONDARY_BUTTON}>
                   Open
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void changeControl("return")}
-                  disabled={pendingControl !== null}
-                  className={SECONDARY_BUTTON}
-                >
-                  {pendingControl === "return" ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
-                  Return control
-                </button>
+                {handoffPending ? null : (
+                  <button
+                    type="button"
+                    onClick={() => void changeControl("return")}
+                    disabled={pendingControl !== null}
+                    className={SECONDARY_BUTTON}
+                  >
+                    {pendingControl === "return" ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
+                    Return control
+                  </button>
+                )}
               </>
             ) : (
               <button
@@ -170,7 +174,7 @@ export function ComputerSessionCard({
 
       {stepsOpen && children ? <div className="mt-2 flex flex-col gap-1.5">{children}</div> : null}
       {stageOpen && liveConversationId ? (
-        <ComputerStage conversationId={liveConversationId} onClose={() => setStageOpen(false)} />
+        <ComputerStage conversationId={liveConversationId} askForNote={handoffPending} onClose={() => setStageOpen(false)} />
       ) : null}
     </div>
   );
