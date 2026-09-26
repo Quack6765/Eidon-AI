@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { accessSync, constants as fsConstants, mkdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import { homedir, hostname, totalmem } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,8 @@ const LAUNCH_TIMEOUT_MS = 15_000;
 const AGENT_BROWSER_TIMEOUT_MS = 30_000;
 const STOP_GRACE_MS = 5_000;
 const DISK_CACHE_BYTES = 64 * MB;
+const SESSION_NAME = "tab";
+const PROFILE_LOCK_FILES = ["SingletonLock", "SingletonSocket", "SingletonCookie"];
 
 const BROWSER_CANDIDATES = [
   "/usr/bin/chromium",
@@ -45,7 +48,6 @@ export type BrowserSessionTarget = {
 };
 
 type BrowserSession = {
-  socketDir: string;
   generation: number;
   lastUsedAt: number;
 };
@@ -87,17 +89,18 @@ export function getBotBrowserSocketDir(bot: { id: string }) {
 export function botBrowserTarget(bot: { id: string; userId: string | null }): BrowserSessionTarget {
   return {
     ownerKey: getBrowserOwnerKey(bot.userId),
-    sessionName: `bot-${toPosixSegment(bot.id, "bot")}`,
+    sessionName: SESSION_NAME,
     socketDir: getBotBrowserSocketDir(bot)
   };
 }
 
 export function userBrowserTarget(userId: string | null | undefined): BrowserSessionTarget {
   const ownerKey = getBrowserOwnerKey(userId);
+  const shortKey = createHash("sha256").update(ownerKey).digest("hex").slice(0, 12);
   return {
     ownerKey,
-    sessionName: `user-${ownerKey}`,
-    socketDir: join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "users", ownerKey)
+    sessionName: SESSION_NAME,
+    socketDir: join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "users", shortKey)
   };
 }
 
@@ -193,16 +196,36 @@ function waitForBudgetChange(deadline: number) {
   });
 }
 
-function readProcessCommand(pid: number) {
+function readProcess(pid: number) {
   try {
-    return readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
+    const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const parentPid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    return { command, parentPid };
   } catch {
-    const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
-    return result.status === 0 ? result.stdout : "";
+    const result = spawnSync("ps", ["-p", String(pid), "-o", "ppid=,command="], { encoding: "utf8" });
+    const match = result.status === 0 ? /^\s*(\d+)\s+(.*)$/s.exec(result.stdout) : null;
+    return match ? { command: match[2], parentPid: Number(match[1]) } : null;
   }
 }
 
-function releaseOrphanedProfile(profileDir: string) {
+function waitForProcessExit(pid: number, timeoutMs: number) {
+  return new Promise<void>((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        return resolve();
+      }
+      if (Date.now() - started > timeoutMs) return resolve();
+      setTimeout(poll, 50);
+    };
+    poll();
+  });
+}
+
+async function releaseStaleProfileLock(profileDir: string) {
   let lock: string;
   try {
     lock = readlinkSync(join(profileDir, "SingletonLock"));
@@ -211,11 +234,17 @@ function releaseOrphanedProfile(profileDir: string) {
   }
   const separator = lock.lastIndexOf("-");
   const pid = Number(lock.slice(separator + 1));
-  if (lock.slice(0, separator) !== hostname() || !Number.isInteger(pid) || pid <= 0) return;
-  if (!readProcessCommand(pid).includes(`--user-data-dir=${profileDir}`)) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {}
+  if (lock.slice(0, separator) === hostname() && Number.isInteger(pid) && pid > 0) {
+    const holder = readProcess(pid);
+    if (holder?.command.includes(`--user-data-dir=${profileDir}`)) {
+      if (holder.parentPid !== 1) return;
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+      await waitForProcessExit(pid, STOP_GRACE_MS);
+    }
+  }
+  for (const name of PROFILE_LOCK_FILES) rmSync(join(profileDir, name), { force: true });
 }
 
 function readDevToolsActivePort(profileDir: string) {
@@ -262,7 +291,7 @@ async function launchBrowser(host: BrowserHost) {
   if (!executable) return null;
 
   mkdirSync(host.profileDir, { recursive: true, mode: 0o700 });
-  releaseOrphanedProfile(host.profileDir);
+  await releaseStaleProfileLock(host.profileDir);
   rmSync(join(host.profileDir, "DevToolsActivePort"), { force: true });
 
   const child = spawn(executable, browserArgs(host.profileDir), { stdio: "ignore", env: buildShellEnv() });
@@ -327,13 +356,37 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
   });
 }
 
-function forgetBinding(target: BrowserSessionTarget) {
-  rmSync(join(target.socketDir, `${target.sessionName}.target`), { force: true });
+async function stopSessionDaemon(target: BrowserSessionTarget) {
+  let pid = 0;
+  try {
+    pid = Number(readFileSync(join(target.socketDir, `${target.sessionName}.pid`), "utf8").trim());
+  } catch {}
+  if (Number.isInteger(pid) && pid > 0 && readProcess(pid)?.command.includes("agent-browser")) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+    await waitForProcessExit(pid, STOP_GRACE_MS);
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+  rmSync(target.socketDir, { recursive: true, force: true });
+  mkdirSync(target.socketDir, { recursive: true });
+}
+
+function readBoundTargetId(target: BrowserSessionTarget) {
+  try {
+    const bound = JSON.parse(readFileSync(join(target.socketDir, `${target.sessionName}.target`), "utf8")) as {
+      targetId?: unknown;
+    };
+    return typeof bound.targetId === "string" ? bound.targetId : null;
+  } catch {
+    return null;
+  }
 }
 
 async function bindSession(target: BrowserSessionTarget, port: number) {
-  await runAgentBrowser(target, ["close"]);
-  forgetBinding(target);
+  await stopSessionDaemon(target);
   const result = await runAgentBrowser(target, ["open", "about:blank"], port);
   if (!result.ok) {
     throw new Error(`The browser tab could not be opened: ${result.output || "unknown error"}`);
@@ -348,18 +401,14 @@ async function tryOpenSession(host: BrowserHost, target: BrowserSessionTarget) {
   const port = host.port ?? (await launchBrowser(host));
   if (!port) return browserSessionEnv(target);
 
-  const session = host.sessions.get(target.sessionName);
+  const session = host.sessions.get(target.socketDir);
   if (session && session.generation === host.generation) {
     session.lastUsedAt = Date.now();
     return browserSessionEnv(target, port);
   }
   if (!session && host.sessions.size > 0 && !fitsBudget(TAB_MEMORY_MB)) return null;
   await bindSession(target, port);
-  host.sessions.set(target.sessionName, {
-    socketDir: target.socketDir,
-    generation: host.generation,
-    lastUsedAt: Date.now()
-  });
+  host.sessions.set(target.socketDir, { generation: host.generation, lastUsedAt: Date.now() });
   return browserSessionEnv(target, port);
 }
 
@@ -377,18 +426,18 @@ export async function prepareBrowserEnv(target: BrowserSessionTarget, launch: bo
   mkdirSync(target.socketDir, { recursive: true });
   if (launch) return openBrowserSession(target);
   const host = getHost(target.ownerKey);
-  const session = host.sessions.get(target.sessionName);
+  const session = host.sessions.get(target.socketDir);
   const bound = host.port && session?.generation === host.generation;
   return browserSessionEnv(target, bound ? host.port : null);
 }
 
 async function closeSession(host: BrowserHost, target: BrowserSessionTarget) {
-  if (host.port && host.sessions.has(target.sessionName)) {
-    await runAgentBrowser(target, ["tab", "close"], host.port);
+  const targetId = readBoundTargetId(target);
+  if (host.port && targetId) {
+    await fetch(`http://127.0.0.1:${host.port}/json/close/${encodeURIComponent(targetId)}`).catch(() => undefined);
   }
-  await runAgentBrowser(target, ["close"]);
-  forgetBinding(target);
-  host.sessions.delete(target.sessionName);
+  await stopSessionDaemon(target);
+  host.sessions.delete(target.socketDir);
   notifyBudget();
 }
 
@@ -444,8 +493,8 @@ export async function closeBrowserSession(target: BrowserSessionTarget) {
 export async function resetUserBrowser(ownerKey: string) {
   const host = getHost(ownerKey);
   await runExclusive(host, async () => {
-    for (const [sessionName, session] of [...host.sessions]) {
-      await closeSession(host, { ownerKey, sessionName, socketDir: session.socketDir });
+    for (const socketDir of [...host.sessions.keys()]) {
+      await closeSession(host, { ownerKey, sessionName: SESSION_NAME, socketDir });
     }
     await stopBrowser(host);
     rmSync(join(env.EIDON_DATA_DIR, "agent-computer", ownerKey), { recursive: true, force: true });
@@ -455,9 +504,9 @@ export async function resetUserBrowser(ownerKey: string) {
 export async function sweepIdleBrowserSessions(now = Date.now()) {
   for (const [ownerKey, host] of getRegistry().hosts) {
     await runExclusive(host, async () => {
-      for (const [sessionName, session] of [...host.sessions]) {
+      for (const [socketDir, session] of [...host.sessions]) {
         if (now - session.lastUsedAt < SESSION_IDLE_MS) continue;
-        await closeSession(host, { ownerKey, sessionName, socketDir: session.socketDir });
+        await closeSession(host, { ownerKey, sessionName: SESSION_NAME, socketDir });
       }
       if (host.sessions.size === 0) await stopBrowser(host);
     });

@@ -70,8 +70,9 @@ describe("shell command executor sandboxing", () => {
     );
     const content = String(result.promptMessages.at(-1)?.content);
 
-    expect(content).toContain(`session=user-${user.id}`);
-    expect(content).toContain(`agent-browser/users/${user.id}`);
+    const { userBrowserTarget } = await import("@/lib/agent-computer");
+    expect(content).toContain("session=tab");
+    expect(content).toContain(`dir=${userBrowserTarget(user.id).socketDir}`);
   });
 
   it("keeps bot commands in the per-bot workspace with the browser sandbox env", async () => {
@@ -92,7 +93,7 @@ describe("shell command executor sandboxing", () => {
     const content = String(result.promptMessages.at(-1)?.content);
 
     expect(content).toContain(realpathSync(getBotWorkspaceDir(bot)));
-    expect(content).toContain("session=bot-bot_exec_probe");
+    expect(content).toContain("session=tab");
     expect(content).toContain("secret=[]");
   });
 });

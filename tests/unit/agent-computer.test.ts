@@ -1,12 +1,13 @@
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { spawnMock, spawnSyncMock, sockets } = vi.hoisted(() => ({
+const { spawnMock, spawnSyncMock, sockets, fetchMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   spawnSyncMock: vi.fn(),
-  sockets: [] as Array<{ url: string; sent: string[] }>
+  sockets: [] as Array<{ url: string; sent: string[] }>,
+  fetchMock: vi.fn(async (_url: string) => new Response("Target is closing"))
 }));
 
 vi.mock("node:child_process", () => ({ spawn: spawnMock, spawnSync: spawnSyncMock }));
@@ -59,6 +60,11 @@ function fakeSpawn(command: string, args: string[], options: { env?: Record<stri
   if (command === "agent-browser") {
     agentBrowserCalls.push({ args, env: options.env ?? {} });
     const failure = agentBrowserFailure && args[0] === "open" ? agentBrowserFailure : null;
+    const socketDir = options.env?.AGENT_BROWSER_SOCKET_DIR;
+    if (!failure && socketDir && args[0] === "open") {
+      writeFileSync(join(socketDir, "tab.pid"), "999999");
+      writeFileSync(join(socketDir, "tab.target"), JSON.stringify({ targetId: `T-${agentBrowserCalls.length}`, pinned: true }));
+    }
     queueMicrotask(() => {
       if (failure) child.stderr.emit("data", Buffer.from(failure));
       child.exitCode = failure ? 1 : 0;
@@ -75,6 +81,15 @@ function fakeSpawn(command: string, args: string[], options: { env?: Record<stri
   return child;
 }
 
+function hasLock(profileDir: string) {
+  try {
+    lstatSync(join(profileDir, "SingletonLock"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadModule() {
   return import("@/lib/agent-computer");
 }
@@ -86,6 +101,7 @@ describe("agent computer browser host", () => {
     spawnMock.mockReset();
     spawnMock.mockImplementation(fakeSpawn);
     spawnSyncMock.mockReset();
+    spawnSyncMock.mockReturnValue({ status: 1, stdout: "" });
     browsers.length = 0;
     agentBrowserCalls.length = 0;
     sockets.length = 0;
@@ -96,11 +112,14 @@ describe("agent computer browser host", () => {
     writeFileSync(fakeBrowser, "#!/bin/sh\n");
     chmodSync(fakeBrowser, 0o755);
     vi.stubEnv("AGENT_BROWSER_EXECUTABLE_PATH", fakeBrowser);
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
     (await loadModule()).resetAgentComputerForTests();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     rmSync(join(fakeBrowser, ".."), { recursive: true, force: true });
   });
 
@@ -118,20 +137,19 @@ describe("agent computer browser host", () => {
     expect(browsers[0].args).toContain("--remote-debugging-port=0");
     expect(first).toEqual({
       AGENT_BROWSER_SOCKET_DIR: research.socketDir,
-      AGENT_BROWSER_SESSION: "bot-bot-research",
+      AGENT_BROWSER_SESSION: "tab",
       AGENT_BROWSER_CDP: String(browsers[0].port),
       AGENT_BROWSER_PIN_TAB: "1"
     });
     expect(second.AGENT_BROWSER_CDP).toBe(first.AGENT_BROWSER_CDP);
+    expect(second.AGENT_BROWSER_SOCKET_DIR).toBe(writer.socketDir);
     expect(again).toEqual(first);
-    expect(agentBrowserCalls.map((call) => [call.env.AGENT_BROWSER_SESSION, ...call.args])).toEqual([
-      ["bot-bot-research", "close"],
-      ["bot-bot-research", "open", "about:blank"],
-      ["bot-bot-writer", "close"],
-      ["bot-bot-writer", "open", "about:blank"]
+    expect(agentBrowserCalls.map((call) => [call.env.AGENT_BROWSER_SOCKET_DIR, ...call.args])).toEqual([
+      [research.socketDir, "open", "about:blank"],
+      [writer.socketDir, "open", "about:blank"]
     ]);
-    expect(agentBrowserCalls[1].env.AGENT_BROWSER_PIN_TAB).toBe("1");
-    expect(agentBrowserCalls[0].env.AGENT_BROWSER_CDP).toBeUndefined();
+    expect(agentBrowserCalls.every((call) => call.env.AGENT_BROWSER_CDP === String(browsers[0].port))).toBe(true);
+    expect(agentBrowserCalls[0].env.AGENT_BROWSER_PIN_TAB).toBe("1");
   });
 
   it("keeps different users in different browsers and profiles", async () => {
@@ -142,8 +160,18 @@ describe("agent computer browser host", () => {
 
     expect(browsers).toHaveLength(2);
     expect(alice.AGENT_BROWSER_CDP).not.toBe(bob.AGENT_BROWSER_CDP);
-    expect(bob.AGENT_BROWSER_SESSION).toBe("user-user_bob");
+    expect(bob.AGENT_BROWSER_SESSION).toBe("tab");
     expect(browsers[1].args.join(" ")).toContain(join("agent-computer", "user_bob", "profile"));
+  });
+
+  it("keeps regular-chat socket paths short however long the user id is", async () => {
+    const { userBrowserTarget } = await loadModule();
+    const short = userBrowserTarget("u1");
+    const long = userBrowserTarget("user_432c1a69-311f-4e66-b18e-22abc05960f3");
+
+    expect(long.socketDir.length).toBe(short.socketDir.length);
+    expect(long.socketDir).not.toBe(short.socketDir);
+    expect(long.socketDir).toMatch(/users\/[0-9a-f]{12}$/);
   });
 
   it("rebinds a bot's tab after the browser restarts", async () => {
@@ -151,15 +179,15 @@ describe("agent computer browser host", () => {
     const target = botBrowserTarget({ id: "bot-a", userId: "user_a" });
 
     await openBrowserSession(target);
-    mkdirSync(target.socketDir, { recursive: true });
-    writeFileSync(join(target.socketDir, `${target.sessionName}.target`), "stale-target");
+    writeFileSync(join(target.socketDir, "tab.stream"), "stale");
     browsers[0].child.exitNow();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const reopened = await openBrowserSession(target);
 
     expect(browsers).toHaveLength(2);
     expect(reopened.AGENT_BROWSER_CDP).toBe(String(browsers[1].port));
-    expect(existsSync(join(target.socketDir, `${target.sessionName}.target`))).toBe(false);
+    expect(existsSync(join(target.socketDir, "tab.stream"))).toBe(false);
+    expect(JSON.parse(readFileSync(join(target.socketDir, "tab.target"), "utf8")).targetId).toBe("T-2");
     expect(agentBrowserCalls.filter((call) => call.args[0] === "open")).toHaveLength(2);
   });
 
@@ -172,7 +200,7 @@ describe("agent computer browser host", () => {
 
     expect(resolveBrowserExecutable()).toBeNull();
     expect(browsers).toHaveLength(0);
-    expect(opened).toEqual({ AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "bot-bot-a" });
+    expect(opened).toEqual({ AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "tab" });
     expect(target.ownerKey).toBe("shared");
   });
 
@@ -215,11 +243,11 @@ describe("agent computer browser host", () => {
     await openBrowserSession(first);
     const waiting = openBrowserSession(second);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(agentBrowserCalls.some((call) => call.env.AGENT_BROWSER_SESSION === "bot-bot-b")).toBe(false);
+    expect(agentBrowserCalls.some((call) => call.env.AGENT_BROWSER_SOCKET_DIR === second.socketDir)).toBe(false);
 
     await closeBrowserSession(first);
     const opened = await waiting;
-    expect(opened.AGENT_BROWSER_SESSION).toBe("bot-bot-b");
+    expect(opened.AGENT_BROWSER_SOCKET_DIR).toBe(second.socketDir);
     expect(browsers).toHaveLength(2);
 
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -240,12 +268,17 @@ describe("agent computer browser host", () => {
     await openBrowserSession(idle);
     await openBrowserSession(busy);
 
+    const port = browsers[0].port;
+
     await sweepIdleBrowserSessions(Date.now() + 5 * 60_000);
-    expect(agentBrowserCalls.filter((call) => call.args[0] === "tab")).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
 
     await sweepIdleBrowserSessions(Date.now() + 11 * 60_000);
-    const closes = agentBrowserCalls.filter((call) => call.args.join(" ") === "tab close");
-    expect(closes.map((call) => call.env.AGENT_BROWSER_SESSION).sort()).toEqual(["bot-bot-busy", "bot-bot-idle"]);
+    expect(fetchMock.mock.calls.map(([url]) => url).sort()).toEqual([
+      `http://127.0.0.1:${port}/json/close/T-1`,
+      `http://127.0.0.1:${port}/json/close/T-2`
+    ]);
+    expect(agentBrowserCalls.filter((call) => call.args[0] !== "open")).toHaveLength(0);
     expect(sockets).toHaveLength(1);
     expect(JSON.parse(sockets[0].sent[0])).toEqual({ id: 1, method: "Browser.close" });
     expect(browsers[0].child.exitCode).toBe(0);
@@ -298,8 +331,11 @@ describe("agent computer browser host", () => {
     const profileDir = getAgentComputerProfileDir("user_a");
     mkdirSync(profileDir, { recursive: true });
     symlinkSync(`${hostname()}-424242`, join(profileDir, "SingletonLock"));
-    spawnSyncMock.mockReturnValue({ status: 0, stdout: `chromium --user-data-dir=${profileDir} --headless=new` });
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: `    1 chromium --user-data-dir=${profileDir} --headless=new` });
+    const kill = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+      if (signal === 0) throw new Error("ESRCH");
+      return true;
+    });
     let calls: unknown[][] = [];
 
     try {
@@ -310,6 +346,7 @@ describe("agent computer browser host", () => {
     }
 
     expect(calls).toContainEqual([424242, "SIGKILL"]);
+    expect(hasLock(profileDir)).toBe(false);
   });
 
   it("leaves an unrelated process alone when the lock's pid was reused", async () => {
@@ -329,7 +366,65 @@ describe("agent computer browser host", () => {
     }
 
     expect(calls).not.toContainEqual([424243, "SIGKILL"]);
-    expect(spawnSyncMock).toHaveBeenCalledWith("ps", ["-p", "424243", "-o", "command="], { encoding: "utf8" });
+    expect(spawnSyncMock).toHaveBeenCalledWith("ps", ["-p", "424243", "-o", "ppid=,command="], { encoding: "utf8" });
+    expect(hasLock(profileDir)).toBe(false);
+  });
+
+  it("never kills a browser another running server still owns", async () => {
+    const { getAgentComputerProfileDir, botBrowserTarget, openBrowserSession } = await loadModule();
+    const profileDir = getAgentComputerProfileDir("user_a");
+    mkdirSync(profileDir, { recursive: true });
+    symlinkSync(`${hostname()}-424244`, join(profileDir, "SingletonLock"));
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: `  5123 chromium --user-data-dir=${profileDir} --headless=new` });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    let calls: unknown[][] = [];
+
+    try {
+      await openBrowserSession(botBrowserTarget({ id: "bot-a", userId: "user_a" }));
+      calls = [...kill.mock.calls];
+    } finally {
+      kill.mockRestore();
+    }
+
+    expect(calls).not.toContainEqual([424244, "SIGKILL"]);
+    expect(hasLock(profileDir)).toBe(true);
+  });
+
+  it("clears a lock left by a container that no longer exists", async () => {
+    const { getAgentComputerProfileDir, botBrowserTarget, openBrowserSession } = await loadModule();
+    const profileDir = getAgentComputerProfileDir("user_a");
+    mkdirSync(profileDir, { recursive: true });
+    symlinkSync("21394c2996cf-36", join(profileDir, "SingletonLock"));
+    writeFileSync(join(profileDir, "SingletonCookie"), "");
+
+    await openBrowserSession(botBrowserTarget({ id: "bot-a", userId: "user_a" }));
+
+    expect(hasLock(profileDir)).toBe(false);
+    expect(existsSync(join(profileDir, "SingletonCookie"))).toBe(false);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("stops a session's daemon by its pid instead of spawning agent-browser", async () => {
+    const { botBrowserTarget, closeBrowserSession, openBrowserSession } = await loadModule();
+    const target = botBrowserTarget({ id: "bot-a", userId: "user_a" });
+    await openBrowserSession(target);
+    writeFileSync(join(target.socketDir, "tab.pid"), "424250");
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: "    1 /usr/local/bin/agent-browser-linux-arm64" });
+    const kill = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+      if (signal === 0) throw new Error("ESRCH");
+      return true;
+    });
+    let calls: unknown[][] = [];
+
+    try {
+      await closeBrowserSession(target);
+      calls = [...kill.mock.calls];
+    } finally {
+      kill.mockRestore();
+    }
+
+    expect(calls).toContainEqual([424250, "SIGTERM"]);
+    expect(agentBrowserCalls.filter((call) => call.args[0] !== "open")).toHaveLength(0);
   });
 
   it("deletes the cookie file every bot used to share", async () => {
