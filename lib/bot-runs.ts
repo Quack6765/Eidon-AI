@@ -27,7 +27,7 @@ const BOT_RUN_SELECT = `SELECT r.id, r.bot_id, r.conversation_id, r.trigger_sour
   LEFT JOIN messages pm ON pm.id = r.parent_message_id
   LEFT JOIN bots pb ON pb.home_conversation_id = COALESCE(r.reply_conversation_id, pm.conversation_id)`;
 
-const ACTIVE_BOT_RUN_STATUSES = "('queued', 'running', 'waiting_approval')";
+const ACTIVE_BOT_RUN_STATUSES = "('queued', 'running', 'waiting_user')";
 
 function rowToBotRun(row: BotRunRow): BotRun {
   return {
@@ -177,10 +177,10 @@ export function updateBotRunStatus(
   return getBotRun(runId);
 }
 
-export function setBotRunAwaitingApproval(runId: string, awaitingApproval: boolean) {
+export function setBotRunWaitingForUser(runId: string, waitingForUser: boolean) {
   const current = getBotRun(runId);
-  if (!current || (current.status !== "running" && current.status !== "waiting_approval")) return;
-  const updated = updateBotRunStatus(runId, { status: awaitingApproval ? "waiting_approval" : "running" });
+  if (!current || (current.status !== "running" && current.status !== "waiting_user")) return;
+  const updated = updateBotRunStatus(runId, { status: waitingForUser ? "waiting_user" : "running" });
   if (!updated) return;
   broadcastBotRunUpdate(updated);
 }
@@ -237,7 +237,7 @@ export function isBotRunStopped(runId: string) {
 }
 
 function isActiveBotRun(run: BotRun) {
-  return run.status === "queued" || run.status === "running" || run.status === "waiting_approval";
+  return run.status === "queued" || run.status === "running" || run.status === "waiting_user";
 }
 
 function markHandOffStopped(runId: string) {

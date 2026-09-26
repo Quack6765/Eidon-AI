@@ -486,7 +486,7 @@ describe("bot-delegation", () => {
         _content: string,
         _attachments: string[],
         _persona: string | undefined,
-        options: { unattended?: boolean; onApprovalWait?: (waiting: boolean) => Promise<void> }
+        options: { unattended?: boolean; onUserWait?: (waiting: boolean) => Promise<void> }
       ) => {
         if (conversationId !== worker.homeConversationId) {
           wakeOptions.push(options as Record<string, unknown>);
@@ -494,11 +494,11 @@ describe("bot-delegation", () => {
         }
         observed.unattended = options.unattended;
         const runId = listRecentBotRuns({ userId: user.id })[0].id;
-        await options.onApprovalWait?.(true);
+        await options.onUserWait?.(true);
         observed.waitingStatus = getBotRun(runId)?.status;
         observed.slotFreeWhileWaiting = tryAcquireBotUserSlot(user.id);
         releaseBotUserSlot(user.id);
-        await options.onApprovalWait?.(false);
+        await options.onUserWait?.(false);
         observed.resumedStatus = getBotRun(runId)?.status;
         observed.slotFreeAfterResume = tryAcquireBotUserSlot(user.id);
         stubWorkerAnswer(conversationId, "Approved and done.");
@@ -516,7 +516,7 @@ describe("bot-delegation", () => {
 
     expect(observed).toEqual({
       unattended: true,
-      waitingStatus: "waiting_approval",
+      waitingStatus: "waiting_user",
       slotFreeWhileWaiting: true,
       resumedStatus: "running",
       slotFreeAfterResume: false
@@ -539,15 +539,15 @@ describe("bot-delegation", () => {
         content: string,
         _attachments: string[],
         _persona: string | undefined,
-        options: { onApprovalWait?: (waiting: boolean) => Promise<void> }
+        options: { onUserWait?: (waiting: boolean) => Promise<void> }
       ) => {
         if (conversationId !== worker.homeConversationId) {
           wakeCalls.push(content);
           return { status: "completed" as const };
         }
-        await options.onApprovalWait?.(true);
+        await options.onUserWait?.(true);
         expect(tryAcquireBotUserSlot(user.id)).toBe(true);
-        await options.onApprovalWait?.(false);
+        await options.onUserWait?.(false);
         stubWorkerAnswer(conversationId, "Finished anyway.");
         return { status: "completed" as const };
       }

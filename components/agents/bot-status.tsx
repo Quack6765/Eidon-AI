@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<BotStatus, string> = {
   idle: "Idle",
   queued: "Queued",
   running: "Running",
-  waiting_approval: "Needs approval"
+  waiting_user: "Needs approval"
 };
 
 const WAITING_FOR_INPUT_CHIP_CLASSES =
@@ -29,7 +29,7 @@ export function botStatusLabel(status: BotStatus) {
 }
 
 export function botAttentionLabel(bot: Pick<BotSummary, "status" | "waitingForInput">, unread: boolean) {
-  if (bot.status === "waiting_approval") return STATUS_LABELS.waiting_approval;
+  if (bot.status === "waiting_user") return STATUS_LABELS.waiting_user;
   if (bot.waitingForInput) return "Waiting for input";
   if (bot.status === "queued") return STATUS_LABELS.queued;
   if (bot.status === "idle" && unread) return UNREAD_LABEL;
@@ -45,13 +45,13 @@ export function BotStatusChip({
   waitingForInput?: boolean;
   unread?: boolean;
 }) {
-  if (waitingForInput || status === "waiting_approval") {
+  if (waitingForInput || status === "waiting_user") {
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${WAITING_FOR_INPUT_CHIP_CLASSES}`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-        {status === "waiting_approval" ? STATUS_LABELS.waiting_approval : "Waiting for input"}
+        {status === "waiting_user" ? STATUS_LABELS.waiting_user : "Waiting for input"}
       </span>
     );
   }
@@ -89,7 +89,7 @@ export function BotStatusDot({
   waitingForInput?: boolean;
   unread?: boolean;
 }) {
-  if (waitingForInput || status === "waiting_approval") {
+  if (waitingForInput || status === "waiting_user") {
     return <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />;
   }
 

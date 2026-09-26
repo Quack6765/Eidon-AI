@@ -6,7 +6,7 @@ import {
   createBotRunRecord,
   updateBotRunStatus,
   getBotRun,
-  setBotRunAwaitingApproval
+  setBotRunWaitingForUser
 } from "@/lib/bot-runs";
 import { createBot } from "@/lib/bots";
 import { createMessage } from "@/lib/conversations";
@@ -47,19 +47,19 @@ describe("bot-runs", () => {
     const bot = createBot({ name: "Pauser" }, user.id);
     const run = createBotRunRecord({ botId: bot.id, conversationId: bot.homeConversationId, triggerSource: "dm" });
 
-    setBotRunAwaitingApproval(run.id, true);
+    setBotRunWaitingForUser(run.id, true);
     expect(getBotRun(run.id)?.status).toBe("queued");
 
     updateBotRunStatus(run.id, { status: "running" });
-    setBotRunAwaitingApproval(run.id, true);
-    expect(getBotRun(run.id)?.status).toBe("waiting_approval");
-    setBotRunAwaitingApproval(run.id, false);
+    setBotRunWaitingForUser(run.id, true);
+    expect(getBotRun(run.id)?.status).toBe("waiting_user");
+    setBotRunWaitingForUser(run.id, false);
     expect(getBotRun(run.id)?.status).toBe("running");
 
     updateBotRunStatus(run.id, { status: "stopped" });
-    setBotRunAwaitingApproval(run.id, false);
+    setBotRunWaitingForUser(run.id, false);
     expect(getBotRun(run.id)?.status).toBe("stopped");
-    setBotRunAwaitingApproval("botrun_missing", true);
+    setBotRunWaitingForUser("botrun_missing", true);
   });
 
   it("scopes recent runs to the owning user", async () => {

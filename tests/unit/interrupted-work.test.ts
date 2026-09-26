@@ -134,7 +134,7 @@ describe("interrupted work", () => {
       replyConversationId: chief.homeConversationId,
       replyActionId: senderAction.id
     });
-    updateBotRunStatus(startedRun.id, { status: "waiting_approval", startedAt: "2026-09-25T10:00:00.000Z" });
+    updateBotRunStatus(startedRun.id, { status: "waiting_user", startedAt: "2026-09-25T10:00:00.000Z" });
     const queuedRun = createBotRunRecord({
       botId: worker.id,
       conversationId: worker.homeConversationId,
@@ -181,6 +181,30 @@ describe("interrupted work", () => {
     });
     expect(recovered).toMatchObject({ messages: 4, automationRuns: 1, delegatedRuns: 1, botRuns: 1, delegationActions: 1 });
     expect(recovered.conversationIds.sort()).toEqual([chat.id, emptyChat.id].sort());
+  });
+
+  it("treats runs an older build saved as waiting_approval like waiting_user runs", async () => {
+    const owner = await createOwner("legacy-wait-owner");
+    const worker = createBot({ name: "Researcher" }, owner.id);
+    const delegatedRun = createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "delegated",
+      prompt: "[Message from Chief of Staff]\nfind sources"
+    });
+    const dmRun = createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "dm"
+    });
+    getDb()
+      .prepare("UPDATE bot_runs SET status = 'waiting_approval' WHERE id IN (?, ?)")
+      .run(delegatedRun.id, dmRun.id);
+
+    reconcileInterruptedRuntimeState(getDb());
+
+    expect(getBotRun(delegatedRun.id)?.status).toBe("queued");
+    expect(getBotRun(dmRun.id)?.status).toBe("stopped");
   });
 
   it("describes what was cut off, restates a task, and refuses to resume a crash loop", async () => {
@@ -275,7 +299,7 @@ describe("interrupted work", () => {
       replyConversationId: chief.homeConversationId,
       replyActionId: senderAction.id
     });
-    updateBotRunStatus(run.id, { status: "waiting_approval", startedAt: "2026-09-25T10:00:00.000Z" });
+    updateBotRunStatus(run.id, { status: "waiting_user", startedAt: "2026-09-25T10:00:00.000Z" });
     const calls = answerTurns({ [worker.homeConversationId]: "Found 3 sources." });
 
     const { conversationIds } = reconcileInterruptedRuntimeState(getDb());

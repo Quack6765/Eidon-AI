@@ -1,5 +1,5 @@
-import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
-import { getMessage, updateMessageAction } from "@/lib/conversations";
+import { broadcastActionUpdate } from "@/lib/action-broadcast";
+import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { tokenizeShellCommand } from "@/lib/shell-tokenizer";
@@ -511,18 +511,6 @@ function settlePendingToolApproval(actionId: string, approved: boolean) {
   return true;
 }
 
-function broadcastToolApprovalUpdate(action: MessageAction) {
-  broadcastBotUpdateForMessage(action.messageId);
-  void import("@/lib/chat-turn")
-    .then(({ getChatEmitter }) => {
-      const conversationId = getMessage(action.messageId)?.conversationId;
-      if (conversationId) {
-        getChatEmitter().emit("delta", conversationId, { type: "action_complete", action });
-      }
-    })
-    .catch(() => undefined);
-}
-
 function resolvePendingToolApprovalAction(
   actionId: string,
   payload: ToolApprovalProposalPayload,
@@ -540,7 +528,7 @@ function resolvePendingToolApprovalAction(
     proposalUpdatedAt: timestamp
   });
   if (updated) {
-    broadcastToolApprovalUpdate(updated);
+    broadcastActionUpdate(updated);
   }
   settlePendingToolApproval(actionId, approved);
 }
@@ -577,7 +565,7 @@ export function approveToolApproval(
     throw new Error("Tool approval not found");
   }
 
-  broadcastToolApprovalUpdate(action);
+  broadcastActionUpdate(action);
   settlePendingToolApproval(pending.actionId, true);
   return action;
 }
@@ -601,7 +589,7 @@ export function dismissToolApproval(actionId: string, userId?: string) {
     throw new Error("Tool approval not found");
   }
 
-  broadcastToolApprovalUpdate(action);
+  broadcastActionUpdate(action);
   settlePendingToolApproval(pending.actionId, false);
   return action;
 }

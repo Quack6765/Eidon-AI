@@ -10,7 +10,7 @@ type TurnActivityEntry = {
   runningActions: Map<string, string>;
   onChange?: (activity: TurnActivity | null) => void;
   stopAfterStallMs: number | null;
-  awaitingApproval: boolean;
+  waitingForUser: boolean;
 };
 
 type TurnActivityState = {
@@ -55,7 +55,7 @@ export function beginTurnActivity(
     runningActions: new Map(),
     onChange: options.onChange,
     stopAfterStallMs: state.stallStopPolicies.get(conversationId) ?? null,
-    awaitingApproval: false
+    waitingForUser: false
   };
   state.entries.set(conversationId, entry);
   state.stallStops.delete(conversationId);
@@ -103,10 +103,10 @@ export function setTurnStallStop(conversationId: string, stopAfterStallMs: numbe
   if (entry) entry.stopAfterStallMs = stopAfterStallMs;
 }
 
-export function setTurnAwaitingApproval(conversationId: string, awaitingApproval: boolean) {
+export function setTurnWaitingForUser(conversationId: string, waitingForUser: boolean) {
   const entry = getState().entries.get(conversationId);
   if (!entry) return;
-  entry.awaitingApproval = awaitingApproval;
+  entry.waitingForUser = waitingForUser;
   touchTurnActivity(conversationId);
 }
 
@@ -132,7 +132,7 @@ export function consumeStallStop(conversationId: string) {
 export function scanTurnActivity(now = Date.now()) {
   const state = getState();
   for (const [conversationId, entry] of state.entries) {
-    if (entry.runningActions.size > 0 || entry.awaitingApproval) continue;
+    if (entry.runningActions.size > 0 || entry.waitingForUser) continue;
     const quietMs = now - Date.parse(entry.activity.lastActivityAt);
     if (quietMs >= TURN_STALL_AFTER_MS && !entry.activity.stalled) {
       entry.activity.stalled = true;

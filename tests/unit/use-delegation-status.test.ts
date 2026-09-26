@@ -89,7 +89,7 @@ describe("use-delegation-status store", () => {
       text: "queued",
       stalled: false
     });
-    expect(describeDelegationStatus({ run: run({ status: "waiting_approval" }), activity: null }, now)).toEqual({
+    expect(describeDelegationStatus({ run: run({ status: "waiting_user" }), activity: null }, now)).toEqual({
       text: "waiting for your approval",
       stalled: false
     });

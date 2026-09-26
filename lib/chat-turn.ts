@@ -55,7 +55,7 @@ import {
   broadcastBotRunUpdate,
   createBotRunRecord,
   deleteBotRun,
-  setBotRunAwaitingApproval,
+  setBotRunWaitingForUser,
   updateBotRunStatus
 } from "@/lib/bot-runs";
 import { UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS } from "@/lib/tool-approvals";
@@ -65,7 +65,7 @@ import {
   beginTurnActivity,
   endTurnActivity,
   finishTurnAction,
-  setTurnAwaitingApproval,
+  setTurnWaitingForUser,
   startTurnAction,
   touchTurnActivity
 } from "@/lib/turn-activity";
@@ -100,7 +100,7 @@ export type StartChatTurn = (
     unattended?: boolean;
     providerProfileId?: string;
     delegationChain?: DelegationChain;
-    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -311,7 +311,7 @@ async function startAssistantTurn(
     research?: ChatResearchOptions;
     unattended?: boolean;
     delegationChain?: DelegationChain;
-    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
@@ -338,9 +338,9 @@ async function startAssistantTurn(
     unattended: !bot && Boolean(options?.unattended),
     timeoutMs: bot && options?.unattended ? UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS : undefined,
     async onWaitChange(waiting) {
-      if (waiting) setTurnAwaitingApproval(conversationId, true);
-      await options?.onApprovalWait?.(waiting);
-      if (!waiting) setTurnAwaitingApproval(conversationId, false);
+      if (waiting) setTurnWaitingForUser(conversationId, true);
+      await options?.onUserWait?.(waiting);
+      if (!waiting) setTurnWaitingForUser(conversationId, false);
       broadcastBotStatus();
     }
   };
@@ -873,7 +873,7 @@ export async function startChatTurn(
     unattended?: boolean;
     providerProfileId?: string;
     delegationChain?: DelegationChain;
-    onApprovalWait?: (waiting: boolean) => Promise<void> | void;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId, options?.providerProfileId);
@@ -947,9 +947,9 @@ export async function startChatTurn(
       research: options?.research,
       unattended: options?.unattended,
       delegationChain: options?.delegationChain,
-      async onApprovalWait(waiting) {
-        if (botRun) setBotRunAwaitingApproval(botRun.id, waiting);
-        await options?.onApprovalWait?.(waiting);
+      async onUserWait(waiting) {
+        if (botRun) setBotRunWaitingForUser(botRun.id, waiting);
+        await options?.onUserWait?.(waiting);
       }
     });
     finalizeBotRun(result);

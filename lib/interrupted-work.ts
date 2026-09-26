@@ -10,6 +10,7 @@ export const MAX_CONSECUTIVE_RESTART_RESUMES = 2;
 const INTERRUPTED_BY_RESTART = "Interrupted by a server restart";
 const STOPPED_APPROVAL_SUMMARY = "Approval request stopped by a server restart";
 const RESUMABLE_DELEGATED_RUN = "trigger_source = 'delegated' AND prompt IS NOT NULL";
+const WAITING_BOT_RUN_STATUSES = "'waiting_user', 'waiting_approval'";
 const ACTION_DETAIL_CHARS = 200;
 
 export function reconcileInterruptedRuntimeState(
@@ -80,7 +81,7 @@ export function reconcileInterruptedRuntimeState(
       .prepare(
         `UPDATE bot_runs
          SET status = 'queued'
-         WHERE ${RESUMABLE_DELEGATED_RUN} AND status IN ('running', 'waiting_approval')`
+         WHERE ${RESUMABLE_DELEGATED_RUN} AND status IN ('running', ${WAITING_BOT_RUN_STATUSES})`
       )
       .run().changes;
     const botRuns = db
@@ -89,7 +90,7 @@ export function reconcileInterruptedRuntimeState(
          SET status = 'stopped',
              error_message = ?,
              finished_at = COALESCE(finished_at, ?)
-         WHERE status IN ('queued', 'running', 'waiting_approval') AND NOT (${RESUMABLE_DELEGATED_RUN})`
+         WHERE status IN ('queued', 'running', ${WAITING_BOT_RUN_STATUSES}) AND NOT (${RESUMABLE_DELEGATED_RUN})`
       )
       .run(INTERRUPTED_BY_RESTART, timestamp).changes;
     const delegationActions = db

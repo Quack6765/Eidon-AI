@@ -13,7 +13,7 @@ export const BOT_RUN_TRIGGER_LABELS: Record<BotRunTriggerSource, string> = {
 };
 
 export function isActiveBotRun(run: BotRun) {
-  return run.status === "queued" || run.status === "running" || run.status === "waiting_approval";
+  return run.status === "queued" || run.status === "running" || run.status === "waiting_user";
 }
 
 export function formatBotRunTime(value: string) {
@@ -38,7 +38,7 @@ function runStatusClasses(status: BotRunStatus) {
   if (status === "failed") {
     return "border-red-500/20 bg-red-500/8 text-red-200";
   }
-  if (status === "running" || status === "waiting_approval") {
+  if (status === "running" || status === "waiting_user") {
     return "border-[var(--accent)]/20 bg-[var(--accent)]/8 text-[#c4b5fd]";
   }
   if (status === "queued") {
@@ -52,7 +52,7 @@ export function BotRunStatusChip({ status, compact = false }: { status: BotRunSt
     <span
       className={`shrink-0 rounded-md border font-medium ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} ${runStatusClasses(status)}`}
     >
-      {status === "waiting_approval" ? "needs approval" : status}
+      {status === "waiting_user" ? "needs approval" : status}
     </span>
   );
 }

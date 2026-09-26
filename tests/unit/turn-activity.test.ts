@@ -11,7 +11,7 @@ import {
   getTurnActivity,
   resetTurnActivityForTests,
   scanTurnActivity,
-  setTurnAwaitingApproval,
+  setTurnWaitingForUser,
   setTurnStallStop,
   startTurnAction,
   touchTurnActivity
@@ -83,15 +83,15 @@ describe("turn-activity", () => {
     }
     setTurnStallStop("conv_w", DELEGATED_TURN_STALL_STOP_MS);
     beginTurnActivity("conv_w");
-    setTurnAwaitingApproval("conv_w", true);
-    setTurnAwaitingApproval("conv_missing", true);
+    setTurnWaitingForUser("conv_w", true);
+    setTurnWaitingForUser("conv_missing", true);
     const waitingSince = Date.parse(getTurnActivity("conv_w")!.lastActivityAt);
 
     scanTurnActivity(waitingSince + DELEGATED_TURN_STALL_STOP_MS * 10);
     expect(getTurnActivity("conv_w")?.stalled).toBe(false);
     expect(requestStopSpy).not.toHaveBeenCalled();
 
-    setTurnAwaitingApproval("conv_w", false);
+    setTurnWaitingForUser("conv_w", false);
     const resumedAt = Date.parse(getTurnActivity("conv_w")!.lastActivityAt);
     scanTurnActivity(resumedAt + DELEGATED_TURN_STALL_STOP_MS);
     expect(requestStopSpy).toHaveBeenCalledTimes(1);
