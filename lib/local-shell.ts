@@ -14,7 +14,8 @@ export const SHELL_ENV_ALLOWLIST = [
   "TZ",
   "TMPDIR",
   "USER",
-  "LOGNAME"
+  "LOGNAME",
+  "AGENT_BROWSER_EXECUTABLE_PATH"
 ] as const;
 
 export const SHELL_ENV_EXTRA_ALLOWLIST = [

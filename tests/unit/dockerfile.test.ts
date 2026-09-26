@@ -20,9 +20,20 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("ENV XDG_RUNTIME_DIR=/app/data/runtime");
     expect(dockerfile).toContain("ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser");
     expect(dockerfile).toContain(
-      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser"
+      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data-workspaces"
     );
     expect(dockerfile).toContain("--chown=eidon:eidon");
+  });
+
+  it("runs on Node 24 with a pinned agent-browser that finds Chromium through its environment", () => {
+    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS base");
+    expect(dockerfile).toContain("npm install -g agent-browser@0.38.1");
+    expect(dockerfile).toContain("ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium");
+    expect(dockerfile).toContain(
+      `find "$(npm root -g)/agent-browser/bin" -name 'agent-browser-*' ! -name "agent-browser-linux-$(node -p process.arch)" -delete`
+    );
+    expect(dockerfile).not.toContain("agent-browser-core");
+    expect(nativeCompose).toContain("image: node:24-alpine");
   });
 
   it("installs Python 3 and symlinks the python command to python3", () => {
