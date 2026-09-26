@@ -3,10 +3,11 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { spawnMock, spawnSyncMock, sockets, fetchMock } = vi.hoisted(() => ({
+const { spawnMock, spawnSyncMock, sockets, fetchMock, cdp } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   spawnSyncMock: vi.fn(),
   sockets: [] as Array<{ url: string; sent: string[] }>,
+  cdp: { refuseNewWindows: false },
   fetchMock: vi.fn(async (_url: string) => new Response("Target is closing"))
 }));
 
@@ -23,7 +24,16 @@ vi.mock("ws", async () => {
     }
     send(data: string) {
       this.sent.push(data);
+      const { id, method } = JSON.parse(data) as { id: number; method: string };
+      if (method === "Target.createTarget") {
+        const reply = cdp.refuseNewWindows ? { id, error: { message: "Not supported" } } : { id, result: { targetId: `W-${sockets.length}` } };
+        queueMicrotask(() => this.emit("message", Buffer.from(JSON.stringify(reply))));
+        return;
+      }
       browserByUrl.get(this.url)?.exitNow();
+      queueMicrotask(() => this.emit("close"));
+    }
+    close() {
       queueMicrotask(() => this.emit("close"));
     }
     terminate() {}
@@ -63,7 +73,9 @@ function fakeSpawn(command: string, args: string[], options: { env?: Record<stri
     const socketDir = options.env?.AGENT_BROWSER_SOCKET_DIR;
     if (!failure && socketDir && args[0] === "open") {
       writeFileSync(join(socketDir, "tab.pid"), "999999");
-      writeFileSync(join(socketDir, "tab.target"), JSON.stringify({ targetId: `T-${agentBrowserCalls.length}`, pinned: true }));
+      if (!existsSync(join(socketDir, "tab.target"))) {
+        writeFileSync(join(socketDir, "tab.target"), JSON.stringify({ targetId: `T-${agentBrowserCalls.length}`, pinned: true }));
+      }
     }
     queueMicrotask(() => {
       if (failure) child.stderr.emit("data", Buffer.from(failure));
@@ -107,6 +119,7 @@ describe("agent computer browser host", () => {
     sockets.length = 0;
     browserByUrl.clear();
     agentBrowserFailure = null;
+    cdp.refuseNewWindows = false;
     const dir = mkdtempSync(join(tmpdir(), "eidon-fake-browser-"));
     fakeBrowser = join(dir, "chromium");
     writeFileSync(fakeBrowser, "#!/bin/sh\n");
@@ -150,6 +163,23 @@ describe("agent computer browser host", () => {
     ]);
     expect(agentBrowserCalls.every((call) => call.env.AGENT_BROWSER_CDP === String(browsers[0].port))).toBe(true);
     expect(agentBrowserCalls[0].env.AGENT_BROWSER_PIN_TAB).toBe("1");
+    expect(sockets.map((socket) => JSON.parse(socket.sent[0]))).toEqual([
+      { id: 1, method: "Target.createTarget", params: { url: "about:blank", newWindow: true } },
+      { id: 1, method: "Target.createTarget", params: { url: "about:blank", newWindow: true } }
+    ]);
+    const boundTab = (socketDir: string) => JSON.parse(readFileSync(join(socketDir, "tab.target"), "utf8"));
+    expect(boundTab(research.socketDir)).toEqual({ targetId: "W-1", url: "about:blank", pinned: true });
+    expect(boundTab(writer.socketDir).targetId).toBe("W-2");
+  });
+
+  it("lets agent-browser open the tab itself when the browser refuses a new window", async () => {
+    cdp.refuseNewWindows = true;
+    const { botBrowserTarget, openBrowserSession } = await loadModule();
+    const target = botBrowserTarget({ id: "bot-a", userId: "user_a" });
+
+    await openBrowserSession(target);
+
+    expect(JSON.parse(readFileSync(join(target.socketDir, "tab.target"), "utf8")).targetId).toBe("T-1");
   });
 
   it("keeps different users in different browsers and profiles", async () => {
@@ -187,7 +217,7 @@ describe("agent computer browser host", () => {
     expect(browsers).toHaveLength(2);
     expect(reopened.AGENT_BROWSER_CDP).toBe(String(browsers[1].port));
     expect(existsSync(join(target.socketDir, "tab.stream"))).toBe(false);
-    expect(JSON.parse(readFileSync(join(target.socketDir, "tab.target"), "utf8")).targetId).toBe("T-2");
+    expect(JSON.parse(readFileSync(join(target.socketDir, "tab.target"), "utf8")).targetId).toBe("W-2");
     expect(agentBrowserCalls.filter((call) => call.args[0] === "open")).toHaveLength(2);
   });
 
@@ -275,12 +305,12 @@ describe("agent computer browser host", () => {
 
     await sweepIdleBrowserSessions(Date.now() + 11 * 60_000);
     expect(fetchMock.mock.calls.map(([url]) => url).sort()).toEqual([
-      `http://127.0.0.1:${port}/json/close/T-1`,
-      `http://127.0.0.1:${port}/json/close/T-2`
+      `http://127.0.0.1:${port}/json/close/W-1`,
+      `http://127.0.0.1:${port}/json/close/W-2`
     ]);
     expect(agentBrowserCalls.filter((call) => call.args[0] !== "open")).toHaveLength(0);
-    expect(sockets).toHaveLength(1);
-    expect(JSON.parse(sockets[0].sent[0])).toEqual({ id: 1, method: "Browser.close" });
+    expect(sockets).toHaveLength(3);
+    expect(JSON.parse(sockets[2].sent[0])).toEqual({ id: 1, method: "Browser.close" });
     expect(browsers[0].child.exitCode).toBe(0);
     expect(browsers[0].child.kill).not.toHaveBeenCalled();
   });

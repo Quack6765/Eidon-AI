@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants as fsConstants, mkdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { accessSync, constants as fsConstants, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, totalmem } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -280,6 +280,7 @@ function browserArgs(profileDir: string) {
     "--remote-debugging-port=0",
     "--no-first-run",
     "--no-default-browser-check",
+    "--window-size=1280,800",
     `--disk-cache-size=${DISK_CACHE_BYTES}`,
     ...(process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
     "about:blank"
@@ -385,8 +386,20 @@ function readBoundTargetId(target: BrowserSessionTarget) {
   }
 }
 
-async function bindSession(target: BrowserSessionTarget, port: number) {
+async function openSessionWindow(host: BrowserHost, target: BrowserSessionTarget, port: number) {
+  if (!host.wsPath) return;
+  const created = await sendBrowserCommand(port, host.wsPath, "Target.createTarget", { url: "about:blank", newWindow: true });
+  if (typeof created?.targetId !== "string") return;
+  writeFileSync(
+    join(target.socketDir, `${target.sessionName}.target`),
+    JSON.stringify({ targetId: created.targetId, url: "about:blank", pinned: true }),
+    { mode: 0o600 }
+  );
+}
+
+async function bindSession(host: BrowserHost, target: BrowserSessionTarget, port: number) {
   await stopSessionDaemon(target);
+  await openSessionWindow(host, target, port);
   const result = await runAgentBrowser(target, ["open", "about:blank"], port);
   if (!result.ok) {
     throw new Error(`The browser tab could not be opened: ${result.output || "unknown error"}`);
@@ -407,7 +420,7 @@ async function tryOpenSession(host: BrowserHost, target: BrowserSessionTarget) {
     return browserSessionEnv(target, port);
   }
   if (!session && host.sessions.size > 0 && !fitsBudget(TAB_MEMORY_MB)) return null;
-  await bindSession(target, port);
+  await bindSession(host, target, port);
   host.sessions.set(target.socketDir, { generation: host.generation, lastUsedAt: Date.now() });
   return browserSessionEnv(target, port);
 }
@@ -420,6 +433,11 @@ export async function openBrowserSession(target: BrowserSessionTarget) {
     if (opened) return opened;
     await waitForBudgetChange(deadline);
   }
+}
+
+export function touchBrowserSession(target: BrowserSessionTarget) {
+  const session = getRegistry().hosts.get(target.ownerKey)?.sessions.get(target.socketDir);
+  if (session) session.lastUsedAt = Date.now();
 }
 
 export async function prepareBrowserEnv(target: BrowserSessionTarget, launch: boolean) {
@@ -441,19 +459,30 @@ async function closeSession(host: BrowserHost, target: BrowserSessionTarget) {
   notifyBudget();
 }
 
-function sendBrowserClose(port: number, wsPath: string) {
-  return new Promise<void>((resolve) => {
+function sendBrowserCommand(port: number, wsPath: string, method: string, params?: Record<string, unknown>) {
+  return new Promise<Record<string, unknown> | null>((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}${wsPath}`);
+    let result: Record<string, unknown> | null = null;
     const done = () => {
       clearTimeout(timer);
-      resolve();
+      resolve(result);
     };
     const timer = setTimeout(() => {
       socket.terminate();
       done();
     }, STOP_GRACE_MS);
     timer.unref?.();
-    socket.on("open", () => socket.send(JSON.stringify({ id: 1, method: "Browser.close" })));
+    socket.on("open", () => socket.send(JSON.stringify({ id: 1, method, ...(params ? { params } : {}) })));
+    socket.on("message", (raw: WebSocket.RawData) => {
+      try {
+        const reply = JSON.parse(raw.toString()) as { id?: number; result?: Record<string, unknown> };
+        if (reply.id !== 1) return;
+        result = reply.result ?? null;
+      } catch {
+        return;
+      }
+      socket.close();
+    });
     socket.on("close", done);
     socket.on("error", done);
   });
@@ -474,7 +503,7 @@ function waitForExit(child: ChildProcess, timeoutMs: number) {
 async function stopBrowser(host: BrowserHost) {
   const child = host.child;
   if (!child) return;
-  if (host.port && host.wsPath) await sendBrowserClose(host.port, host.wsPath);
+  if (host.port && host.wsPath) await sendBrowserCommand(host.port, host.wsPath, "Browser.close");
   if (!(await waitForExit(child, STOP_GRACE_MS))) {
     child.kill("SIGTERM");
     if (!(await waitForExit(child, STOP_GRACE_MS))) child.kill("SIGKILL");

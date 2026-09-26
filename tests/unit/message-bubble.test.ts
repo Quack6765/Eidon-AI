@@ -271,12 +271,54 @@ describe("message bubble", () => {
       })
     );
 
+    fireEvent.click(screen.getByRole("button", { name: /1 step/ }));
     fireEvent.click(screen.getByRole("button", { name: "Web browser" }));
 
     expect(screen.getByText("✓")).toBeInTheDocument();
     expect(screen.getByText("/tmp/example.png")).toBeInTheDocument();
     expect(container.textContent).not.toContain("[32m");
     expect(container.querySelector(".text-emerald-300")).not.toBeNull();
+  });
+
+  it("gathers every browser step of a reply into one live browser card", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          actions: [
+            createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com", sortOrder: 0 }),
+            createToolAction({ id: "act_ls", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Local command", detail: "ls", sortOrder: 1 }),
+            createToolAction({ id: "act_click", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser click @e2", sortOrder: 2 })
+          ]
+        }
+      })
+    );
+
+    expect(screen.getAllByTestId("computer-session-card")).toHaveLength(1);
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Local command" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Web browser" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /2 steps/ }));
+    expect(screen.getAllByRole("button", { name: "Web browser" })).toHaveLength(2);
+    expect(screen.queryByTestId("computer-live-badge")).not.toBeInTheDocument();
+
+    class IdleSocket {
+      binaryType = "blob";
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", IdleSocket);
+    try {
+      rerender(
+        React.createElement(MessageBubble, {
+          message: { ...createAssistantMessage(), actions: [createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com" })] },
+          toolCallDisplay: "status_line",
+          liveComputerConversationId: "conv_1"
+        })
+      );
+      expect(screen.getByTestId("computer-live-badge")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders pending create proposals with operation-specific copy", () => {

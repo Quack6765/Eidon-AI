@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://eidon.example/contracts/mobile-api-v1.websocket.schema.json",
   "title": "Eidon Mobile WebSocket Protocol v1",
-  "description": "Messages exchanged over /api/v1/ws. Clients ignore unknown optional future server events and request an authoritative snapshot whenever accumulated delta state is uncertain.",
+  "description": "Messages exchanged over /api/v1/ws. Clients ignore unknown optional future server events and request an authoritative snapshot whenever accumulated delta state is uncertain. The live-browser socket /api/v1/ws/computer?conversationId=<id> sends ComputerServerMessage JSON text frames plus binary frames, each one complete JPEG image of the conversation's browser tab.",
   "oneOf": [
     { "$ref": "#/$defs/ClientMessage" },
-    { "$ref": "#/$defs/ServerMessage" }
+    { "$ref": "#/$defs/ServerMessage" },
+    { "$ref": "#/$defs/ComputerServerMessage" }
   ],
   "$defs": {
     "OpaqueId": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -314,6 +315,23 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId"], "properties": { "type": { "enum": ["delete_queued_message", "send_queued_message_now"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageIds"], "properties": { "type": { "const": "reorder_queued_messages" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageIds": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/OpaqueId" } } } }
       ]
+    },
+    "ComputerServerMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "live", "url", "caption", "viewport"],
+      "properties": {
+        "type": { "const": "computer_state" },
+        "live": { "type": "boolean" },
+        "url": { "type": ["string", "null"] },
+        "caption": { "type": ["string", "null"] },
+        "viewport": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } }
+        }
+      }
     },
     "ServerMessage": {
       "oneOf": [

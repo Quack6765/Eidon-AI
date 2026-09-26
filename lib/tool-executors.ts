@@ -41,8 +41,8 @@ import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-dr
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
-import { botBrowserTarget, prepareBrowserEnv, userBrowserTarget } from "@/lib/agent-computer";
-import { getConversationOwnerId } from "@/lib/conversations";
+import { prepareBrowserEnv } from "@/lib/agent-computer";
+import { conversationBrowserTarget, setComputerCaption } from "@/lib/agent-computer-relay";
 import { resolveBotSandbox } from "./bot-sandbox";
 import type {
   AutomationCalendarFrequency,
@@ -857,14 +857,14 @@ export async function executeShellCommand(
     ? getBotByConversationId(context.input.conversationId)
     : null;
   const sandbox = bot ? resolveBotSandbox(bot) : null;
-  const browserTarget = bot
-    ? botBrowserTarget(bot)
-    : userBrowserTarget(context.input.conversationId ? getConversationOwnerId(context.input.conversationId) : null);
+  const browserTarget = conversationBrowserTarget(context.input.conversationId);
+  const usesBrowser = getShellCommandLabel(command) === "Web browser";
 
   try {
     const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
-    const browserEnv = await prepareBrowserEnv(browserTarget, getShellCommandLabel(command) === "Web browser");
+    const browserEnv = await prepareBrowserEnv(browserTarget, usesBrowser);
     throwIfAborted(context.input.abortSignal);
+    if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
     const result = await executeLocalShellCommand({
       command,
       timeoutMs,
@@ -905,6 +905,8 @@ export async function executeShellCommand(
     await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } finally {
+    if (usesBrowser) setComputerCaption(browserTarget, null);
   }
 }
 

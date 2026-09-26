@@ -102,16 +102,23 @@ app.prepare().then(async () => {
     maxPayload: 1024 * 1024,
     perMessageDeflate: false
   });
+  const computerWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 64 * 1024,
+    perMessageDeflate: false
+  });
   const {
     bootstrapRuntimeState,
     claimWebSocketUpgradeRouting,
     createAutomationScheduler,
     resolveWebSocketAuthMode,
     routeWebSocketUpgrade,
+    setupComputerWebSocketHandler,
     setupWebSocketHandler
   } = require("./ws-handler-compiled.cjs");
   bootstrapRuntimeState();
   setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
+  setupComputerWebSocketHandler(computerWss, { authModeForRequest: resolveWebSocketAuthMode });
   claimWebSocketUpgradeRouting(app);
   const upgradeHandler = app.getUpgradeHandler();
   server.on("upgrade", (request, socket, head) => {
@@ -119,7 +126,7 @@ app.prepare().then(async () => {
       request,
       socket,
       head,
-      { "/ws": wss, "/api/v1/ws": wss },
+      { "/ws": wss, "/api/v1/ws": wss, "/ws/computer": computerWss, "/api/v1/ws/computer": computerWss },
       upgradeHandler
     );
   });

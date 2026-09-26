@@ -691,6 +691,12 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { enabled: true }
     );
+    const computerBody = await call(
+      "/conversations/{conversationId}/computer",
+      ["conversations", conversationId, "computer"],
+      "GET"
+    ) as { data: { computer: Record<string, unknown> } };
+    expect(computerBody.data.computer).toEqual({ live: false, url: null, caption: null, viewport: null });
 
     const message = createMessage({
       conversationId,

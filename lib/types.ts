@@ -554,6 +554,14 @@ export type MessageAttachment = {
   createdAt: string;
 };
 
+export type ComputerState = {
+  type: "computer_state";
+  live: boolean;
+  url: string | null;
+  caption: string | null;
+  viewport: { width: number; height: number } | null;
+};
+
 export type MessageAction = {
   id: string;
   messageId: string;

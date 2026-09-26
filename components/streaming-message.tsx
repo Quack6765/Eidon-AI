@@ -52,7 +52,8 @@ function StreamingMessageImpl({
   isForking,
   isRetrying,
   isRegenerating,
-  referenceCandidates
+  referenceCandidates,
+  computerConversationId
 }: {
   active: boolean;
   buffer: StreamBuffer;
@@ -91,6 +92,7 @@ function StreamingMessageImpl({
   isRetrying?: boolean;
   isRegenerating?: boolean;
   referenceCandidates?: ReferenceCandidate[];
+  computerConversationId?: string;
 }) {
   const snapshot = useSyncExternalStore(
     active ? buffer.subscribe : noopSubscribe,
@@ -141,6 +143,7 @@ function StreamingMessageImpl({
       isRetrying={isRetrying}
       isRegenerating={isRegenerating}
       referenceCandidates={referenceCandidates}
+      liveComputerConversationId={active ? computerConversationId : undefined}
     />
   );
 }
