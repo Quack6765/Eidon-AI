@@ -1,5 +1,5 @@
-import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
-import { getMessage, updateMessageAction } from "@/lib/conversations";
+import { broadcastActionUpdate } from "@/lib/action-broadcast";
+import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { getMcpServer } from "@/lib/mcp-servers";
@@ -9,11 +9,9 @@ import {
   isMessageDraftPayload
 } from "@/lib/message-draft-display";
 import { getSettings } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-singleton";
 import type {
   McpTool,
   McpToolCallResult,
-  MessageAction,
   MessageDraftField,
   MessageDraftProposalPayload
 } from "@/lib/types";
@@ -139,18 +137,6 @@ function loadMessageDraftAction(actionId: string, userId?: string) {
   return { actionId: row.id, messageId: row.message_id, payload };
 }
 
-function broadcastMessageDraftUpdate(action: MessageAction) {
-  broadcastBotUpdateForMessage(action.messageId);
-  const conversationId = getMessage(action.messageId)?.conversationId;
-  if (conversationId) {
-    getConversationManager().broadcast(conversationId, {
-      type: "delta",
-      conversationId,
-      event: { type: "action_complete", action }
-    });
-  }
-}
-
 export async function sendMessageDraft(
   actionId: string,
   values: Record<string, string> | undefined,
@@ -219,7 +205,7 @@ export async function sendMessageDraft(
     throw new Error("Draft not found");
   }
 
-  broadcastMessageDraftUpdate(action);
+  broadcastActionUpdate(action);
   return action;
 }
 
@@ -238,7 +224,7 @@ export function discardMessageDraft(actionId: string, userId?: string) {
     throw new Error("Draft not found");
   }
 
-  broadcastMessageDraftUpdate(action);
+  broadcastActionUpdate(action);
   return action;
 }
 
@@ -266,7 +252,7 @@ export function supersedeMessageDraft(actionId: string, conversationId: string) 
   });
 
   if (action) {
-    broadcastMessageDraftUpdate(action);
+    broadcastActionUpdate(action);
   }
   return true;
 }

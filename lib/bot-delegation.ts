@@ -23,7 +23,7 @@ import {
   isBotRunStopped,
   listBotRunIdsWithPendingReply,
   listResumableDelegatedBotRunIds,
-  setBotRunAwaitingApproval,
+  setBotRunWaitingForUser,
   setBotRunPendingReply,
   updateBotRunStatus,
   type BotRunDelegation
@@ -147,7 +147,7 @@ async function startTurnWhenIdle(input: {
   startChatTurn?: StartChatTurn;
   delegationChain?: DelegationChain;
   onTurnStarted?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
-  onApprovalWait?: (waiting: boolean) => Promise<void> | void;
+  onUserWait?: (waiting: boolean) => Promise<void> | void;
 }): Promise<ChatTurnResult> {
   const startChatTurn = input.startChatTurn ?? (await import("@/lib/chat-turn")).startChatTurn;
   const manager = getConversationManager();
@@ -164,7 +164,7 @@ async function startTurnWhenIdle(input: {
       providerProfileId: input.providerProfileId,
       research: input.research,
       delegationChain: input.delegationChain,
-      onApprovalWait: input.onApprovalWait,
+      onUserWait: input.onUserWait,
       onMessagesCreated: (payload) => {
         input.onTurnStarted?.(payload);
         broadcastPersistedUserMessage(input.conversationId, payload.userMessageId, input.ownerUserId);
@@ -256,8 +256,8 @@ export function runBotTurn(input: {
           input.onMessagesCreated?.(payload);
           if (isBotRunStopped(runId)) requestStop(bot.homeConversationId);
         },
-        onApprovalWait: async (waiting) => {
-          setBotRunAwaitingApproval(runId, waiting);
+        onUserWait: async (waiting) => {
+          setBotRunWaitingForUser(runId, waiting);
           if (waiting) {
             timer.pause();
             slot.release();
@@ -412,7 +412,7 @@ export function deliverWakeMessage(input: {
         recordBotRun: input.recordBotRun,
         delegationChain: input.delegationChain,
         onTurnStarted: input.onDelivered,
-        onApprovalWait: slot
+        onUserWait: slot
           ? async (waiting) => {
               if (waiting) {
                 slot.release();
@@ -613,7 +613,7 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
   const status = getBotStatus(target);
   const run = getLatestBotRun(target.id);
   const activity = getTurnActivity(target.homeConversationId);
-  const lines = [`${target.name} is ${status === "waiting_approval" ? "waiting for approval" : status}.`];
+  const lines = [`${target.name} is ${status === "waiting_user" ? "waiting for approval" : status}.`];
 
   if (status === "running") {
     const since = activity?.startedAt ?? run?.startedAt ?? null;
@@ -624,7 +624,7 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
     } else if (activity) {
       lines.push(`Last activity ${formatElapsed(activity.lastActivityAt)} ago.`);
     }
-  } else if (status === "waiting_approval") {
+  } else if (status === "waiting_user") {
     for (const { action } of listPendingBotApprovals({ botId: target.id })) {
       lines.push(`Blocked: waiting ${formatElapsed(action.startedAt)} for the user to answer "${action.label}" (${action.detail}).`);
     }

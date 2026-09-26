@@ -1026,7 +1026,7 @@ describe("db", () => {
       conversationId: worker.homeConversationId,
       triggerSource: "routine"
     });
-    botRuns.updateBotRunStatus(pausedBotRun.id, { status: "waiting_approval", startedAt: "2026-07-12T12:00:00.000Z" });
+    botRuns.updateBotRunStatus(pausedBotRun.id, { status: "waiting_user", startedAt: "2026-07-12T12:00:00.000Z" });
     const toolApprovalAction = conversations.createMessageAction({
       messageId: assistantMessage.id,
       kind: "tool_approval",

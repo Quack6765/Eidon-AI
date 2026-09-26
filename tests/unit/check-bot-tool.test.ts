@@ -74,7 +74,7 @@ describe("check_bot tool", () => {
     const user = await createLocalUser({ username: "checkblocked", password: "password-123", role: "user" as const });
     const worker = createBot({ name: "Deployer" }, user.id);
     const run = createBotRunRecord({ botId: worker.id, conversationId: worker.homeConversationId, triggerSource: "delegated" });
-    updateBotRunStatus(run.id, { status: "waiting_approval", startedAt: new Date().toISOString() });
+    updateBotRunStatus(run.id, { status: "waiting_user", startedAt: new Date().toISOString() });
     setConversationActive(worker.homeConversationId, true);
 
     const message = createMessage({ conversationId: worker.homeConversationId, role: "assistant", content: "" });

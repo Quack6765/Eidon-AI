@@ -99,7 +99,7 @@ describe("AgentsNav", () => {
       json: async () => ({ bots: [buildBot({ status: "idle", waitingForInput: false })] })
     }));
     global.fetch = fetchMock as unknown as typeof fetch;
-    render(<AgentsNav bots={[buildBot({ status: "waiting_approval" })]} onCloseAction={() => {}} />);
+    render(<AgentsNav bots={[buildBot({ status: "waiting_user" })]} onCloseAction={() => {}} />);
     expect(screen.getByText("Needs approval")).toBeInTheDocument();
 
     for (const onReconnect of wsMocks.reconnectListeners) onReconnect();

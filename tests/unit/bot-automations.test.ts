@@ -166,10 +166,10 @@ describe("bot routines (automation run-as-bot)", () => {
     ) => {
       answerTurn(conversationId, content, "Deploy looks fine.", options);
       observed.unattended = options?.unattended;
-      await options?.onApprovalWait?.(true);
+      await options?.onUserWait?.(true);
       observed.waitingStatus = listRecentBotRuns({ userId: user.id })[0].status;
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await options?.onApprovalWait?.(false);
+      await options?.onUserWait?.(false);
       observed.resumedStatus = listRecentBotRuns({ userId: user.id })[0].status;
       return { status: "completed" as const };
     }) as StartChatTurn;
@@ -182,7 +182,7 @@ describe("bot routines (automation run-as-bot)", () => {
     });
 
     expect(run?.status).toBe("completed");
-    expect(observed).toEqual({ unattended: true, waitingStatus: "waiting_approval", resumedStatus: "running" });
+    expect(observed).toEqual({ unattended: true, waitingStatus: "waiting_user", resumedStatus: "running" });
     expect(listRecentBotRuns({ userId: user.id })[0].status).toBe("completed");
   });
 

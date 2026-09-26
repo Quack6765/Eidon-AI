@@ -159,7 +159,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
 
 export type BotRunTriggerSource = "dm" | "delegated" | "routine";
 
-export type BotRunStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "stopped";
+export type BotRunStatus = "queued" | "running" | "waiting_user" | "completed" | "failed" | "stopped";
 
 export type Bot = {
   id: string;
@@ -191,7 +191,7 @@ export type BotRun = {
   createdAt: string;
 };
 
-export type BotStatus = "idle" | "queued" | "running" | "waiting_approval";
+export type BotStatus = "idle" | "queued" | "running" | "waiting_user";
 
 export type PendingBotApproval = {
   botId: string;

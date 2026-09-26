@@ -127,7 +127,7 @@ describe("bot tool approvals", () => {
       const [approval] = listPendingBotApprovals({ userId: user.id });
       observed.approval = { botId: approval.botId, botName: approval.botName, conversationId: approval.conversationId };
       await vi.waitFor(() => {
-        if (listRecentBotRuns({ userId: user.id })[0]?.status !== "waiting_approval") throw new Error("not paused");
+        if (listRecentBotRuns({ userId: user.id })[0]?.status !== "waiting_user") throw new Error("not paused");
       });
       const current = getBot(bot.id)!;
       observed.botStatus = getBotStatus(current);
@@ -150,7 +150,7 @@ describe("bot tool approvals", () => {
       unattended: false,
       timeoutMs: undefined,
       approval: { botId: bot.id, botName: "Pusher", conversationId: bot.homeConversationId },
-      botStatus: "waiting_approval",
+      botStatus: "waiting_user",
       stalledWhileWaiting: false,
       waitingForInputAfterRead: true,
       statusRightAfterAnswer: "running",
@@ -178,7 +178,7 @@ describe("bot tool approvals", () => {
     const result = await startChatTurn(createConversationManager(), bot.homeConversationId, "Run", [], undefined, {
       unattended: true,
       botRun: { record: false },
-      onApprovalWait: (waiting) => {
+      onUserWait: (waiting) => {
         waits.push(waiting);
       }
     });

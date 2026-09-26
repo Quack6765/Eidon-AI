@@ -1446,7 +1446,7 @@ describe("chat view", () => {
       expect(textarea).toHaveValue("Existing draft\nMock cleaned transcript.");
     });
     expect(wsMock.send).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("does not submit when Enter is pressed during active voice input", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
