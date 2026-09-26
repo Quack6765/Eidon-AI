@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { toProviderProfileSummary } from "@/lib/provider-profile";
@@ -609,5 +609,161 @@ describe("ChatComposer Enter key submission", () => {
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChatComposer references", () => {
+  const references = {
+    bots: [
+      { name: "Writer", title: "Copywriter", avatarSeed: "seed-writer" },
+      { name: "Chief of Staff", title: "", avatarSeed: "seed-chief" }
+    ],
+    skills: [
+      { name: "daily-report", description: "Summarize the day" },
+      { name: "release-notes", description: "Customer-facing changes" }
+    ]
+  };
+
+  function StatefulComposer(props: Partial<React.ComponentProps<typeof ChatComposer>>) {
+    const [input, setInput] = React.useState("");
+    return (
+      <ChatComposer
+        input={input}
+        onInputChange={setInput}
+        onSubmit={vi.fn()}
+        isSending={false}
+        pendingAttachments={[]}
+        isUploadingAttachments={false}
+        onUploadFiles={vi.fn()}
+        onRemovePendingAttachment={vi.fn()}
+        showVisionWarning={false}
+        providerProfiles={[]}
+        providerProfileId=""
+        onProviderProfileChange={vi.fn()}
+        personas={[]}
+        personaId={null}
+        onPersonaChange={vi.fn()}
+        reasoningEffort={null}
+        onReasoningEffortChange={vi.fn()}
+        usedTokens={null}
+        modelContextLimit={128000}
+        compactionLimit={100000}
+        hasMessages={false}
+        canStop={false}
+        isStopPending={false}
+        onStop={vi.fn()}
+        speechPhase={"idle" as SpeechPhase}
+        speechLevel={0}
+        speechError={null}
+        onStartSpeech={vi.fn()}
+        onStopSpeech={vi.fn()}
+        references={references}
+        {...props}
+      />
+    );
+  }
+
+  function typeInto(textarea: HTMLElement, value: string) {
+    fireEvent.focus(textarea);
+    fireEvent.change(textarea, { target: { value } });
+  }
+
+  it("opens the skill list on / and inserts the highlighted skill with the keyboard", async () => {
+    installMatchMedia(false);
+    const onSubmit = vi.fn();
+    render(<StatefulComposer onSubmit={onSubmit} />);
+    const textarea = screen.getByRole("textbox");
+
+    typeInto(textarea, "Please /");
+
+    const listbox = screen.getByRole("listbox", { name: "Use a skill" });
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "/daily-reportSummarize the day",
+      "/release-notesCustomer-facing changes"
+    ]);
+    expect(textarea).toHaveAttribute("aria-activedescendant", within(listbox).getAllByRole("option")[0].id);
+
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(within(listbox).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(textarea).toHaveValue("Please /release-notes ");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(screen.getByTestId("reference-highlight")).toHaveTextContent("Please /release-notes");
+  });
+
+  it("keeps the menu closed after inserting text that arrived without key events", () => {
+    render(<StatefulComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+
+    act(() => textarea.focus());
+    fireEvent.change(textarea, { target: { value: "/" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(textarea).toHaveValue("/daily-report ");
+    expect(textarea).not.toHaveAttribute("aria-controls");
+  });
+
+  it("filters bots by the typed query and inserts a clicked bot", () => {
+    render(<StatefulComposer />);
+    const textarea = screen.getByRole("textbox");
+
+    typeInto(textarea, "@chi");
+
+    const listbox = screen.getByRole("listbox", { name: "Hand off to a bot" });
+    const options = within(listbox).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    fireEvent.click(options[0]);
+
+    expect(textarea).toHaveValue("@Chief of Staff ");
+  });
+
+  it("selects with Tab and closes on Escape so Enter submits again", async () => {
+    installMatchMedia(false);
+    const onSubmit = vi.fn();
+    render(<StatefulComposer onSubmit={onSubmit} />);
+    const textarea = screen.getByRole("textbox");
+
+    typeInto(textarea, "@wri");
+    fireEvent.keyDown(textarea, { key: "Tab" });
+    expect(textarea).toHaveValue("@Writer ");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    typeInto(textarea, "@Writer /da");
+    expect(screen.getByRole("listbox", { name: "Use a skill" })).toBeInTheDocument();
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("only offers triggers that have something to reference", () => {
+    installMatchMedia(false);
+    const onSubmit = vi.fn();
+    render(<StatefulComposer onSubmit={onSubmit} references={{ bots: [], skills: references.skills }} />);
+    const textarea = screen.getByRole("textbox");
+
+    typeInto(textarea, "@");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledOnce();
+
+    typeInto(textarea, "/zzz");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("asks for fresh references when a trigger is typed and hides the menu on blur", async () => {
+    const onReferencesOpen = vi.fn();
+    render(<StatefulComposer onReferencesOpen={onReferencesOpen} />);
+    const textarea = screen.getByRole("textbox");
+
+    typeInto(textarea, "/");
+    expect(onReferencesOpen).toHaveBeenCalledOnce();
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    fireEvent.blur(textarea);
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
   });
 });

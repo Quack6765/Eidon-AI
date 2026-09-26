@@ -18,7 +18,8 @@ import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-promp
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { findReferencedNames } from "./reference-tokens";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -139,6 +140,24 @@ function buildDynamicSkillsSegment(skills: Skill[], saveSkillEnabled = false) {
   }
 
   return lines.join("\n");
+}
+
+const BOT_AUTHORED_PROMPT_PREFIX = "[Message from ";
+
+function buildInvokedSkillsDirective(loadedSkills: string[]) {
+  return [
+    "The user invoked the skills below with / for this message. Their full instructions are already loaded: follow them for this request and do not call load_skill for them again.",
+    ...loadedSkills
+  ].join("\n\n");
+}
+
+function buildBotMentionDirective(botNames: string[]) {
+  const mentions = botNames.map((name) => `@${name}`).join(", ");
+  return [
+    `The user addressed this message to ${mentions}.`,
+    "Hand the request off with message_bot instead of doing the work yourself: one call per mentioned bot, each with the part of the request meant for that bot and the context it needs.",
+    "Then briefly tell the user who you handed it to. Their replies arrive in this conversation."
+  ].join(" ");
 }
 
 function buildVisionMcpDirective(
@@ -502,6 +521,36 @@ export async function resolveAssistantTurn(input: {
     }
   }
 
+  const applyComposerReferences = async (userContent: string) => {
+    const invokedSkillNames = findReferencedNames(
+      userContent,
+      "/",
+      turnSkills.map((skill) => getSkillResolvedName(skill))
+    ).map((name) => name.toLowerCase());
+    const invokedSkillContents: string[] = [];
+    for (const skill of turnSkills) {
+      if (loadedSkillIds.has(skill.id) || !invokedSkillNames.includes(getSkillResolvedName(skill).toLowerCase())) continue;
+      invokedSkillContents.push(await loadSkillIntoTurn(skill, input, loadedSkillIds));
+      timelineSortOrder += 1;
+    }
+    if (invokedSkillContents.length) {
+      promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
+    }
+
+    if (input.botTeam && !userContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
+      const mentionedBots = findReferencedNames(
+        userContent,
+        "@",
+        input.botTeam.roster.map((entry) => entry.name)
+      );
+      if (mentionedBots.length) {
+        promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+      }
+    }
+  };
+
+  await applyComposerReferences(getLatestUserPromptContent(promptMessages));
+
   const commitAnswerSegment = async (segment: string) => {
     if (!segment) return;
     if (input.onAnswerSegment) {
@@ -518,6 +567,7 @@ export async function resolveAssistantTurn(input: {
       ...(answeredMessage ? [answeredMessage] : []),
       { role: "user", content: redirect.content }
     ];
+    await applyComposerReferences(redirect.content);
     return true;
   };
 

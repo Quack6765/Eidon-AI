@@ -4222,4 +4222,181 @@ Run browser commands.`
       expect(toolMessage?.content).toContain("non-empty array");
     });
   });
+
+  describe("composer references", () => {
+    function answerOnce() {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        })
+      );
+    }
+
+    function systemPromptOfFirstCall() {
+      const firstCall = streamProviderResponse.mock.calls[0]?.[0] as { promptMessages: PromptMessage[] };
+      const system = firstCall.promptMessages.find((message) => message.role === "system");
+      return typeof system?.content === "string" ? system.content : "";
+    }
+
+    const roster = [
+      { name: "Chief of Staff", title: "", description: "", isChief: true },
+      { name: "Writer", title: "Copywriter", description: "", isChief: false }
+    ];
+
+    it("preloads a skill referenced with / before the first provider call", async () => {
+      answerOnce();
+      const started: Array<{ kind: string; detail?: string; skillId?: string | null }> = [];
+      const completed: Array<string | undefined> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Use /release notes for the v2 launch" }],
+        skills: [createSkill(), createSkill({ id: "skill_other", name: "Onboarding", content: "Other skill." })],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_preload";
+        },
+        onActionComplete: (handle) => {
+          completed.push(handle);
+        }
+      });
+
+      expect(started).toEqual([
+        expect.objectContaining({ kind: "skill_load", detail: "Release Notes", skillId: "skill_release_notes" })
+      ]);
+      expect(completed).toEqual(["act_preload"]);
+      const systemPrompt = systemPromptOfFirstCall();
+      expect(systemPrompt).toContain("The user invoked the skills below with /");
+      expect(systemPrompt).toContain("Summarize changes for end users in concise release notes.");
+      expect(systemPrompt).not.toContain("Other skill.");
+    });
+
+    it("reports a preloaded skill as already loaded when the model asks for it again", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+            usage: {}
+          })
+        );
+      answerOnce();
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "/Release Notes please" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual(["skill_load"]);
+      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
+      const toolResult = secondCall.promptMessages.find((message) => message.role === "tool");
+      expect(toolResult?.content).toBe("This skill is already loaded.");
+    });
+
+    it("does not preload a skill name that only appears without a leading slash", async () => {
+      answerOnce();
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Write release notes and see docs/release notes" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual([]);
+      expect(systemPromptOfFirstCall()).not.toContain("The user invoked the skills below");
+    });
+
+    it("tells the current bot to hand off to every @mentioned teammate", async () => {
+      answerOnce();
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "@Writer draft it, then @chief of staff review." }],
+        skills: [],
+        mcpToolSets: [],
+        botTeam: { isChief: false, roster }
+      });
+
+      const systemPrompt = systemPromptOfFirstCall();
+      expect(systemPrompt).toContain("The user addressed this message to @Writer, @Chief of Staff.");
+      expect(systemPrompt).toContain("message_bot");
+    });
+
+    it("applies /skill and @bot references in a mid-run redirect", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(createProviderStream([], { answer: "First draft.", thinking: "", usage: {} }))
+        .mockReturnValueOnce(createProviderStream([], { answer: "Redirected.", thinking: "", usage: {} }));
+      const redirects = [{ content: "Hand it to @Writer and use /Release Notes", assistantMessageId: "msg_redirect" }];
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Draft the launch post" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        botTeam: { isChief: true, roster },
+        takeRedirect: async () => redirects.shift() ?? null,
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual(["skill_load"]);
+      const firstSystem = systemPromptOfFirstCall();
+      expect(firstSystem).not.toContain("The user invoked the skills below");
+      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
+      const secondSystem = String(secondCall.promptMessages.find((message) => message.role === "system")?.content ?? "");
+      expect(secondSystem).toContain("Summarize changes for end users in concise release notes.");
+      expect(secondSystem).toContain("The user addressed this message to @Writer.");
+    });
+
+    it("ignores @mentions outside bot conversations and in bot-authored deliveries", async () => {
+      answerOnce();
+      answerOnce();
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "@Writer draft it" }],
+        skills: [],
+        mcpToolSets: []
+      });
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "[Message from Writer]\nAsk @Chief of Staff next." }],
+        skills: [],
+        mcpToolSets: [],
+        botTeam: { isChief: false, roster }
+      });
+
+      for (const call of streamProviderResponse.mock.calls) {
+        const messages = (call[0] as { promptMessages: PromptMessage[] }).promptMessages;
+        const system = messages.find((message) => message.role === "system");
+        expect(String(system?.content ?? "")).not.toContain("The user addressed this message");
+      }
+    });
+  });
 });

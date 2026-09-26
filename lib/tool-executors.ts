@@ -628,42 +628,53 @@ export async function executeLoadSkill(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  context.loadedSkillIds.add(skill.id);
-  try {
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: getSkillResolvedName(skill),
-      resultSummary: "Skill instructions loaded."
-    });
-    throwIfAborted(context.input.abortSignal);
-  } catch (error) {
-    context.loadedSkillIds.delete(skill.id);
-    throw error;
-  }
-
+  const skillContent = await loadSkillIntoTurn(skill, context.input, context.loadedSkillIds);
   sortOrder += 1;
-
-  const skillContent = truncateText([
-    `Skill loaded: ${getSkillResolvedName(skill)}`,
-    `Description: ${getSkillResolvedDescription(skill)}`,
-    "",
-    skill.content
-  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, resultMsg]
   };
+}
+
+export async function loadSkillIntoTurn(
+  skill: Skill,
+  input: {
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  },
+  loadedSkillIds: Set<string>
+) {
+  throwIfAborted(input.abortSignal);
+  const handle = await input.onActionStart?.({
+    kind: "skill_load",
+    label: "Load skill",
+    detail: getSkillResolvedName(skill),
+    skillId: skill.id
+  });
+  throwIfAborted(input.abortSignal);
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  loadedSkillIds.add(skill.id);
+  try {
+    await input.onActionComplete?.(actionHandle, {
+      detail: getSkillResolvedName(skill),
+      resultSummary: "Skill instructions loaded."
+    });
+    throwIfAborted(input.abortSignal);
+  } catch (error) {
+    loadedSkillIds.delete(skill.id);
+    throw error;
+  }
+
+  return truncateText([
+    `Skill loaded: ${getSkillResolvedName(skill)}`,
+    `Description: ${getSkillResolvedDescription(skill)}`,
+    "",
+    skill.content
+  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 }
 
 export async function executeSaveSkill(

@@ -2,7 +2,8 @@
 
 import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
-import { Streamdown } from "streamdown";
+import { Streamdown, defaultRemarkPlugins } from "streamdown";
+import type { Pluggable } from "unified";
 import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
@@ -10,6 +11,7 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
+import { ReferenceTokenMark } from "@/components/composer-references";
 import {
   InProgressIndicator,
   StatusLine,
@@ -22,6 +24,7 @@ import {
   summarizeToolActivity
 } from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
+import { REFERENCE_TAG, remarkReferenceTokens, type ReferenceCandidate } from "@/lib/reference-tokens";
 import { openMermaidFullscreenFromCard } from "@/lib/mermaid-fullscreen";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
@@ -73,6 +76,8 @@ import {
 import { MessageActionsMenu } from "@/components/message-actions-menu";
 
 const COPY_RESET_DELAY_MS = 1600;
+const REFERENCE_ALLOWED_TAGS = { [REFERENCE_TAG]: ["kind"] };
+const REFERENCE_COMPONENTS = { [REFERENCE_TAG]: ReferenceTokenMark };
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
 
@@ -469,7 +474,8 @@ function MessageBubbleImpl({
   onSendMessageDraft,
   onDiscardMessageDraft,
   onPreviewAttachment,
-  readOnly = false
+  readOnly = false,
+  referenceCandidates
 }: {
   message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
@@ -507,6 +513,7 @@ function MessageBubbleImpl({
   isRegenerating?: boolean;
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -535,6 +542,17 @@ function MessageBubbleImpl({
   const userPlugins = useMemo(
     () => ({ math, ...sharedUserPlugins }),
     [sharedUserPlugins]
+  );
+  const referenceRenderKey = useMemo(
+    () => (referenceCandidates ?? []).map((candidate) => `${candidate.trigger}${candidate.name}`).join("\n"),
+    [referenceCandidates]
+  );
+  const userRemarkPlugins = useMemo(
+    () =>
+      referenceCandidates?.length
+        ? [...Object.values(defaultRemarkPlugins), [remarkReferenceTokens, referenceCandidates] as Pluggable]
+        : undefined,
+    [referenceCandidates]
   );
 
   useEffect(() => {
@@ -1156,7 +1174,17 @@ function MessageBubbleImpl({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body" onClick={openMermaidFullscreenFromCard}>
-                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>{content.replace(/\n/g, "  \n")}</Streamdown>
+                  <Streamdown
+                    key={referenceRenderKey}
+                    mode="static"
+                    plugins={userPlugins}
+                    linkSafety={linkSafety}
+                    remarkPlugins={userRemarkPlugins}
+                    allowedTags={userRemarkPlugins ? REFERENCE_ALLOWED_TAGS : undefined}
+                    components={userRemarkPlugins ? REFERENCE_COMPONENTS : undefined}
+                  >
+                    {content.replace(/\n/g, "  \n")}
+                  </Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (

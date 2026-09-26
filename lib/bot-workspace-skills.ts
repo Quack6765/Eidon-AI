@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { getBotWorkspaceDir } from "@/lib/bot-sandbox";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { getSkillResolvedName } from "@/lib/skill-runtime";
-import { deriveDescription } from "@/lib/skills";
+import { deriveDescription, listEnabledSkills } from "@/lib/skills";
 import type { Bot, Skill } from "@/lib/types";
 
 export const BOT_WORKSPACE_SKILL_ID_PREFIX = "botws-";
@@ -246,4 +246,8 @@ export function mergeSkillsWithWorkspace(globalSkills: Skill[], workspaceSkills:
     ),
     ...workspaceSkills
   ];
+}
+
+export function listConversationSkills(bot: Bot | null): Skill[] {
+  return mergeSkillsWithWorkspace(listEnabledSkills(), bot ? listBotWorkspaceSkills(bot) : []);
 }
