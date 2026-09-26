@@ -108,11 +108,11 @@ describe("bot routines (automation run-as-bot)", () => {
       content: string,
       _attachments: string[],
       _personaId?: string,
-      options?: { botRun?: { record?: false } }
+      options?: { botRun?: { record?: false; runId?: string } }
     ) => {
       seenConversations.push(conversationId);
       expect(content).toBe("run the morning check");
-      expect(options?.botRun).toEqual({ record: false });
+      expect(options?.botRun).toEqual({ record: false, runId: listRecentBotRuns({ userId: user.id })[0].id });
       return { status: "completed" as const };
     }) as StartChatTurn;
 

@@ -33,7 +33,7 @@ import {
   getBot,
   getBotStatus,
   listPendingBotApprovals,
-  markBotPendingInputSeen,
+  markBotRead,
   toBotSummary
 } from "@/lib/bots";
 import { listRecentBotRuns } from "@/lib/bot-runs";
@@ -132,8 +132,8 @@ describe("bot tool approvals", () => {
       const current = getBot(bot.id)!;
       observed.botStatus = getBotStatus(current);
       observed.stalledWhileWaiting = getTurnActivity(bot.homeConversationId)?.stalled;
-      markBotPendingInputSeen(bot.id, user.id);
-      observed.waitingForInputAfterSeen = toBotSummary(getBot(bot.id)!).waitingForInput;
+      markBotRead(bot.id, user.id);
+      observed.waitingForInputAfterRead = toBotSummary(getBot(bot.id)!).waitingForInput;
 
       approveToolApproval(approval.action.id, undefined, user.id);
       observed.statusRightAfterAnswer = getBotStatus(getBot(bot.id)!);
@@ -152,7 +152,7 @@ describe("bot tool approvals", () => {
       approval: { botId: bot.id, botName: "Pusher", conversationId: bot.homeConversationId },
       botStatus: "waiting_approval",
       stalledWhileWaiting: false,
-      waitingForInputAfterSeen: true,
+      waitingForInputAfterRead: true,
       statusRightAfterAnswer: "running",
       resumedStatus: "running"
     });

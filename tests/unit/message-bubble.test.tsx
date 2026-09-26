@@ -297,6 +297,7 @@ describe("message bubble bot action cards", () => {
           providerProfileId: null,
           status: "running",
           waitingForInput: false,
+          unread: false,
           lastRunAt: startedAt,
           createdAt: startedAt,
           updatedAt: startedAt
@@ -312,6 +313,7 @@ describe("message bubble bot action cards", () => {
           startedAt,
           finishedAt: null,
           parentMessageId: "msg_assistant",
+          requestedByBotId: null,
           errorMessage: null,
           createdAt: startedAt
         }

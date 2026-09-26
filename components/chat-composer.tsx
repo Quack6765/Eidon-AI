@@ -72,6 +72,7 @@ type ChatComposerProps = {
   onStartSpeech: () => void | Promise<void>;
   onStopSpeech: () => void | Promise<void>;
   queueingEnabled?: boolean;
+  redirectsWhileBusy?: boolean;
   isTemporary?: boolean;
   showTemporaryToggle?: boolean;
   onTemporaryChange?: (value: boolean) => void;
@@ -290,6 +291,7 @@ export function ChatComposer({
   onStartSpeech,
   onStopSpeech,
   queueingEnabled = false,
+  redirectsWhileBusy = false,
   isTemporary = false,
   showTemporaryToggle = false,
   onTemporaryChange,
@@ -351,7 +353,11 @@ export function ChatComposer({
   const hasTextDraft = input.trim().length > 0;
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
-  const composerPlaceholder = queueingEnabled ? "Queue a message" : "Message Eidon";
+  const composerPlaceholder = !queueingEnabled
+    ? "Message Eidon"
+    : redirectsWhileBusy
+      ? "Redirect the current run"
+      : "Queue a message";
   const showStopButton = canStop && !isUploadingAttachments;
   const isSubmitDisabled =
     !mounted ||
@@ -907,7 +913,15 @@ export function ChatComposer({
                   ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
                   : "bg-white/5 text-white/20"
             )}
-            aria-label={primaryActionStops ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
+            aria-label={
+              primaryActionStops
+                ? "Stop response"
+                : canQueueDraft
+                  ? redirectsWhileBusy
+                    ? "Redirect run"
+                    : "Queue follow-up"
+                  : "Send message"
+            }
           >
             {primaryActionStops && !isStopPending ? (
               <span className="pointer-events-none absolute inset-[-3px] rounded-full border-2 border-white/10 border-t-violet-400 animate-spin" />

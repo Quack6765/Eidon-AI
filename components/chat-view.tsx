@@ -129,6 +129,17 @@ export function ChatView({
   const activeConversationIdRef = useRef(payload.conversation.id);
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
+  const [sendNowIds, setSendNowIds] = useState<ReadonlySet<string>>(() => new Set());
+  const redirectsWhileBusy = payload.conversation.conversationOrigin === "bot";
+  const redirectingIds = useMemo(
+    () =>
+      new Set(
+        queuedMessages
+          .filter((item) => item.status === "pending" && (redirectsWhileBusy || sendNowIds.has(item.id)))
+          .map((item) => item.id)
+      ),
+    [queuedMessages, redirectsWhileBusy, sendNowIds]
+  );
   const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
     payload.conversation.titleGenerationStatus
@@ -2261,6 +2272,7 @@ export function ChatView({
     }
 
     setError("");
+    setSendNowIds((current) => new Set(current).add(queuedMessageId));
     wsSend({
       type: "send_queued_message_now",
       conversationId: payload.conversation.id,
@@ -2463,6 +2475,7 @@ export function ChatView({
               onEdit={updateQueuedMessage}
               onDelete={deleteQueuedMessage}
               onSendNow={sendQueuedMessageNow}
+              redirectingIds={isConversationActive ? redirectingIds : undefined}
             />
           </div>
           <div className="relative">
@@ -2551,6 +2564,7 @@ export function ChatView({
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
             queueingEnabled={isConversationActive}
+            redirectsWhileBusy={redirectsWhileBusy}
             isResearch={isResearchToggled}
             onResearchChange={setIsResearchToggled}
             isTemporary={isTemporaryToggled}

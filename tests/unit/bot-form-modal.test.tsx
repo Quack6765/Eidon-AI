@@ -25,6 +25,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-09-04T10:00:00.000Z",
     updatedAt: "2026-09-04T10:00:00.000Z",
