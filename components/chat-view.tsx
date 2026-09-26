@@ -22,6 +22,7 @@ import { useComposerSpeech } from "@/hooks/use-composer-speech";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { usePendingAttachments } from "@/hooks/use-pending-attachments";
 import { usePersonas } from "@/hooks/use-personas";
+import { useComposerReferences } from "@/hooks/use-composer-references";
 import {
   type PendingLocalSubmission,
   adoptStreamingSnapshotState,
@@ -42,6 +43,7 @@ import { clearChatBootstrap, readChatBootstrap, type ChatBootstrapPayload } from
 import { ResearchPlanCard } from "@/components/research-plan-card";
 import { useResearchPlanDraft } from "@/hooks/use-research-plan-draft";
 import { createStreamBuffer } from "@/lib/stream-buffer";
+import { toReferenceCandidates } from "@/lib/reference-tokens";
 import { StreamingMessage } from "@/components/streaming-message";
 import { useStableHandler } from "@/lib/use-stable-handler";
 import { IOS_PWA_CONVERSATION_VIEWPORT_EVENT } from "@/lib/use-ios-pwa";
@@ -135,7 +137,7 @@ export function ChatView({
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
   streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
-  const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
+  const [streamMessageId, setStreamMessageIdState] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
@@ -195,6 +197,13 @@ export function ChatView({
     payload.conversation.reasoningEffort
   );
   const personas = usePersonas();
+  const { references: composerReferences, refresh: refreshComposerReferences } = useComposerReferences(
+    payload.conversation.id
+  );
+  const referenceCandidates = useMemo(
+    () => toReferenceCandidates(composerReferences),
+    [composerReferences]
+  );
   const [personaId, setPersonaId] = useState<string | null>(null);
   const {
     pendingAttachments,
@@ -237,6 +246,11 @@ export function ChatView({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<Message[]>(payload.messages);
   const streamMessageIdRef = useRef<string | null>(null);
+  const finishedStreamMessageIdsRef = useRef<Set<string>>(new Set());
+  const setStreamMessageId = useCallback((messageId: string | null) => {
+    streamMessageIdRef.current = messageId;
+    setStreamMessageIdState(messageId);
+  }, []);
   const renderKeyByMessageIdRef = useRef(new Map<string, string>());
   const wsConnectedRef = useRef(false);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
@@ -359,6 +373,9 @@ export function ChatView({
     snapshotMessage: Message,
     options?: { adopt?: boolean }
   ) => {
+    if (finishedStreamMessageIdsRef.current.has(snapshotMessage.id)) {
+      return;
+    }
     const adopt = options?.adopt ?? false;
     const adoptedStream = adoptStreamingSnapshotState(snapshotMessage.timeline);
     const bufferSnapshot = streamBuffer.getSnapshot();
@@ -392,7 +409,7 @@ export function ChatView({
     setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || nextTimeline.length));
     setIsSending(true);
     setIsConversationActive(true);
-  }, [streamBuffer, updateStreamTimeline]);
+  }, [setStreamMessageId, streamBuffer, updateStreamTimeline]);
 
   useEffect(() => {
     setMessages((current) => {
@@ -417,10 +434,6 @@ export function ChatView({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    streamMessageIdRef.current = streamMessageId;
-  }, [streamMessageId]);
 
   useEffect(() => {
     isSendingRef.current = isSending;
@@ -685,9 +698,9 @@ export function ChatView({
     }
 
     if (event.type === "message_start") {
+      finishedStreamMessageIdsRef.current.delete(event.messageId);
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
-      streamMessageIdRef.current = event.messageId;
       setHasReceivedFirstToken(false);
       finalizePendingRef.current = false;
       streamBuffer.reset();
@@ -868,6 +881,7 @@ export function ChatView({
     }
 
     if (event.type === "done") {
+      finishedStreamMessageIdsRef.current.add(event.messageId);
       clearCompactionIndicator();
       const wasStopped = isStopPending;
       setIsStopPending(false);
@@ -1451,6 +1465,9 @@ export function ChatView({
           streamBuffer.reset();
           setHasReceivedFirstToken(false);
           setIsSending(false);
+          if (!result.conversation.isActive) {
+            setIsConversationActive(false);
+          }
           stopMessageSyncPolling();
           return;
         }
@@ -1471,7 +1488,7 @@ export function ChatView({
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
+  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -2339,6 +2356,7 @@ export function ChatView({
                   isForking={forkingMessageId === message.id}
                   isRetrying={retryingMessageId === message.id}
                   isRegenerating={regeneratingMessageId === message.id}
+                  referenceCandidates={referenceCandidates}
                 />
               </div>
             );
@@ -2354,7 +2372,7 @@ export function ChatView({
         <ConversationScrollButton />
       </ConversationContainer>
 
-        <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+        <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none has-[[role=listbox]]:z-[60]">
          <div
            aria-hidden
            className="absolute inset-x-0 -top-14 bottom-0 md:hidden"
@@ -2442,6 +2460,8 @@ export function ChatView({
             personaId={personaId}
             onPersonaChange={setPersonaId}
             textareaRef={inputRef}
+            references={composerReferences}
+            onReferencesOpen={refreshComposerReferences}
             usedTokens={usedTokens}
             compactionLimit={compactionLimit}
             memoriesUsed={memoryUsage?.used ?? null}

@@ -75,6 +75,10 @@ const speechMock = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/hooks/use-composer-references", () => ({
+  useComposerReferences: () => ({ references: { bots: [], skills: [] }, refresh: () => {} })
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push

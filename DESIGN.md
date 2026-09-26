@@ -312,6 +312,7 @@ The composer is the signature component. It carries text input, provider selecti
 - **Placeholder Copy:** Show “Message Eidon” for a normal draft and “Queue a message” while the current conversation is actively responding, on both mobile and desktop.
 - **Latest:** On mobile, use an icon-only 44px circle positioned 12px above the measured composer with a transcript fade behind it. Desktop keeps the labeled pill.
 - **Attachments:** Small rounded chips with thumbnails or file icons, metadata, and a remove icon.
+- **References:** Typing `/` (every chat) or `@` (bot conversations only) opens an upward suggestion list at the composer's left edge, styled like the composer dropdowns: arrow keys move, Enter or Tab inserts, Escape dismisses. Inserted `@Bot` and `/skill` tokens stay plain text in the draft; a tint layer behind the textarea marks them (Persona Violet at 20% for bots, Thinking Indigo at 20% for skills), and sent user bubbles repeat the same tint.
 - **Inline Errors:** Composer error banners keep at least 8px between their top edge and the nearest action control.
 
 ### Markdown And Code Blocks

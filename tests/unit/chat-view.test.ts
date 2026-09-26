@@ -15,6 +15,10 @@ import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 const push = vi.fn();
 const refresh = vi.fn();
 
+vi.mock("@/hooks/use-composer-references", () => ({
+  useComposerReferences: () => ({ references: { bots: [], skills: [] }, refresh: () => {} })
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push,
@@ -5790,4 +5794,76 @@ describe("chat view", () => {
       expect(screen.getByText(/Here is the streamed reply/)).toBeInTheDocument();
     }, { timeout: 4000 });
   }, 20000);
+
+  it("keeps a finished turn idle when a stale polling snapshot still shows it streaming", async () => {
+    const userMessage = createMessage({ id: "msg_user_stale", role: "user", content: "Use the skill" });
+    const streamingAssistant = createMessage({ id: "msg_stale", content: "", status: "streaming" });
+    let resolveStaleFetch: ((value: Response) => void) | null = null;
+    let conversationFetches = 0;
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (String(input) === "/api/conversations/conv_1") {
+        conversationFetches += 1;
+        if (conversationFetches === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveStaleFetch = resolve;
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: { ...createPayload().conversation, isActive: false },
+            messages: [userMessage, { ...streamingAssistant, content: "Done", status: "completed" }]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ personas: [] }) } as Response);
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      })
+    );
+    await waitFor(() => expect(conversationFetches).toBe(1));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_stale" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Done" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_stale",
+          message: { ...streamingAssistant, content: "Done", status: "completed" }
+        }
+      });
+    });
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Eidon")).toBeInTheDocument());
+
+    await act(async () => {
+      resolveStaleFetch!({
+        ok: true,
+        json: async () => ({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      } as Response);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.queryByPlaceholderText("Queue a message")).toBeNull();
+    expect(screen.getByPlaceholderText("Message Eidon")).toBeInTheDocument();
+  });
 });

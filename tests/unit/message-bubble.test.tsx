@@ -729,3 +729,46 @@ describe("delegation event lines", () => {
     expect(parseDelegationWakeMessage("[Message from ]\nAnswer")).toBeNull();
   });
 });
+
+describe("MessageBubble reference tokens", () => {
+  it("tints known @bot and /skill tokens in user messages but leaves code alone", () => {
+    const message = {
+      ...createUserMessage(),
+      content: "Ask @Chief of Staff to run /daily-report, not `/daily-report` or @Nobody."
+    };
+    const { container } = render(
+      <MessageBubble
+        message={message}
+        referenceCandidates={[
+          { trigger: "@", name: "Chief of Staff" },
+          { trigger: "/", name: "daily-report" }
+        ]}
+      />
+    );
+
+    const marks = Array.from(container.querySelectorAll("[data-reference-kind]"));
+    expect(marks.map((mark) => [mark.getAttribute("data-reference-kind"), mark.textContent])).toEqual([
+      ["bot", "@Chief of Staff"],
+      ["skill", "/daily-report"]
+    ]);
+    expect(container.querySelector("code")).toHaveTextContent("/daily-report");
+  });
+
+  it("tints tokens once references arrive after the first render", () => {
+    const message = { ...createUserMessage(), content: "Ask @Writer now" };
+    const { container, rerender } = render(<MessageBubble message={message} referenceCandidates={[]} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    rerender(<MessageBubble message={message} referenceCandidates={[{ trigger: "@", name: "Writer" }]} />);
+
+    expect(container.querySelector("[data-reference-kind='bot']")).toHaveTextContent("@Writer");
+  });
+
+  it("renders plain text when no references are known", () => {
+    const message = { ...createUserMessage(), content: "Ask @Chief of Staff" };
+    const { container } = render(<MessageBubble message={message} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    expect(container).toHaveTextContent("Ask @Chief of Staff");
+  });
+});

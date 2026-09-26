@@ -31,8 +31,7 @@ import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compa
 import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
-import { listEnabledSkills } from "@/lib/skills";
-import { listBotWorkspaceSkills, mergeSkillsWithWorkspace } from "@/lib/bot-workspace-skills";
+import { listConversationSkills } from "@/lib/bot-workspace-skills";
 import {
   getSettings,
   getSettingsForUser,
@@ -423,9 +422,7 @@ async function startAssistantTurn(
     }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
-    const skills = appSettings.skillsEnabled
-      ? mergeSkillsWithWorkspace(listEnabledSkills(), bot ? listBotWorkspaceSkills(bot) : [])
-      : [];
+    const skills = appSettings.skillsEnabled ? listConversationSkills(bot) : [];
     const mcpServers = listEnabledMcpServers();
 
     let mcpToolSets: Array<{

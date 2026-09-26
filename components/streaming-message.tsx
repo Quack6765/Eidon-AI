@@ -3,6 +3,7 @@
 import React, { useSyncExternalStore } from "react";
 import { MessageBubble } from "@/components/message-bubble";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
+import type { ReferenceCandidate } from "@/lib/reference-tokens";
 import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
   MemoryCategory,
@@ -47,7 +48,8 @@ function StreamingMessageImpl({
   isUpdating,
   isForking,
   isRetrying,
-  isRegenerating
+  isRegenerating,
+  referenceCandidates
 }: {
   active: boolean;
   buffer: StreamBuffer;
@@ -82,6 +84,7 @@ function StreamingMessageImpl({
   isForking?: boolean;
   isRetrying?: boolean;
   isRegenerating?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
 }) {
   const snapshot = useSyncExternalStore(
     active ? buffer.subscribe : noopSubscribe,
@@ -128,6 +131,7 @@ function StreamingMessageImpl({
       isForking={isForking}
       isRetrying={isRetrying}
       isRegenerating={isRegenerating}
+      referenceCandidates={referenceCandidates}
     />
   );
 }

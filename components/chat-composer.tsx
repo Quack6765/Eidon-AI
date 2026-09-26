@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useId, useLayoutEffect, useMemo } from "react";
 import {
   AlertCircle,
   ArrowUp,
@@ -25,8 +25,17 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 import { ContextGauge } from "@/components/context-gauge";
+import { ReferenceHighlight, ReferenceMenu, type ReferenceOption } from "@/components/composer-references";
 import { Textarea } from "@/components/ui/textarea";
 import type { ReasoningEffort } from "@/lib/provider-catalog";
+import {
+  type ComposerReferences,
+  type ReferenceTrigger,
+  filterReferenceOptions,
+  findActiveReferenceQuery,
+  findReferenceTokens,
+  toReferenceCandidates
+} from "@/lib/reference-tokens";
 import { resolveProviderProfileCapabilities } from "@/lib/provider-profile";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
@@ -78,7 +87,11 @@ type ChatComposerProps = {
   isResearch?: boolean;
   onResearchChange?: (value: boolean) => void;
   compactOnMobile?: boolean;
+  references?: ComposerReferences;
+  onReferencesOpen?: () => void;
 };
+
+const ALL_REFERENCE_TRIGGERS: ReferenceTrigger[] = ["@", "/"];
 
 function CustomDropdown<T extends { id: string; name: string }>({
   items,
@@ -296,11 +309,15 @@ export function ChatComposer({
   isResearch = false,
   onResearchChange,
   compactOnMobile = false,
+  references,
+  onReferencesOpen
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const inputRef = (textareaRef ?? fallbackTextareaRef) as React.RefObject<HTMLTextAreaElement | null>;
   const { height: textareaHeight } = useAutoResize({
-    ref: textareaRef as React.RefObject<HTMLTextAreaElement | null>,
+    ref: inputRef,
     value: input,
     minHeight: 44
   });
@@ -312,9 +329,112 @@ export function ChatComposer({
   const [mobilePanel, setMobilePanel] = useState<"closed" | "tools" | "models" | "personas" | "efforts">("closed");
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
+  const referenceMenuId = useId();
+  const [caret, setCaret] = useState(0);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [dismissedReferenceStart, setDismissedReferenceStart] = useState<number | null>(null);
+  const [activeReferenceIndex, setActiveReferenceIndex] = useState(0);
+  const pendingCaretRef = useRef<number | null>(null);
+  const referenceCandidates = useMemo(
+    () => (references ? toReferenceCandidates(references) : []),
+    [references]
+  );
+  const referenceTokens = useMemo(
+    () => findReferenceTokens(input, referenceCandidates),
+    [input, referenceCandidates]
+  );
+  const referenceOptionsByTrigger = useMemo<Record<ReferenceTrigger, ReferenceOption[]>>(
+    () => ({
+      "@": (references?.bots ?? []).map((bot) => ({
+        name: bot.name,
+        detail: bot.title || undefined,
+        avatarSeed: bot.avatarSeed
+      })),
+      "/": (references?.skills ?? []).map((skill) => ({
+        name: skill.name,
+        detail: skill.description || undefined
+      }))
+    }),
+    [references]
+  );
+  const referenceTriggers = ALL_REFERENCE_TRIGGERS.filter(
+    (trigger) => referenceOptionsByTrigger[trigger].length > 0
+  );
+  const caretPosition = Math.min(caret, input.length);
+  const typedReference = isInputFocused
+    ? findActiveReferenceQuery(input, caretPosition, ALL_REFERENCE_TRIGGERS)
+    : null;
+  const activeReference =
+    typedReference && referenceTriggers.includes(typedReference.trigger) ? typedReference : null;
+  const referenceOptions = activeReference
+    ? filterReferenceOptions(referenceOptionsByTrigger[activeReference.trigger], activeReference.query)
+    : [];
+  const isReferenceMenuOpen =
+    activeReference !== null &&
+    activeReference.start !== dismissedReferenceStart &&
+    referenceOptions.length > 0;
+  const highlightedReferenceIndex = Math.min(activeReferenceIndex, Math.max(0, referenceOptions.length - 1));
+  const typedReferenceStart = typedReference?.start ?? null;
+  const activeReferenceKey = activeReference ? `${activeReference.start}:${activeReference.query}` : null;
+
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (typedReferenceStart === null) {
+      setDismissedReferenceStart(null);
+      return;
+    }
+    onReferencesOpen?.();
+  }, [typedReferenceStart, onReferencesOpen]);
+
+  useEffect(() => {
+    setActiveReferenceIndex(0);
+  }, [activeReferenceKey]);
+
+  useLayoutEffect(() => {
+    const position = pendingCaretRef.current;
+    const textarea = inputRef.current;
+    if (position === null || !textarea) return;
+    pendingCaretRef.current = null;
+    textarea.focus();
+    textarea.setSelectionRange(position, position);
+  }, [input, inputRef]);
+
+  const insertReference = (name: string) => {
+    if (!activeReference) return;
+    const before = input.slice(0, activeReference.start);
+    const after = input.slice(caretPosition).replace(/^ /, "");
+    const token = `${activeReference.trigger}${name} `;
+    const nextCaret = before.length + token.length;
+    pendingCaretRef.current = nextCaret;
+    setCaret(nextCaret);
+    onInputChange(`${before}${token}${after}`);
+  };
+
+  const handleReferenceKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!isReferenceMenuOpen || !activeReference || event.nativeEvent.isComposing) return false;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActiveReferenceIndex(
+        (highlightedReferenceIndex + step + referenceOptions.length) % referenceOptions.length
+      );
+      return true;
+    }
+    if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+      event.preventDefault();
+      insertReference(referenceOptions[highlightedReferenceIndex].name);
+      return true;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setDismissedReferenceStart(activeReference.start);
+      return true;
+    }
+    return false;
+  };
 
   useLayoutEffect(() => {
     if (input.length === 0) {
@@ -400,6 +520,20 @@ export function ChatComposer({
 
   return (
     <div className="group/composer relative">
+      <AnimatePresence>
+        {isReferenceMenuOpen && activeReference ? (
+          <ReferenceMenu
+            key={activeReference.trigger}
+            id={referenceMenuId}
+            trigger={activeReference.trigger}
+            options={referenceOptions}
+            activeIndex={highlightedReferenceIndex}
+            onActiveIndexChange={setActiveReferenceIndex}
+            onSelect={(option) => insertReference(option.name)}
+          />
+        ) : null}
+      </AnimatePresence>
+
       {isTemporary && !showTemporaryToggle && (
         <div className="absolute -top-[31px] right-6 z-10 flex h-8 items-center">
           <div className="relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 border-dashed border-violet-500/50 bg-zinc-900/95 px-2.5 text-[11px] font-semibold uppercase text-[var(--thinking)] backdrop-blur-md">
@@ -765,24 +899,45 @@ export function ChatComposer({
 
         <div
           className={cn(
-            "min-w-0 md:col-span-2 md:col-start-1 md:row-start-1 md:px-1 md:pb-1",
+            "relative min-w-0 md:col-span-2 md:col-start-1 md:row-start-1 md:px-1 md:pb-1",
             isExpanded
               ? "col-span-3 row-start-1 px-1 pb-1"
               : "col-start-2 row-start-1"
           )}
         >
+          {referenceTokens.length ? (
+            <ReferenceHighlight textareaRef={inputRef} value={input} tokens={referenceTokens} />
+          ) : null}
           <Textarea
-            ref={textareaRef}
+            ref={inputRef}
             value={input}
-            onChange={(event) => onInputChange(event.target.value)}
+            onChange={(event) => {
+              setCaret(event.target.selectionStart ?? event.target.value.length);
+              onInputChange(event.target.value);
+            }}
+            onSelect={(event) => {
+              if (pendingCaretRef.current === null) {
+                setCaret(event.currentTarget.selectionStart ?? 0);
+              }
+            }}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            aria-autocomplete={referenceTriggers.length ? "list" : undefined}
+            aria-controls={isReferenceMenuOpen ? referenceMenuId : undefined}
+            aria-activedescendant={
+              isReferenceMenuOpen ? `${referenceMenuId}-option-${highlightedReferenceIndex}` : undefined
+            }
             placeholder={composerPlaceholder}
             rows={1}
             className={cn(
-              "block max-h-[60vh] min-h-11 w-full resize-none rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-1.5 py-2 text-[16px] leading-relaxed text-[var(--text)] caret-[var(--accent)] transition-[background-color,border-color] duration-150 placeholder:text-center placeholder:text-white/30 focus:border-[var(--accent)]/30 focus:bg-white/[0.05] focus:shadow-none focus:outline-none focus-visible:ring-0 contrast-more:border-white/[0.14] contrast-more:bg-white/[0.08] contrast-more:placeholder:text-white/45 contrast-more:focus:bg-white/[0.12] md:px-2.5 md:text-[15px]",
+              "relative z-[1] block max-h-[60vh] min-h-11 w-full resize-none rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-1.5 py-2 text-[16px] leading-relaxed text-[var(--text)] caret-[var(--accent)] transition-[background-color,border-color] duration-150 placeholder:text-center placeholder:text-white/30 focus:border-[var(--accent)]/30 focus:bg-white/[0.05] focus:shadow-none focus:outline-none focus-visible:ring-0 contrast-more:border-white/[0.14] contrast-more:bg-white/[0.08] contrast-more:placeholder:text-white/45 contrast-more:focus:bg-white/[0.12] md:px-2.5 md:text-[15px]",
               isExpanded ? "overflow-y-auto scrollbar-thin" : "overflow-hidden"
             )}
             style={{ height: `${textareaHeight}px` }}
             onKeyDown={(event) => {
+              if (handleReferenceKeyDown(event)) {
+                return;
+              }
               if (event.key === "Enter" && !event.shiftKey && !isMobile) {
                 event.preventDefault();
                 if (isSpeechActive) {
