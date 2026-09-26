@@ -40,6 +40,9 @@ export function createBotRunRecord(input: {
   conversationId: string;
   triggerSource: BotRunTriggerSource;
   parentMessageId?: string | null;
+  prompt?: string | null;
+  replyConversationId?: string | null;
+  replyActionId?: string | null;
 }): BotRun {
   const run: BotRun = {
     id: createId("botrun"),
@@ -57,8 +60,9 @@ export function createBotRunRecord(input: {
   getDb()
     .prepare(
       `INSERT INTO bot_runs (
-        id, bot_id, conversation_id, trigger_source, status, started_at, finished_at, parent_message_id, error_message, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        id, bot_id, conversation_id, trigger_source, status, started_at, finished_at, parent_message_id, error_message,
+        prompt, reply_conversation_id, reply_action_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       run.id,
@@ -70,10 +74,58 @@ export function createBotRunRecord(input: {
       run.finishedAt,
       run.parentMessageId,
       run.errorMessage,
+      input.prompt ?? null,
+      input.replyConversationId ?? null,
+      input.replyActionId ?? null,
       run.createdAt
     );
 
   return run;
+}
+
+export type BotRunDelegation = {
+  prompt: string | null;
+  replyConversationId: string | null;
+  replyActionId: string | null;
+  pendingReply: string | null;
+};
+
+export function getBotRunDelegation(runId: string): BotRunDelegation | null {
+  const row = getDb()
+    .prepare("SELECT prompt, reply_conversation_id, reply_action_id, pending_reply FROM bot_runs WHERE id = ?")
+    .get(runId) as
+    | { prompt: string | null; reply_conversation_id: string | null; reply_action_id: string | null; pending_reply: string | null }
+    | undefined;
+  return row
+    ? {
+        prompt: row.prompt,
+        replyConversationId: row.reply_conversation_id,
+        replyActionId: row.reply_action_id,
+        pendingReply: row.pending_reply
+      }
+    : null;
+}
+
+export function setBotRunPendingReply(runId: string, reply: string | null) {
+  getDb().prepare("UPDATE bot_runs SET pending_reply = ? WHERE id = ?").run(reply, runId);
+}
+
+export function listResumableDelegatedBotRunIds(): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id FROM bot_runs
+       WHERE trigger_source = 'delegated' AND status = 'queued' AND prompt IS NOT NULL
+       ORDER BY created_at ASC, id ASC`
+    )
+    .all() as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}
+
+export function listBotRunIdsWithPendingReply(): string[] {
+  const rows = getDb()
+    .prepare("SELECT id FROM bot_runs WHERE pending_reply IS NOT NULL ORDER BY finished_at ASC, id ASC")
+    .all() as Array<{ id: string }>;
+  return rows.map((row) => row.id);
 }
 
 export function getBotRun(runId: string): BotRun | null {

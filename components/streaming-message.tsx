@@ -42,7 +42,8 @@ function StreamingMessageImpl({
   onDismissAutomationProposal,
   onApproveToolApproval,
   onDismissToolApproval,
-  onForkAssistantMessage,
+  onForkMessage,
+  onRewindMessage,
   onRetryAssistantMessage,
   onRegenerateUserMessage,
   isUpdating,
@@ -77,7 +78,8 @@ function StreamingMessageImpl({
     options?: { allowAlways?: boolean }
   ) => Promise<void>;
   onDismissToolApproval?: (actionId: string) => Promise<void>;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onForkMessage?: (messageId: string) => void;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   onRegenerateUserMessage?: (messageId: string) => void;
   isUpdating?: boolean;
@@ -124,7 +126,8 @@ function StreamingMessageImpl({
       onDismissAutomationProposal={onDismissAutomationProposal}
       onApproveToolApproval={onApproveToolApproval}
       onDismissToolApproval={onDismissToolApproval}
-      onForkAssistantMessage={onForkAssistantMessage}
+      onForkMessage={onForkMessage}
+      onRewindMessage={onRewindMessage}
       onRetryAssistantMessage={onRetryAssistantMessage}
       onRegenerateUserMessage={onRegenerateUserMessage}
       isUpdating={isUpdating}

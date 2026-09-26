@@ -85,7 +85,7 @@ export function useBots(initial?: BotsPayload) {
       if (msg.type === "bot_run_updated") {
         scheduleRefresh();
       }
-    });
+    }, { onReconnect: scheduleRefresh });
   }, [refresh]);
 
   useEffect(() => {

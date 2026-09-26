@@ -39,13 +39,21 @@ import {
   shouldShowProvisionalImageAction,
   updateStreamingAction
 } from "@/components/chat-snapshot-helpers";
-import { clearChatBootstrap, readChatBootstrap, type ChatBootstrapPayload } from "@/lib/chat-bootstrap";
+import {
+  clearChatBootstrap,
+  consumeComposerDraft,
+  readChatBootstrap,
+  storeComposerDraft,
+  type ChatBootstrapPayload
+} from "@/lib/chat-bootstrap";
 import { ResearchPlanCard } from "@/components/research-plan-card";
 import { useResearchPlanDraft } from "@/hooks/use-research-plan-draft";
 import { createStreamBuffer } from "@/lib/stream-buffer";
 import { toReferenceCandidates } from "@/lib/reference-tokens";
 import { StreamingMessage } from "@/components/streaming-message";
 import { useStableHandler } from "@/lib/use-stable-handler";
+import { usePendingRewind } from "@/hooks/use-pending-rewind";
+import { Toast } from "@/components/ui/toast";
 import { IOS_PWA_CONVERSATION_VIEWPORT_EVENT } from "@/lib/use-ios-pwa";
 import { useContextTokens } from "@/lib/context-tokens-context";
 import {
@@ -60,6 +68,7 @@ import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type {
   ChatResearchOptions,
   ChatStreamEvent,
+  ComposerDraft,
   Conversation,
   MemoryCategory,
   Message,
@@ -272,6 +281,21 @@ export function ChatView({
   const firstVisibleMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<ChatBootstrapPayload | null>(null);
   const bootstrapSubmittedRef = useRef(false);
+  const rewind = usePendingRewind({
+    conversationId: payload.conversation.id,
+    getMessages: () => messagesRef.current,
+    composer: {
+      getInput: () => input,
+      setInput,
+      getAttachments: () => pendingAttachments,
+      setAttachments: setPendingAttachments
+    },
+    onCommitted: (result) => {
+      setMessages(sanitizeMessages(result.messages));
+      setQueuedMessages(result.queuedMessages);
+    },
+    onError: setError
+  });
 
   const restorePendingSubmissions = useCallback(() => {
     if (pendingLocalSubmissionsRef.current.length === 0) {
@@ -316,6 +340,10 @@ export function ChatView({
     );
 
     return messages.filter((message) => {
+      if (rewind.removedMessageIds.has(message.id)) {
+        return false;
+      }
+
       if (!message.id.startsWith("local_")) {
         return true;
       }
@@ -334,7 +362,7 @@ export function ChatView({
         `${message.content} ${getAttachmentIdSignature(message.attachments)}`
       );
     });
-  }, [messages]);
+  }, [messages, rewind.removedMessageIds]);
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(INITIAL_VISIBLE_MESSAGE_COUNT);
   const hiddenMessageCount = Math.max(renderableMessages.length - visibleMessageLimit, 0);
   const visibleMessages = useMemo(
@@ -699,6 +727,7 @@ export function ChatView({
 
     if (event.type === "message_start") {
       finishedStreamMessageIdsRef.current.delete(event.messageId);
+      rewind.cancel("A new reply started, so the rewind was undone");
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
       setHasReceivedFirstToken(false);
@@ -1038,33 +1067,37 @@ export function ChatView({
             )
           });
           break;
-        case "snapshot":
+        case "snapshot": {
+          const snapshotMessages = msg.messages as Message[];
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           setIsConversationActive(
-            (msg.messages as Message[]).some(
+            snapshotMessages.some(
               (message) => message.role === "assistant" && message.status === "streaming"
             )
           );
-          if (streamMessageId) {
-            const activeSnapshotMessage = (msg.messages as Message[]).find(
-              (message) => message.id === streamMessageId
+          let activeStreamMessageId = streamMessageId;
+          if (activeStreamMessageId) {
+            const activeSnapshotMessage = snapshotMessages.find(
+              (message) => message.id === activeStreamMessageId
             );
 
-            if (
-              activeSnapshotMessage &&
-              activeSnapshotMessage.status !== "streaming" &&
-              !finalizePendingRef.current
-            ) {
+            if (activeSnapshotMessage?.status === "streaming") {
+              syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
+            } else if ((activeSnapshotMessage || snapshotMessages.length > 0) && !finalizePendingRef.current) {
+              const endedStreamMessageId = activeStreamMessageId;
               setStreamMessageId(null);
               updateStreamTimeline([]);
               streamBuffer.reset();
               setHasReceivedFirstToken(false);
               setIsSending(false);
-            } else if (activeSnapshotMessage && activeSnapshotMessage.status === "streaming") {
-              syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
+              if (!activeSnapshotMessage) {
+                setMessages((current) => current.filter((message) => message.id !== endedStreamMessageId));
+              }
+              activeStreamMessageId = null;
             }
-          } else {
-            const streamingMsg = (msg.messages as Message[]).find(
+          }
+          if (!activeStreamMessageId) {
+            const streamingMsg = snapshotMessages.find(
               (message) => message.status === "streaming" && message.role === "assistant"
             );
             if (streamingMsg) {
@@ -1078,8 +1111,9 @@ export function ChatView({
             }
           }
 
-          applySnapshotReconciliation(msg.messages as Message[], streamMessageId);
+          applySnapshotReconciliation(snapshotMessages, activeStreamMessageId);
           break;
+        }
         case "user_message_persisted": {
           if (msg.conversationId !== payload.conversation.id) {
             break;
@@ -1119,6 +1153,14 @@ export function ChatView({
         case "queue_updated":
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           break;
+        case "messages_deleted": {
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
+          const deletedMessageIds = new Set(msg.messageIds);
+          setMessages((current) => current.filter((message) => !deletedMessageIds.has(message.id)));
+          break;
+        }
         case "conversation_cleared":
           if (msg.conversationId !== payload.conversation.id) {
             break;
@@ -1213,6 +1255,16 @@ export function ChatView({
     bootstrapPayloadRef.current = bootstrap;
     bootstrapSubmittedRef.current = false;
   }, [payload.conversation.id]);
+
+  useEffect(() => {
+    const draft = consumeComposerDraft(payload.conversation.id);
+    if (!draft) {
+      return;
+    }
+
+    setInput(draft.content);
+    setPendingAttachments(draft.attachments);
+  }, [payload.conversation.id, setPendingAttachments]);
 
   useEffect(() => {
     if (!wsConnected || bootstrapSubmittedRef.current) {
@@ -1504,7 +1556,7 @@ export function ChatView({
   async function updateUserMessage(messageId: string, content: string) {
     const previousMessage = messages.find((message) => message.id === messageId);
 
-    if (!previousMessage) {
+    if (!previousMessage || (rewind.pendingRewind && !(await rewind.commit()))) {
       return;
     }
 
@@ -1563,8 +1615,8 @@ export function ChatView({
     }
   }
 
-  async function forkAssistantMessage(messageId: string) {
-    if (forkingMessageId) {
+  async function forkMessage(messageId: string) {
+    if (forkingMessageId || (rewind.pendingRewind && !(await rewind.commit()))) {
       return;
     }
 
@@ -1591,6 +1643,7 @@ export function ChatView({
         conversation?: {
           id?: string;
         };
+        draft?: ComposerDraft | null;
       };
       const nextConversationId = result.conversation?.id;
 
@@ -1598,6 +1651,9 @@ export function ChatView({
         throw new Error("Unable to fork conversation");
       }
 
+      if (result.draft) {
+        storeComposerDraft(nextConversationId, result.draft);
+      }
       router.push(`/chat/${nextConversationId}`);
     } catch (caughtError) {
       setError(
@@ -1608,8 +1664,18 @@ export function ChatView({
     }
   }
 
+  function rewindMessage(messageId: string) {
+    setError("");
+    const rewindsUserMessage = messagesRef.current.find((message) => message.id === messageId)?.role === "user";
+    void rewind.start(messageId).then(() => {
+      if (rewindsUserMessage && shouldAutofocusTextInput()) {
+        inputRef.current?.focus({ preventScroll: true });
+      }
+    });
+  }
+
   async function retryAssistantMessage(messageId: string) {
-    if (retryingMessageId) {
+    if (retryingMessageId || (rewind.pendingRewind && !(await rewind.commit()))) {
       return;
     }
 
@@ -1664,7 +1730,7 @@ export function ChatView({
   }
 
   async function regenerateUserMessage(messageId: string) {
-    if (regeneratingMessageId) {
+    if (regeneratingMessageId || (rewind.pendingRewind && !(await rewind.commit()))) {
       return;
     }
 
@@ -2000,6 +2066,10 @@ export function ChatView({
     nextPersonaId?: string,
     nextResearch?: boolean | ChatResearchOptions
   ) {
+    if (rewind.pendingRewind && !(await rewind.commit())) {
+      return;
+    }
+
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
     const hasActiveTurn =
@@ -2222,7 +2292,16 @@ export function ChatView({
   const onDismissToolApprovalStable = useStableHandler(dismissToolApproval);
   const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
   const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
-  const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
+  const onForkMessageStable = useStableHandler(forkMessage);
+  const onRewindMessageStable = useStableHandler(rewindMessage);
+  const onRemovePendingAttachmentStable = useStableHandler(async (attachmentId: string) => {
+    if (rewind.pendingRewind && !(await rewind.commit())) {
+      return;
+    }
+    await removePendingAttachment(attachmentId);
+  });
+  const canForkMessages = payload.conversation.conversationOrigin !== "bot";
+  const canRewindMessages = !isConversationActive && !isSending;
   const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
   const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
   const onPreviewAttachmentStable = useStableHandler(previewController.openAttachmentPreview);
@@ -2349,7 +2428,14 @@ export function ChatView({
                   onDismissToolApproval={onDismissToolApprovalStable}
                   onApproveAutomationProposal={onApproveAutomationProposalStable}
                   onDismissAutomationProposal={onDismissAutomationProposalStable}
-                  onForkAssistantMessage={onForkAssistantMessageStable}
+                  onForkMessage={canForkMessages && !message.id.startsWith("local_") ? onForkMessageStable : undefined}
+                  onRewindMessage={
+                    canRewindMessages &&
+                    !message.id.startsWith("local_") &&
+                    (message.role === "user" || index < visibleMessages.length - 1)
+                      ? onRewindMessageStable
+                      : undefined
+                  }
                   onRetryAssistantMessage={onRetryAssistantMessageStable}
                   onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
                   isUpdating={updatingMessageId === message.id}
@@ -2372,6 +2458,16 @@ export function ChatView({
         <ConversationScrollButton />
       </ConversationContainer>
 
+        <Toast
+          inline
+          visible={rewind.isUndoVisible}
+          variant="neutral"
+          message={rewind.undoLabel}
+          action={{ label: "Undo", onClick: rewind.undo }}
+          onClose={() => void rewind.commit()}
+          onHoldChange={rewind.hold}
+          className="bottom-[calc(var(--composer-height,80px)+3.25rem)] left-1/2 -translate-x-1/2 md:bottom-[calc(var(--composer-height,160px)+2.75rem)]"
+        />
         <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none has-[[role=listbox]]:z-[60]">
          <div
            aria-hidden
@@ -2449,7 +2545,7 @@ export function ChatView({
             pendingAttachments={pendingAttachments}
             isUploadingAttachments={isUploadingAttachments}
             onUploadFiles={uploadFiles}
-            onRemovePendingAttachment={removePendingAttachment}
+            onRemovePendingAttachment={onRemovePendingAttachmentStable}
             showVisionWarning={Boolean(showVisionWarning)}
             providerProfiles={payload.providerProfiles}
             providerProfileId={providerProfileId}
@@ -2478,7 +2574,7 @@ export function ChatView({
             isResearch={isResearchToggled}
             onResearchChange={setIsResearchToggled}
             isTemporary={isTemporaryToggled}
-            showTemporaryToggle={messages.length === 0}
+            showTemporaryToggle={messages.length === 0 && payload.conversation.conversationOrigin === "manual"}
             onTemporaryChange={(value: boolean) => {
               setIsTemporaryToggled(value);
               fetch(`/api/conversations/${payload.conversation.id}`, {

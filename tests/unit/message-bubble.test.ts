@@ -1677,21 +1677,117 @@ describe("message bubble", () => {
     });
   });
 
-  it("renders a fork action for completed assistant messages", () => {
+  it("moves between menu items with the arrow, Home, and End keys", () => {
     render(
-      React.createElement(MessageBubble as React.ComponentType<any>, {
-        message: {
-          ...createAssistantMessage(),
-          content: "Ready to fork"
-        },
-        onForkAssistantMessage: vi.fn()
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), content: "Keyboard target" },
+        onForkMessage: vi.fn(),
+        onRewindMessage: vi.fn()
       })
     );
 
+    fireEvent.keyDown(screen.getByRole("button", { name: "More message actions" }), { key: "ArrowDown" });
+    const menu = screen.getByRole("menu");
+    const fork = screen.getByRole("menuitem", { name: "Fork from here" });
+    const rewind = screen.getByRole("menuitem", { name: "Rewind to here" });
+
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Tab" });
+    expect(rewind).toHaveFocus();
+  });
+
+  it("offers fork and rewind from the overflow menu of a completed assistant message", () => {
+    const onForkMessage = vi.fn();
+    const onRewindMessage = vi.fn();
+    const message = { ...createAssistantMessage(), content: "Ready to fork" };
+    render(
+      React.createElement(MessageBubble, { message, onForkMessage, onRewindMessage })
+    );
+
     expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Fork conversation from message" })
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    expect(screen.getByRole("menu", { name: "Message actions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork from here" }));
+
+    expect(onForkMessage).toHaveBeenCalledWith(message.id);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rewind to here" }));
+    expect(onRewindMessage).toHaveBeenCalledWith(message.id);
+  });
+
+  it("opens the message menu by mouse or keyboard and closes it on Escape, outside click, or a second click", () => {
+    const originalResizeObserver = window.ResizeObserver;
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      render(
+        React.createElement(MessageBubble, {
+          message: { ...createAssistantMessage(), content: "Menu target" },
+          onRewindMessage: vi.fn()
+        })
+      );
+
+      const trigger = screen.getByRole("button", { name: "More message actions" });
+      fireEvent.click(trigger, { detail: 1 });
+      expect(screen.queryByRole("menuitem", { name: "Fork from here" })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).not.toHaveFocus();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("menu")).toBeNull();
+
+      const keyDown = fireEvent.keyDown(trigger, { key: "Enter" });
+      expect(keyDown).toBe(false);
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toHaveFocus();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(trigger).toHaveFocus();
+
+      fireEvent.click(trigger, { detail: 1 });
+      fireEvent.click(trigger, { detail: 1 });
+      expect(screen.queryByRole("menu")).toBeNull();
+    } finally {
+      window.ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  it("does not offer fork on an assistant message that is not completed", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "stopped", content: "Cut short" },
+        onForkMessage: vi.fn()
+      })
+    );
+
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
+  });
+
+  it("shows a busy trigger while a fork is being created", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), content: "Forking" },
+        onForkMessage: vi.fn(),
+        isForking: true
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "More message actions" })).toBeDisabled();
   });
 
   it("hides copy and fork actions for streaming assistant messages", () => {
@@ -1702,7 +1798,8 @@ describe("message bubble", () => {
           status: "streaming",
           content: "Still composing"
         },
-        onForkAssistantMessage: vi.fn()
+        onForkMessage: vi.fn(),
+        onRewindMessage: vi.fn()
       })
     );
 
@@ -1710,7 +1807,7 @@ describe("message bubble", () => {
       screen.queryByRole("button", { name: "Copy message" })
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Fork conversation from message" })
+      screen.queryByRole("button", { name: "More message actions" })
     ).toBeNull();
   });
 
@@ -2457,17 +2554,34 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-status-line")).toBeNull();
   });
 
-  it("does not render a fork action for user messages", () => {
+  it("offers fork and rewind on user messages", () => {
+    const onForkMessage = vi.fn();
+    const onRewindMessage = vi.fn();
+    const message = createUserMessage();
     render(
-      React.createElement(MessageBubble as React.ComponentType<any>, {
+      React.createElement(MessageBubble, { message, onForkMessage, onRewindMessage })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rewind to here" }));
+
+    expect(onRewindMessage).toHaveBeenCalledWith(message.id);
+    expect(onForkMessage).not.toHaveBeenCalled();
+  });
+
+  it("hides the message menu on read-only user messages and when no action applies", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
         message: createUserMessage(),
-        onForkAssistantMessage: vi.fn()
+        onForkMessage: vi.fn(),
+        readOnly: true
       })
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Fork conversation from message" })
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
+
+    rerender(React.createElement(MessageBubble, { message: createUserMessage() }));
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
   });
 
   it("renders GFM tables inside user message bubbles", () => {

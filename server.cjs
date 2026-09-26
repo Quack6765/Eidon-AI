@@ -7,6 +7,7 @@ const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;
 const PORT_MAX = 4000;
 const MAX_ATTEMPTS = 10;
+const BROWSER_BLOCKED_PORTS = new Set([3659]);
 
 function isProcessRunning(pid) {
   try {
@@ -63,6 +64,7 @@ async function findAvailablePort(server, preferredPort) {
 async function findRandomPort(server) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const port = Math.floor(Math.random() * (PORT_MAX - PORT_MIN + 1)) + PORT_MIN;
+    if (BROWSER_BLOCKED_PORTS.has(port)) continue;
     try {
       await findAvailablePort(server, port);
       return port;
@@ -200,6 +202,11 @@ app.prepare().then(async () => {
   }
 
   automationScheduler?.start?.();
+
+  const { resumeRuntimeWork } = require("./ws-handler-compiled.cjs");
+  resumeRuntimeWork?.().catch((err) => {
+    console.error("[resume] Failed to resume interrupted work:", err.message);
+  });
 }).catch((err) => {
   console.error("[server] Next.js prepare failed:", err);
   process.exit(1);

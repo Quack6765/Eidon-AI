@@ -640,7 +640,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("stopped");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
@@ -1019,7 +1019,7 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.content).toBe(
-        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file was not produced by a completed tool action in this turn."
+        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file is outside the workspaces I can share files from."
       );
       expect(assistant?.attachments).toEqual([]);
     } finally {
@@ -1664,7 +1664,7 @@ describe("chat-turn", () => {
     const { updateProviderCatalog } = await import("@/lib/settings");
     const { getConversationManager } = await import("@/lib/ws-singleton");
     const { startChatTurn } = await import("@/lib/chat-turn");
-    const { buildDelegationWakeContent, deliverDelegationWake } = await import("@/lib/bot-delegation");
+    const { buildDelegationWakeContent, deliverWakeMessage } = await import("@/lib/bot-delegation");
 
     const { profileId, profile } = setupProviderProfile();
     updateProviderCatalog({
@@ -1718,7 +1718,7 @@ describe("chat-turn", () => {
       }
     });
 
-    const wake = deliverDelegationWake({
+    const wake = deliverWakeMessage({
       recipientConversationId: conversation.id,
       ownerUserId: user.id,
       content: buildDelegationWakeContent("Ona Operator", {
@@ -1835,7 +1835,7 @@ describe("chat-turn", () => {
       const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistantMessage?.status).toBe("completed");
       expect(assistantMessage?.content).toBe(
-        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect(assistantMessage?.attachments).toEqual([]);
     } finally {
@@ -1880,7 +1880,7 @@ describe("chat-turn", () => {
     expect(assistantMessage?.status).toBe("completed");
     expect(assistantMessage?.attachments).toEqual([]);
     expect(assistantMessage?.content).toBe(
-      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file was not produced by a completed tool action in this turn."
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file is outside the workspaces I can share files from."
     );
   });
 
@@ -2243,7 +2243,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);

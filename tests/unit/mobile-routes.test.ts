@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,7 +10,10 @@ import {
   POST as mobilePost,
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
+import { getSharedBotWorkspaceDir, resolveBotSandbox } from "@/lib/bot-sandbox";
+import { getBot } from "@/lib/bots";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
@@ -219,6 +225,36 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
+
+    const workspaceBot = getBot(botId)!;
+    fs.writeFileSync(path.join(resolveBotSandbox(workspaceBot).workspaceDir, "notes.md"), "# Notes");
+    fs.writeFileSync(path.join(getSharedBotWorkspaceDir(workspaceBot), "handoff.bin"), Buffer.from([1, 2, 3]));
+
+    const filePreview = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, { query: "?path=notes.md&format=text" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(filePreview.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/workspace/file", "get", filePreview);
+    await expect(filePreview.json()).resolves.toEqual({
+      data: { filename: "notes.md", mimeType: "text/markdown", content: "# Notes" }
+    });
+
+    const sharedDownload = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, {
+        query: "?path=handoff.bin&scope=shared&download=1"
+      }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(sharedDownload.status).toBe(200);
+    expect(sharedDownload.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await sharedDownload.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
+
+    const outsiderFile = await mobileGet(
+      request(["bots", botId, "workspace", "file"], outsiderSession.token, { query: "?path=notes.md" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(outsiderFile.status).toBe(404);
     const seenInput = await mobilePost(
       request(["bots", botId, "seen-input"], memberSession.token, { method: "POST" }),
       context(["bots", botId, "seen-input"])
@@ -340,6 +376,13 @@ describe("Mobile API v1 REST adapter", () => {
       context(["bots", chiefId])
     );
     expect(chiefDelete.status).toBe(400);
+
+    const homeThreadDelete = await mobileDelete(
+      request(["conversations", createdBot.homeConversationId], memberSession.token, { method: "DELETE" }),
+      context(["conversations", createdBot.homeConversationId])
+    );
+    expect(homeThreadDelete.status).toBe(409);
+    await assertResponseContract("/conversations/{conversationId}", "delete", homeThreadDelete);
 
     const deleted = await mobileDelete(
       request(["bots", botId], memberSession.token, { method: "DELETE" }),
@@ -634,6 +677,32 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { content: "Updated contract message" }
     );
+    const reply = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "Contract reply"
+    });
+    const [draftAttachment] = await createAttachments(conversationId, [
+      { filename: "draft.txt", mimeType: "text/plain", bytes: Buffer.from("draft attachment", "utf8") }
+    ]);
+    bindAttachmentsToMessage(conversationId, message.id, [draftAttachment.id]);
+    const userForkBody = await call(
+      "/messages/{messageId}/fork",
+      ["messages", message.id, "fork"],
+      "POST"
+    ) as { data: { draft: { content: string; attachments: Array<Record<string, unknown>> } } };
+    expect(userForkBody.data.draft.content).toBe("Updated contract message");
+    expect(userForkBody.data.draft.attachments[0]).not.toHaveProperty("relativePath");
+    await call("/messages/{messageId}/fork", ["messages", reply.id, "fork"], "POST");
+    const rewindBody = await call(
+      "/messages/{messageId}/rewind",
+      ["messages", message.id, "rewind"],
+      "POST"
+    ) as { data: { messages: unknown[]; draft: { attachments: Array<{ id: string; messageId: string | null }> } } };
+    expect(rewindBody.data.messages).toEqual([]);
+    expect(rewindBody.data.draft.attachments).toEqual([
+      expect.objectContaining({ id: draftAttachment.id, messageId: null })
+    ]);
 
     const formData = new FormData();
     formData.set("conversationId", conversationId);

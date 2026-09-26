@@ -167,8 +167,11 @@ describe("Mobile API v1 contracts", () => {
       "/bots/{botId}/memories",
       "/bots/{botId}/reset-browser-session",
       "/bots/{botId}/workspace",
+      "/bots/{botId}/workspace/file",
       "/avatars/{seed}",
       "/messages/{messageId}/edit-restart",
+      "/messages/{messageId}/fork",
+      "/messages/{messageId}/rewind",
       "/message-actions/{actionId}/approve",
       "/settings/providers",
       "/settings/general",
@@ -210,6 +213,16 @@ describe("Mobile API v1 contracts", () => {
       tags: ["Agents"],
       responses: { "200": { $ref: "#/components/responses/PendingBotApprovalList" } }
     });
+    expect(contract.paths["/conversations/{conversationId}"]).toMatchObject({
+      patch: { responses: { "409": { $ref: "#/components/responses/Error" } } },
+      delete: {
+        operationId: "deleteConversation",
+        responses: {
+          "200": { $ref: "#/components/responses/ConversationDelete" },
+          "409": { $ref: "#/components/responses/Error" }
+        }
+      }
+    });
     expect(contract.paths["/bots/{botId}/clear-context"]).toMatchObject({
       parameters: [{ $ref: "#/components/parameters/botId" }]
     });
@@ -235,6 +248,7 @@ describe("Mobile API v1 contracts", () => {
     const attachmentProperties = contract.components.schemas.Attachment.properties!;
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
+    expect(attachmentProperties).not.toHaveProperty("sourcePath");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
     expect(contract.components.schemas.MemoryProposalPayload.properties!.botId).toEqual({
       $ref: "#/components/schemas/NullableId"
@@ -297,7 +311,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(43);
-    expect(compileOpenApiJsonResponses()).toBe(117);
+    expect(compileOpenApiJsonResponses()).toBe(121);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -347,6 +361,17 @@ describe("Mobile API v1 contracts", () => {
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
     expect(serverMessages).toContain("conversation_cleared");
+    expect(serverMessages).toContain("messages_deleted");
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "messages_deleted",
+      conversationId: "conv_1",
+      messageIds: ["msg_1", "msg_2"]
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "messages_deleted",
+      conversationId: "conv_1",
+      messageIds: []
+    })).toThrow(/ServerMessage failed contract validation/);
     expect(serverMessages).toContain("bot_updated");
     expect(serverMessages).toContain("bot_deleted");
     expect(serverMessages).toContain("bot_run_updated");
