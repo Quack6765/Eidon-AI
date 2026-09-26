@@ -25,7 +25,7 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 
 All three GitHub App variables must be set together. If any is missing, the GitHub Copilot provider type still appears in settings but **Connect GitHub** will not complete.
 
-The production image also sets `HOME`, `TMPDIR`, `XDG_RUNTIME_DIR`, and `AGENT_BROWSER_SOCKET_DIR` to paths inside `/app/data` so the non-root user has writable locations, and `NEXT_TELEMETRY_DISABLED=1`. You do not normally need to override these.
+The production image also sets `HOME`, `TMPDIR`, `XDG_RUNTIME_DIR`, and `AGENT_BROWSER_SOCKET_DIR` to paths inside `/app/data` so the non-root user has writable locations, `AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium` so `agent-browser` uses the bundled Chromium, and `NEXT_TELEMETRY_DISABLED=1`. You do not normally need to override these.
 
 `NEXT_PUBLIC_APP_VERSION` is a build argument, not a runtime variable. It is what the in-app version string displays. See [Development](./development.md) for the image channels that set it.
 
