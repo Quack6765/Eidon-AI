@@ -53,6 +53,28 @@ describe("shell command executor sandboxing", () => {
     expect(resultLine).not.toBe(process.cwd());
   });
 
+  it("gives regular chats their owner's browser session instead of a server-wide one", async () => {
+    const user = await createApprovalUser();
+    botsMock.getBotByConversationId.mockReturnValue(null);
+    const { executeShellCommand } = await import("@/lib/tool-executors");
+    const { createConversation } = await import("@/lib/conversations");
+    const { createToolApprovalRules } = await import("@/lib/tool-approvals");
+    const conversation = createConversation("Chat", null, {}, user.id);
+
+    createToolApprovalRules(user.id, "shell", ["echo"]);
+
+    const result = await executeShellCommand(
+      "tc_user_session",
+      { command: 'echo "session=$AGENT_BROWSER_SESSION dir=$AGENT_BROWSER_SOCKET_DIR"' },
+      buildContext(conversation.id, user.id)
+    );
+    const content = String(result.promptMessages.at(-1)?.content);
+
+    const { userBrowserTarget } = await import("@/lib/agent-computer");
+    expect(content).toContain("session=tab");
+    expect(content).toContain(`dir=${userBrowserTarget(user.id).socketDir}`);
+  });
+
   it("keeps bot commands in the per-bot workspace with the browser sandbox env", async () => {
     const user = await createApprovalUser();
     const bot = { id: "bot_exec_probe", userId: user.id } as Bot;
@@ -65,13 +87,13 @@ describe("shell command executor sandboxing", () => {
 
     const result = await executeShellCommand(
       "tc_bot",
-      { command: 'pwd; echo "session=$AGENT_BROWSER_SESSION_NAME"; echo "secret=[$EIDON_SESSION_SECRET]"' },
+      { command: 'pwd; echo "session=$AGENT_BROWSER_SESSION"; echo "secret=[$EIDON_SESSION_SECRET]"' },
       buildContext("conv_bot_probe", user.id)
     );
     const content = String(result.promptMessages.at(-1)?.content);
 
     expect(content).toContain(realpathSync(getBotWorkspaceDir(bot)));
-    expect(content).toContain("session=bot");
+    expect(content).toContain("session=tab");
     expect(content).toContain("secret=[]");
   });
 });

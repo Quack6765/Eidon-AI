@@ -421,7 +421,7 @@ describe("shell environment scrubbing", () => {
     const resultPromise = executeLocalShellCommand({
       command: "printenv",
       env: {
-        AGENT_BROWSER_SESSION_NAME: "probe",
+        AGENT_BROWSER_SESSION: "probe",
         EIDON_SESSION_SECRET: "leak",
         EIDON_ENCRYPTION_SECRET: "leak",
         EIDON_ADMIN_PASSWORD: "leak",
@@ -435,7 +435,7 @@ describe("shell environment scrubbing", () => {
     for (const name of Object.keys(childEnv)) {
       expect(allowedNames).toContain(name);
     }
-    expect(childEnv.AGENT_BROWSER_SESSION_NAME).toBe("probe");
+    expect(childEnv.AGENT_BROWSER_SESSION).toBe("probe");
     expect(childEnv.PATH).toBe(process.env.PATH);
     for (const name of [
       "EIDON_SESSION_SECRET",

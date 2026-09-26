@@ -36,8 +36,13 @@ describe("Dockerfile", () => {
     expect(nativeCompose).toContain("image: node:24-alpine");
   });
 
+  it("runs the server under tini so exited browser and daemon processes are reaped", () => {
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/bin/tini", "--"]');
+    expect(dockerfile).toContain('CMD ["node", "server.cjs"]');
+  });
+
   it("installs Python 3 and symlinks the python command to python3", () => {
-    expect(dockerfile).toContain("apt-get install -y --no-install-recommends chromium python3");
+    expect(dockerfile).toContain("apt-get install -y --no-install-recommends chromium python3 tini");
     expect(dockerfile).toContain("ln -s /usr/bin/python3 /usr/local/bin/python");
   });
 

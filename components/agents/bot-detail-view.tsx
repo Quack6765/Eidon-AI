@@ -399,13 +399,13 @@ export function BotDetailView({
       const response = await fetch(`/api/bots/${bot.id}/reset-browser-session`, { method: "POST" });
       if (!response.ok) {
         const failure = (await response.json().catch(() => null)) as { error?: string } | null;
-        setResetNotice(failure?.error ?? "Could not reset the browser session");
+        setResetNotice(failure?.error ?? "Could not sign out of the browser");
       } else {
-        setResetNotice("Browser session reset");
+        setResetNotice("Signed out of every site");
         window.setTimeout(() => setResetNotice(null), 2500);
       }
     } catch {
-      setResetNotice("Could not reset the browser session");
+      setResetNotice("Could not sign out of the browser");
     } finally {
       setIsResetting(false);
     }
@@ -741,8 +741,8 @@ export function BotDetailView({
 
           <PanelSection title="Browser">
             <p className="text-xs leading-5 text-[var(--muted)]">
-              This bot browses the web in its own dedicated browser session, with its own cookies and
-              logins.
+              This bot browses in its own tab of your browser. Sign-ins are shared with your other bots
+              and kept between tasks.
             </p>
             {resetNotice ? (
               <p className="mt-2 text-xs text-[var(--muted)]">{resetNotice}</p>
@@ -758,7 +758,7 @@ export function BotDetailView({
               ) : (
                 <RotateCcw className="h-3 w-3" />
               )}
-              Reset browser session
+              Sign out everywhere
             </button>
           </PanelSection>
 
@@ -890,11 +890,11 @@ export function BotDetailView({
         open={isResetOpen}
         onOpenChange={setIsResetOpen}
         variant="default"
-        confirmLabel="Reset session"
-        title="Reset browser session?"
+        confirmLabel="Sign out everywhere"
+        title="Sign out of every site?"
         description={
           <>
-            The dedicated browser session for <strong className="font-medium text-[var(--text)]">{bot.name}</strong> will be stopped and wiped. Workspace files are kept.
+            Your browser is shared by all your bots. It will be stopped and its cookies, sign-ins and site data wiped for every bot, not just <strong className="font-medium text-[var(--text)]">{bot.name}</strong>. Workspace files are kept.
           </>
         }
         onConfirm={handleReset}

@@ -1365,7 +1365,8 @@ Run browser commands.`
     expect(localShellMocks.executeLocalShellCommand).toHaveBeenCalledWith({
       command: "curl -I https://example.com",
       timeoutMs: undefined,
-      cwd: expect.stringContaining("test-data-workspaces")
+      cwd: expect.stringContaining("test-data-workspaces"),
+      env: expect.objectContaining({ AGENT_BROWSER_SESSION: "tab" })
     });
     expect(result.answer).toBe("Probed the endpoint.");
   });

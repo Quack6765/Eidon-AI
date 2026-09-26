@@ -269,7 +269,8 @@ describe("bots", () => {
     );
 
     const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
-    const { getBotBrowserSocketDir, getBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const { getBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const { getBotBrowserSocketDir } = await import("@/lib/agent-computer");
     const workspaceDir = getBotWorkspaceDir(bot);
     mkdirSync(`${workspaceDir}/nested`, { recursive: true });
     writeFileSync(`${workspaceDir}/nested/keep.txt`, "data");

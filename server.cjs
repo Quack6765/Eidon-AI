@@ -144,23 +144,22 @@ app.prepare().then(async () => {
     writeDevServerFile(port);
 
     process.on("exit", cleanupDevServerFile);
-    process.on("SIGINT", async () => {
-      automationScheduler?.stop?.();
-      cleanupDevServerFile();
-      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
-      process.exit(0);
-    });
-    process.on("SIGTERM", async () => {
-      automationScheduler?.stop?.();
-      cleanupDevServerFile();
-      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
-      process.exit(0);
-    });
   } else {
     // Production: use PORT or default to 3000, no .dev-server file
     port = preferredPort ?? 3000;
     await findAvailablePort(server, port);
   }
+
+  const shutdown = async () => {
+    automationScheduler?.stop?.();
+    if (isDev) cleanupDevServerFile();
+    const handler = require("./ws-handler-compiled.cjs");
+    await handler.shutdownAgentComputer?.();
+    await handler.shutdownAllProcesses?.();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   console.log(`> Ready on http://localhost:${port}`);
 

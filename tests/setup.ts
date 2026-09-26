@@ -14,7 +14,8 @@ Object.assign(process.env, {
   EIDON_ADMIN_PASSWORD: "changeme123",
   EIDON_SESSION_SECRET: "test-session-secret-which-is-long-enough",
   EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough",
-  EIDON_EMBEDDING_DISABLED: "1"
+  EIDON_EMBEDDING_DISABLED: "1",
+  AGENT_BROWSER_EXECUTABLE_PATH: path.join(dataDir, "no-browser")
 });
 
 if (typeof window !== "undefined") {

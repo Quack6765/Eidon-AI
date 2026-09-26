@@ -21,6 +21,7 @@ import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import type { ChatResearchOptions, Message, QueuedMessage } from "@/lib/types";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
+import { shutdownAgentComputer } from "@/lib/agent-computer";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { startSemanticIndex } from "@/lib/semantic-index";
@@ -88,6 +89,7 @@ function buildSnapshotMessage(
 }
 
 export {
+  shutdownAgentComputer,
   bootstrapRuntimeState,
   resumeRuntimeWork,
   disposeTitleModel,

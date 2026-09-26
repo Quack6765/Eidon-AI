@@ -82,9 +82,9 @@ describe("shell workspace containment", () => {
 
   it("never passes app secrets to the child process", async () => {
     const result = await executeLocalShellCommand({
-      command: "printenv; echo \"extra=$AGENT_BROWSER_SESSION_NAME\"; echo \"leak=[$LEAKED_SECRET]\"",
+      command: "printenv; echo \"extra=$AGENT_BROWSER_SESSION\"; echo \"leak=[$LEAKED_SECRET]\"",
       env: {
-        AGENT_BROWSER_SESSION_NAME: "probe-extra",
+        AGENT_BROWSER_SESSION: "probe-extra",
         LEAKED_SECRET: "leak-me",
         EIDON_ENCRYPTION_SECRET: "leak-me"
       }

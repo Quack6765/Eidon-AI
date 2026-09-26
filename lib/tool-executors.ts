@@ -41,6 +41,8 @@ import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-dr
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
+import { botBrowserTarget, prepareBrowserEnv, userBrowserTarget } from "@/lib/agent-computer";
+import { getConversationOwnerId } from "@/lib/conversations";
 import { resolveBotSandbox } from "./bot-sandbox";
 import type {
   AutomationCalendarFrequency,
@@ -855,15 +857,20 @@ export async function executeShellCommand(
     ? getBotByConversationId(context.input.conversationId)
     : null;
   const sandbox = bot ? resolveBotSandbox(bot) : null;
+  const browserTarget = bot
+    ? botBrowserTarget(bot)
+    : userBrowserTarget(context.input.conversationId ? getConversationOwnerId(context.input.conversationId) : null);
 
   try {
     const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
+    const browserEnv = await prepareBrowserEnv(browserTarget, getShellCommandLabel(command) === "Web browser");
+    throwIfAborted(context.input.abortSignal);
     const result = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
       cwd,
-      ...(sandbox ? { env: sandbox.env } : {})
+      env: browserEnv
     });
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);

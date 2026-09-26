@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, afterAll } from "vitest";
@@ -23,40 +23,24 @@ describe("bot-sandbox", () => {
     }
   });
 
-  it("resolves a per-bot workspace, socket dir, cwd and env", () => {
+  it("resolves a per-bot workspace used as the shell's working directory", () => {
     const sandbox = resolveBotSandbox(sandboxBot);
 
     expect(sandbox.cwd).toBe(sandbox.workspaceDir);
     expect(sandbox.workspaceDir).toContain(join("bot-workspaces"));
-    expect(sandbox.browserSocketDir).toContain(join("agent-browser", "bots"));
-    expect(sandbox.env.AGENT_BROWSER_SOCKET_DIR).toBe(sandbox.browserSocketDir);
-    expect(sandbox.env.AGENT_BROWSER_SESSION).toBe("bot");
-    expect(sandbox.env.AGENT_BROWSER_SESSION_NAME).toBe("bot");
+    expect(existsSync(sandbox.workspaceDir)).toBe(true);
   });
 
-  it("gives different bots different sandbox paths", () => {
+  it("gives different bots different workspaces", () => {
     const left = resolveBotSandbox({ id: "bot_left", userId: "user_x" });
     const right = resolveBotSandbox({ id: "bot_right", userId: "user_x" });
     expect(left.workspaceDir).not.toBe(right.workspaceDir);
-    expect(left.browserSocketDir).not.toBe(right.browserSocketDir);
   });
 
   it("returns an empty tree when the workspace does not exist", () => {
     const tree = listBotWorkspaceTree({ id: "bot_never_created", userId: "user_none" });
     expect(tree.children).toEqual([]);
   });
-
-  it("resets the browser session directory", async () => {
-    const { resetBotBrowserSession, getBotBrowserSocketDir } = await import("@/lib/bot-sandbox");
-    const sandbox = resolveBotSandbox(sandboxBot);
-    writeFileSync(join(sandbox.browserSocketDir, "stale-daemon.sock"), "junk");
-
-    await resetBotBrowserSession(sandboxBot);
-
-    expect(getBotBrowserSocketDir(sandboxBot)).toBe(sandbox.browserSocketDir);
-    expect(existsSync(sandbox.browserSocketDir)).toBe(true);
-    expect(readdirSync(sandbox.browserSocketDir)).toEqual([]);
-  }, 30_000);
 
   it("lists the workspace as a nested tree rooted at the workspace folder", () => {
     const sandbox = resolveBotSandbox(sandboxBot);
@@ -162,9 +146,9 @@ describe("bot-sandbox", () => {
     const cwd = mkdtempSync(join(tmpdir(), "eidon-shell-test-"));
     tempDirs.push(cwd);
     const result = await executeLocalShellCommand({
-      command: "pwd && echo \"$AGENT_BROWSER_SESSION_NAME\" && echo \"[$LEAKED_SECRET]\"",
+      command: "pwd && echo \"$AGENT_BROWSER_SESSION\" && echo \"[$LEAKED_SECRET]\"",
       cwd,
-      env: { AGENT_BROWSER_SESSION_NAME: "isolated", LEAKED_SECRET: "leak-me", EIDON_ENCRYPTION_SECRET: "leak-me" }
+      env: { AGENT_BROWSER_SESSION: "isolated", LEAKED_SECRET: "leak-me", EIDON_ENCRYPTION_SECRET: "leak-me" }
     });
 
     expect(result.exitCode).toBe(0);

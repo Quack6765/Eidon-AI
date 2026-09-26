@@ -32,7 +32,7 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-RUN apt-get update && apt-get install -y --no-install-recommends chromium python3 \
+RUN apt-get update && apt-get install -y --no-install-recommends chromium python3 tini \
     && ln -s /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g agent-browser@0.38.1 \
@@ -52,4 +52,5 @@ RUN rm -rf ./node_modules/onnxruntime-web/dist \
 USER eidon
 EXPOSE 3000
 VOLUME ["/app/data"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "server.cjs"]
