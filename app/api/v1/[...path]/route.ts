@@ -37,6 +37,9 @@ import * as memoryRoute from "@/app/api/memories/[memoryId]/route";
 import * as memoriesRoute from "@/app/api/memories/route";
 import * as messageActionApproveRoute from "@/app/api/message-actions/[actionId]/approve/route";
 import * as messageActionDismissRoute from "@/app/api/message-actions/[actionId]/dismiss/route";
+import * as messageActionSecretRoute from "@/app/api/message-actions/[actionId]/secret/route";
+import * as savedLoginRoute from "@/app/api/saved-logins/[loginId]/route";
+import * as savedLoginsRoute from "@/app/api/saved-logins/route";
 import * as messageRoute from "@/app/api/messages/[messageId]/route";
 import * as messageEditRestartRoute from "@/app/api/messages/[messageId]/edit-restart/route";
 import * as messageForkRoute from "@/app/api/messages/[messageId]/fork/route";
@@ -133,6 +136,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["messages", ":messageId"], module: messageRoute },
   { pattern: ["message-actions", ":actionId", "approve"], module: messageActionApproveRoute },
   { pattern: ["message-actions", ":actionId", "dismiss"], module: messageActionDismissRoute },
+  { pattern: ["message-actions", ":actionId", "secret"], module: messageActionSecretRoute },
   { pattern: ["onboarding"], module: onboardingRoute },
   { pattern: ["settings", "general"], module: generalSettingsRoute },
   { pattern: ["settings", "title-generation"], module: titleGenerationSettingsRoute },
@@ -146,6 +150,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
   { pattern: ["tool-approvals"], module: toolApprovalsRoute },
   { pattern: ["tool-approvals", ":ruleId"], module: toolApprovalRoute },
+  { pattern: ["saved-logins"], module: savedLoginsRoute },
+  { pattern: ["saved-logins", ":loginId"], module: savedLoginRoute },
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },
   { pattern: ["mcp-servers"], module: mcpServersRoute },
   { pattern: ["mcp-servers", ":serverId"], module: mcpServerRoute },

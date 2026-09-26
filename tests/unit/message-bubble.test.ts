@@ -351,6 +351,30 @@ describe("message bubble", () => {
     expect(screen.getByTestId("computer-handoff-card")).toBeInTheDocument();
   });
 
+  it("shows the bot's secret request in place with its masked field", () => {
+    const message = {
+      ...createAssistantMessage(),
+      actions: [
+        createToolAction({
+          id: "act_secret",
+          messageId: "msg_assistant",
+          resultSummary: "",
+          kind: "secret_request",
+          status: "pending",
+          label: "Enter your password",
+          detail: "https://example.com",
+          proposalState: "pending",
+          proposalPayload: { operation: "secret_request", label: "password", origin: "https://example.com", target: "@e5", save: false }
+        })
+      ]
+    };
+
+    render(React.createElement(MessageBubble, { message, toolCallDisplay: "status_line" }));
+
+    expect(screen.getByTestId("secret-request-card")).toHaveTextContent("Enter your password for example.com");
+    expect(screen.getByLabelText("password")).toHaveAttribute("type", "password");
+  });
+
   it("renders pending create proposals with operation-specific copy", () => {
     render(
       React.createElement(MessageBubble, {

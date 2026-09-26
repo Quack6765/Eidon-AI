@@ -364,6 +364,34 @@ function handleViewerMessage(channel: Channel, viewer: Viewer, raw: WebSocket.Ra
   }
 }
 
+const TYPE_TIMEOUT_MS = 10_000;
+const TYPE_SETTLE_MS = 150;
+
+export function typeComputerText(target: BrowserSessionTarget, text: string) {
+  const port = readStreamPort(target);
+  if (!port) return Promise.reject(new Error("The bot's browser is not open."));
+  const events = [...text].flatMap((char) => [keyEvents(char, "down", 0), keyEvents(char, "up", 0)]);
+  return new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error("The bot's browser did not respond."));
+    }, TYPE_TIMEOUT_MS);
+    socket.on("open", () => {
+      for (const event of events) socket.send(JSON.stringify(event));
+      setTimeout(() => socket.close(), TYPE_SETTLE_MS);
+    });
+    socket.on("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 function closeChannel(channel: Channel) {
   if (channel.reconnect) clearTimeout(channel.reconnect);
   if (channel.touch) clearInterval(channel.touch);

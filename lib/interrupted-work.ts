@@ -10,6 +10,7 @@ export const MAX_CONSECUTIVE_RESTART_RESUMES = 2;
 const INTERRUPTED_BY_RESTART = "Interrupted by a server restart";
 const STOPPED_APPROVAL_SUMMARY = "Approval request stopped by a server restart";
 const STOPPED_HANDOFF_SUMMARY = "Browser hand-off stopped by a server restart";
+const STOPPED_SECRET_SUMMARY = "Secret request stopped by a server restart";
 const RESUMABLE_DELEGATED_RUN = "trigger_source = 'delegated' AND prompt IS NOT NULL";
 const WAITING_BOT_RUN_STATUSES = "'waiting_user', 'waiting_approval'";
 const ACTION_DETAIL_CHARS = 200;
@@ -107,30 +108,22 @@ export function reconcileInterruptedRuntimeState(
            )`
       )
       .run(timestamp).changes;
-    const toolApprovals = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'completed',
-             result_summary = ?,
-             completed_at = COALESCE(completed_at, ?),
-             proposal_state = 'dismissed',
-             proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
-             proposal_updated_at = ?
-         WHERE status = 'pending' AND kind = 'tool_approval' AND proposal_state = 'pending'`
-      )
-      .run(STOPPED_APPROVAL_SUMMARY, timestamp, timestamp).changes;
-    const computerHandoffs = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'completed',
-             result_summary = ?,
-             completed_at = COALESCE(completed_at, ?),
-             proposal_state = 'dismissed',
-             proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
-             proposal_updated_at = ?
-         WHERE status = 'pending' AND kind = 'computer_handoff' AND proposal_state = 'pending'`
-      )
-      .run(STOPPED_HANDOFF_SUMMARY, timestamp, timestamp).changes;
+    const stopPendingCards = (kind: MessageAction["kind"], summary: string) =>
+      db
+        .prepare(
+          `UPDATE message_actions
+           SET status = 'completed',
+               result_summary = ?,
+               completed_at = COALESCE(completed_at, ?),
+               proposal_state = 'dismissed',
+               proposal_payload_json = json_set(COALESCE(proposal_payload_json, '{}'), '$.resolution', 'stopped'),
+               proposal_updated_at = ?
+           WHERE status = 'pending' AND kind = ? AND proposal_state = 'pending'`
+        )
+        .run(summary, timestamp, timestamp, kind).changes;
+    const toolApprovals = stopPendingCards("tool_approval", STOPPED_APPROVAL_SUMMARY);
+    const computerHandoffs = stopPendingCards("computer_handoff", STOPPED_HANDOFF_SUMMARY);
+    const secretRequests = stopPendingCards("secret_request", STOPPED_SECRET_SUMMARY);
 
     const ownedConversationIds = new Set(
       (
@@ -160,6 +153,7 @@ export function reconcileInterruptedRuntimeState(
       delegationActions,
       toolApprovals,
       computerHandoffs,
+      secretRequests,
       conversationIds
     };
   });
@@ -206,6 +200,9 @@ export function buildRestartResumeNotice(conversationId: string, task?: string |
   const cancelledApprovals = actions.filter(
     (action) => action.kind === "tool_approval" && action.resultSummary === STOPPED_APPROVAL_SUMMARY
   );
+  const cancelledSecrets = actions.filter(
+    (action) => action.kind === "secret_request" && action.resultSummary === STOPPED_SECRET_SUMMARY
+  );
 
   const lines = [
     RESTART_RESUME_NOTICE_HEADER,
@@ -230,6 +227,13 @@ export function buildRestartResumeNotice(conversationId: string, task?: string |
       "",
       "These requests for the user to take over your browser were cancelled, and your browser tab may have been reset — check the page, then ask again if you still need them:",
       ...cancelledHandoffs.map(describeAction)
+    );
+  }
+  if (cancelledSecrets.length) {
+    lines.push(
+      "",
+      "These requests for a secret were cancelled before the user answered — check the page, then ask again if you still need them:",
+      ...cancelledSecrets.map(describeAction)
     );
   }
   if (task) {

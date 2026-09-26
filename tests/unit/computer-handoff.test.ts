@@ -18,6 +18,9 @@ import { createConversation, createMessage, createMessageAction } from "@/lib/co
 import { getDb } from "@/lib/db";
 import { executeShellCommand, executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
 import { settleUserGate, waitForUserGate } from "@/lib/user-gate";
+import { rememberSecretForRedaction, resetSecretRedactionForTests } from "@/lib/secret-redaction";
+import { declineComputerSecret } from "@/lib/computer-secrets";
+import { setUserAllowAllTools } from "@/lib/user-preferences";
 import { createLocalUser } from "@/lib/users";
 import type { ComputerHandoffProposalPayload, PromptMessage } from "@/lib/types";
 
@@ -263,5 +266,51 @@ describe("computer hand-off", () => {
     const result = await takeover;
     expect(result.nextSortOrder).toBe(1);
     expect(JSON.stringify(result.promptMessages.at(-1))).toContain("returned control");
+  });
+
+  it("asks for a secret as a tool and hides a filled secret from later tool results", async () => {
+    const { user, conversation, onActionStart, started } = await fixture("secret-tools");
+    resetSecretRedactionForTests();
+    const onActionComplete = vi.fn();
+    const context = {
+      input: {
+        conversationId: conversation.id,
+        onActionStart,
+        onActionComplete,
+        toolApproval: { userId: user.id, unattended: false },
+        skills: [],
+        mcpToolSets: []
+      },
+      mcpServers: [],
+      loadedSkillIds: new Set<string>(),
+      successfulReadOnlyToolResults: new Map(),
+      timelineSortOrder: 0,
+      promptMessages: [] as PromptMessage[]
+    };
+
+    const asked = executeToolCall(
+      { id: "call_secret", name: "request_secret", arguments: JSON.stringify({ label: "password", origin: "https://example.com/login", target: "#pw", replace_saved: true }) },
+      context
+    );
+    await flush();
+    const card = getDb().prepare("SELECT proposal_payload_json FROM message_actions WHERE id = ?").get(started[0]) as { proposal_payload_json: string };
+    expect(JSON.parse(card.proposal_payload_json)).toMatchObject({ origin: "https://example.com", target: "#pw", save: true });
+    declineComputerSecret(started[0], user.id);
+    expect(JSON.stringify((await asked).promptMessages.at(-1))).toContain("declined");
+
+    rememberSecretForRedaction(conversation.id, "correct-horse-battery");
+    setUserAllowAllTools(user.id, true);
+    localShellMocks.executeLocalShellCommand.mockResolvedValueOnce({
+      stdout: "value is correct-horse-battery",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+    const shell = await executeShellCommand("call_eval", { command: "agent-browser get value '#pw'" }, context);
+
+    expect(JSON.stringify(shell.promptMessages)).not.toContain("correct-horse-battery");
+    expect(JSON.stringify(shell.promptMessages)).toContain("[hidden secret]");
+    expect(JSON.stringify(onActionComplete.mock.calls)).not.toContain("correct-horse-battery");
   });
 });

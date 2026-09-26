@@ -175,6 +175,9 @@ describe("Mobile API v1 contracts", () => {
       "/messages/{messageId}/fork",
       "/messages/{messageId}/rewind",
       "/message-actions/{actionId}/approve",
+      "/message-actions/{actionId}/secret",
+      "/saved-logins",
+      "/saved-logins/{loginId}",
       "/settings/providers",
       "/settings/general",
       "/personas",
@@ -324,8 +327,8 @@ describe("Mobile API v1 contracts", () => {
         }
       }
     });
-    expect(compileOpenApiJsonRequestBodies()).toBe(44);
-    expect(compileOpenApiJsonResponses()).toBe(125);
+    expect(compileOpenApiJsonRequestBodies()).toBe(45);
+    expect(compileOpenApiJsonResponses()).toBe(131);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

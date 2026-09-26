@@ -404,6 +404,10 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
   });
 }
 
+export function runBrowserSessionCommand(target: BrowserSessionTarget, args: string[]) {
+  return runAgentBrowser(target, args, getRegistry().hosts.get(target.ownerKey)?.port ?? null);
+}
+
 async function stopSessionDaemon(target: BrowserSessionTarget) {
   let pid = 0;
   try {

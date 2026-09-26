@@ -89,6 +89,20 @@
         "note": { "type": "string" }
       }
     },
+    "SecretRequestProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "label", "origin", "target", "save"],
+      "properties": {
+        "operation": { "const": "secret_request" },
+        "label": { "type": "string" },
+        "origin": { "type": "string" },
+        "target": { "type": "string" },
+        "save": { "type": "boolean" },
+        "resolution": { "type": "string", "enum": ["filled", "declined", "expired", "stopped"] },
+        "saved": { "type": "boolean" }
+      }
+    },
     "MessageDraftProposalPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -141,7 +155,7 @@
         "id": { "$ref": "#/$defs/OpaqueId" },
         "messageId": { "$ref": "#/$defs/OpaqueId" },
         "timelineKind": { "const": "action" },
-        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan", "draft_message", "computer_handoff"] },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan", "draft_message", "computer_handoff", "secret_request"] },
         "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
         "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
@@ -154,7 +168,7 @@
         "startedAt": { "$ref": "#/$defs/Timestamp" },
         "completedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "proposalState": { "type": ["string", "null"], "enum": ["pending", "approved", "dismissed", "superseded", null] },
-        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "$ref": "#/$defs/MessageDraftProposalPayload" }, { "$ref": "#/$defs/ComputerHandoffProposalPayload" }, { "type": "null" }] },
+        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "$ref": "#/$defs/MessageDraftProposalPayload" }, { "$ref": "#/$defs/ComputerHandoffProposalPayload" }, { "$ref": "#/$defs/SecretRequestProposalPayload" }, { "type": "null" }] },
         "proposalUpdatedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
       }
     },

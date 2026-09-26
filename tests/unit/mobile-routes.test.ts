@@ -712,6 +712,15 @@ describe("Mobile API v1 REST adapter", () => {
     ) as { data: { computer: { controlOwner: string } } };
     expect(returnedBody.data.computer.controlOwner).toBe("bot");
 
+    const { saveLogin } = await import("@/lib/saved-logins");
+    saveLogin(admin.id, "https://example.com", "password", "contract-secret-value");
+    const loginsBody = await call("/saved-logins", ["saved-logins"], "GET") as {
+      data: { savedLogins: Array<{ id: string; origin: string; label: string }> };
+    };
+    expect(loginsBody.data.savedLogins).toEqual([expect.objectContaining({ origin: "https://example.com", label: "password" })]);
+    expect(JSON.stringify(loginsBody)).not.toContain("contract-secret-value");
+    await call("/saved-logins/{loginId}", ["saved-logins", loginsBody.data.savedLogins[0].id], "DELETE");
+
     const message = createMessage({
       conversationId,
       role: "user",

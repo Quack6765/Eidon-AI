@@ -539,7 +539,7 @@ export function getBotLastRunAt(botId: string): string | null {
 
 const PENDING_INPUT_CONDITION = "ma.status = 'pending' AND ma.proposal_state = 'pending'";
 const PENDING_TOOL_APPROVAL_CONDITION = `ma.kind = 'tool_approval' AND ${PENDING_INPUT_CONDITION}`;
-const PENDING_USER_WAIT_CONDITION = `ma.kind IN ('tool_approval', 'computer_handoff') AND ${PENDING_INPUT_CONDITION}`;
+const PENDING_USER_WAIT_CONDITION = `ma.kind IN ('tool_approval', 'computer_handoff', 'secret_request') AND ${PENDING_INPUT_CONDITION}`;
 
 function hasPendingAction(bot: Bot, condition: string) {
   return Boolean(

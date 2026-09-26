@@ -288,6 +288,40 @@ export function buildToolDefinitions(input: {
         }
       }
     });
+    tools.push({
+      type: "function",
+      function: {
+        name: "request_secret",
+        description:
+          "Ask the user for a password, one-time code or other secret and have Eidon type it straight into a field of the page open in your browser. You never see the value, and it is hidden from your later tool results. Open the page first. If the user saved this secret for the site before, Eidon fills it without asking. Never ask for secrets in the chat.",
+        parameters: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string",
+              description: "What the secret is, in a few words, e.g. 'password' or 'one-time code'"
+            },
+            origin: {
+              type: "string",
+              description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+            },
+            target: {
+              type: "string",
+              description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
+            },
+            save: {
+              type: "boolean",
+              description: "Offer to save it for this site so it is filled without asking next time. Use for passwords, not one-time codes"
+            },
+            replace_saved: {
+              type: "boolean",
+              description: "Set when a saved value turned out to be wrong: ask the user for a new one and save it over the old one"
+            }
+          },
+          required: ["label", "origin", "target"]
+        }
+      }
+    });
   }
 
   if (input.botTeam) {

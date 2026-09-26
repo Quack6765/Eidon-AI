@@ -47,6 +47,7 @@ import {
 } from "@/components/message-draft-card";
 import { ComputerHandoffCard, isComputerHandoffAction } from "@/components/computer-handoff-card";
 import { ComputerSessionCard, isBrowserAction } from "@/components/computer-session-card";
+import { isSecretRequestAction, SecretRequestCard } from "@/components/secret-request-card";
 import {
   AttachmentTile,
   MessageAttachments,
@@ -942,6 +943,14 @@ function MessageBubbleImpl({
       );
     }
 
+    if (isSecretRequestAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <SecretRequestCard action={item} readOnly={readOnly} />
+        </div>
+      );
+    }
+
     if (isBrowserAction(item)) {
       if (item.id !== browserSession.headId) {
         return null;
@@ -1114,7 +1123,8 @@ function MessageBubbleImpl({
         !isAutomationProposalAction(item) &&
         !isToolApprovalAction(item) &&
         !isMessageDraftAction(item) &&
-        !isComputerHandoffAction(item));
+        !isComputerHandoffAction(item) &&
+        !isSecretRequestAction(item));
 
     return isActivity ? index + 1 : insertionIndex;
   }, 0);

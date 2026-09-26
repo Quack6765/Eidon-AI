@@ -221,22 +221,21 @@ The measured facts also still hold:
   - An image integration check: a sandboxed shell cannot read `/proc/1/environ`, `eidon.db` or another bot's workspace or socket dir, and cannot connect to the CDP port. It can still write to `shared/`, and the process-group kill still works.
 
 ### PR 5: Secure secret request + saved credentials
-- **Tool `request_secret({label, origin, target, save?})`:** a `secret_request` card whose payload never carries the value.
-- **Route:** its own `POST /api/message-actions/[actionId]/secret {value, save}`, not the drafts `fields` body, which is persisted. It is mounted after `app/api/v1/[...path]/route.ts:130-131`. The body is never logged or echoed.
-- **Fill:** check that the tab origin equals `origin`, focus `target`, then type the value through the stream's `input_keyboard`. No argv, no temp file, nothing sent to the model.
-- **Redaction:** for the rest of the run, scrub the exact value and its base64 and URL-encoded forms from `resultSummary`, `detail` and `arguments`. Do it right after `summarizeShellResult` (`lib/tool-executors.ts:869`) and **before** `onActionError`/`onActionComplete` (:875-898); the same applies to snapshot and eval output.
-- **Saved credentials:**
-  - A `user_credentials` (user, origin) table in `lib/db-migrations.ts`, encrypted with `encryptValue`/`decryptValue` (`lib/crypto.ts:9,22`).
-  - `use_credential({origin, target})` fills same-origin credentials with no prompt.
-  - Settings list and delete, with the API field `savedLogins`.
-- **UI:** `components/secret-request-card.tsx` (masked, `autocomplete=off`), using the same card pattern as PR 3, behind the design gate.
-- **Also:** skill text for the three tools, and contracts for the secret operation, saved logins and the action kind.
+- **Tool `request_secret({label, origin, target, save?, replace_saved?})`** (bots only, like `request_takeover`): a `secret_request` card whose payload never carries the value. If the user saved a login for the same origin and label, Eidon fills it without a card, so there is no separate `use_credential` tool; `replace_saved` asks again and saves over a wrong value.
+- **Route:** its own `POST /api/message-actions/[actionId]/secret {value, save}` (also under `/api/v1`), not the drafts `fields` body, which is persisted. The body is never logged or echoed, and errors never include it. Declining reuses the dismiss route.
+- **Fill** (`lib/computer-secrets.ts`): read the tab's address with `agent-browser get url --json` and refuse unless its origin equals the requested one, `agent-browser focus <target>`, then type the value through the stream's `input_keyboard` events. No argv, no temp file, nothing sent to the model. A refusal keeps the card open and tells the user why.
+- **Redaction** (`lib/secret-redaction.ts`): for six hours after a fill, the exact value and its URL-encoded, base64 and JSON-escaped forms are replaced with `[hidden secret]` in shell and MCP results for that conversation, before they are summarised, persisted or sent to the model. It can't stop a bot that deliberately transforms the value it reads back; the card copy only promises that Eidon won't send it to the model.
+- **Saved logins:**
+  - A `saved_logins` (user, origin, label) table in `lib/db-migrations.ts`, with the value encrypted by `encryptValue`/`decryptValue` (`lib/crypto.ts`) and labels matched case-insensitively.
+  - `GET /api/saved-logins` (field `savedLogins`, never the values) and `DELETE /api/saved-logins/[loginId]`, owner only.
+  - Settings → General → Bots lists them with a remove button, next to the sandbox status.
+- **UI:** `components/secret-request-card.tsx`, the same card anatomy as the hand-off card: a masked field (`type=password`, `autocomplete=off`), "Save it for <site>", Fill in / Decline. It stays in place in the thread and shows how the request ended.
+- **Also:** the browser skill steers bots to `request_secret` for passwords and codes and `request_takeover` for everything else; `waiting_user` includes pending secret requests; a restart stops them and the resume notice asks the bot to check the page; contracts cover the secret operation, saved logins and the action kind.
 - **Tests:**
-  - Origin mismatch is rejected.
-  - Redaction happens before persistence.
-  - The value is absent from `message_actions`, compaction input and tool results.
-  - Crypto round-trip.
-  - Restart drops pending secret requests.
+  - Origin mismatch and a missing field are refused and nothing is typed; another user gets 404; a late answer gets 409.
+  - The value is absent from `message_actions` and from later tool results; the typed keystrokes reach the stream.
+  - Saved logins are encrypted, per user, never listed with their values; saved-login reuse and replace.
+  - Expiry after 30 minutes, stop on abort, restart drops pending secret requests.
 
 ### iOS client: out of scope
 A separate agent's PR uses the `sync-parity` skill and covers everything merged to `dev` since the last `main` release. Every PR here updates both contracts and lists its native-facing changes, with the "native clients must regenerate" note.
