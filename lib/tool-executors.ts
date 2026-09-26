@@ -49,8 +49,10 @@ import {
 } from "@/lib/agent-computer";
 import { conversationBrowserTarget, getComputerControl, setComputerCaption } from "@/lib/agent-computer-relay";
 import { requestComputerHandoff } from "@/lib/computer-handoff";
+import { requestComputerSecret } from "@/lib/computer-secrets";
 import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
 import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
+import { redactSecrets } from "@/lib/secret-redaction";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -455,6 +457,7 @@ export async function executeMcpToolCall(
     input: {
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
+      conversationId?: string;
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -563,7 +566,7 @@ export async function executeMcpToolCall(
       )
     : await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   throwIfAborted(context.input.abortSignal);
-  const resultText = getToolResultText(result);
+  const resultText = redactSecrets(context.input.conversationId, getToolResultText(result));
 
   sortOrder += 1;
 
@@ -884,7 +887,7 @@ export async function executeShellCommand(
     const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
     throwIfAborted(context.input.abortSignal);
     if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
-    const result = await executeLocalShellCommand({
+    const shellResult = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
@@ -892,6 +895,11 @@ export async function executeShellCommand(
       env: { ...browserEnv, ...botShell?.env },
       isolation: botShell?.rules
     });
+    const result = {
+      ...shellResult,
+      stdout: redactSecrets(context.input.conversationId, shellResult.stdout),
+      stderr: redactSecrets(context.input.conversationId, shellResult.stderr)
+    };
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
     const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
@@ -960,6 +968,41 @@ async function executeRequestTakeover(
   const resultText = await requestComputerHandoff({
     conversationId: context.input.conversationId,
     reason,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
+}
+
+async function executeRequestSecret(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const replaceSaved = args.replace_saved === true;
+  const resultText = await requestComputerSecret({
+    conversationId: context.input.conversationId,
+    userId: context.input.toolApproval?.userId,
+    label: String(args.label ?? ""),
+    origin: String(args.origin ?? ""),
+    target: String(args.target ?? ""),
+    save: args.save === true || replaceSaved,
+    replaceSaved,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart,
     onWaitChange: context.input.toolApproval?.onWaitChange
@@ -1638,6 +1681,10 @@ export async function executeToolCall(
 
   if (name === "request_takeover") {
     return executeRequestTakeover(toolCallId, args, context);
+  }
+
+  if (name === "request_secret") {
+    return executeRequestSecret(toolCallId, args, context);
   }
 
   if (name === "message_bot") {

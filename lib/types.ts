@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff";
+export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff" | "secret_request";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -505,12 +505,25 @@ export type ComputerHandoffProposalPayload = {
   note?: string;
 };
 
+export type SecretRequestResolution = "filled" | "declined" | "expired" | "stopped";
+
+export type SecretRequestProposalPayload = {
+  operation: "secret_request";
+  label: string;
+  origin: string;
+  target: string;
+  save: boolean;
+  resolution?: SecretRequestResolution;
+  saved?: boolean;
+};
+
 export type ProposalPayload =
   | MemoryProposalPayload
   | AutomationProposalPayload
   | ToolApprovalProposalPayload
   | MessageDraftProposalPayload
-  | ComputerHandoffProposalPayload;
+  | ComputerHandoffProposalPayload
+  | SecretRequestProposalPayload;
 
 export type UserMemory = {
   id: string;

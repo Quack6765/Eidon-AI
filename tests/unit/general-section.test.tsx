@@ -139,6 +139,19 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
   };
 }
 
+function mockSettingsFetch(settings: GeneralSectionSettings) {
+  vi.mocked(global.fetch).mockImplementation(async (url) =>
+    ({
+      ok: true,
+      json: async () => (url === "/api/saved-logins" ? { savedLogins: [] } : { settings })
+    }) as Response
+  );
+}
+
+function settingsCalls() {
+  return vi.mocked(global.fetch).mock.calls.filter(([url]) => url !== "/api/saved-logins");
+}
+
 describe("general section", () => {
   beforeEach(() => {
     mockRefresh.mockReset();
@@ -398,10 +411,7 @@ describe("general section", () => {
 
   it("edits and resets the bot base system prompt from the Bots section", async () => {
     const settings = makeSettings({ botSystemPrompt: "Custom team base." });
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings })
-    } as Response);
+    mockSettingsFetch(settings);
 
     render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
@@ -414,20 +424,17 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(settingsCalls()).toHaveLength(1);
     });
 
-    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const putCall = settingsCalls()[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.botPrompt).toEqual({ prompt: "" });
   });
 
   it("locks the bot base prompt for non-admins", async () => {
     const settings = makeSettings({ botSystemPrompt: "Admin only." });
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings })
-    } as Response);
+    mockSettingsFetch(settings);
 
     render(React.createElement(GeneralSection, { settings }));
 
@@ -440,10 +447,10 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(settingsCalls()).toHaveLength(1);
     });
 
-    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const putCall = settingsCalls()[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body).not.toHaveProperty("botPrompt");
   });

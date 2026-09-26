@@ -24,7 +24,8 @@ const PROPOSAL_ACTION_KINDS: ReadonlySet<MessageActionKind> = new Set([
   "delete_memory",
   "create_automation",
   "draft_message",
-  "computer_handoff"
+  "computer_handoff",
+  "secret_request"
 ]);
 
 const BUCKETS = [

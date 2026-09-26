@@ -1118,6 +1118,18 @@ export function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
       ON tool_approval_rules (user_id, scope, family);
+    CREATE TABLE IF NOT EXISTS saved_logins (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      label TEXT NOT NULL COLLATE NOCASE,
+      secret_encrypted TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT,
+      UNIQUE (user_id, origin, label),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

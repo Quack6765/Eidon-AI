@@ -262,9 +262,20 @@ describe("interrupted work", () => {
       proposalPayload: { operation: "computer_handoff", reason: "Enter the SMS code" }
     });
 
-    const { computerHandoffs } = reconcileInterruptedRuntimeState(getDb());
+    createMessageAction({
+      messageId: partial.id,
+      kind: "secret_request",
+      label: "Enter your password",
+      detail: "https://example.com",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: { operation: "secret_request", label: "password", origin: "https://example.com", target: "@e5", save: false }
+    });
+
+    const { computerHandoffs, secretRequests } = reconcileInterruptedRuntimeState(getDb());
 
     expect(computerHandoffs).toBe(1);
+    expect(secretRequests).toBe(1);
     const row = getDb()
       .prepare("SELECT status, proposal_state, proposal_payload_json FROM message_actions WHERE id = ?")
       .get(handoff.id) as { status: string; proposal_state: string; proposal_payload_json: string };
@@ -274,6 +285,8 @@ describe("interrupted work", () => {
     const notice = buildRestartResumeNotice(bot.homeConversationId);
     expect(notice).toContain("requests for the user to take over your browser were cancelled");
     expect(notice).toContain("- Your turn in the browser: Enter the SMS code");
+    expect(notice).toContain("requests for a secret were cancelled");
+    expect(notice).toContain("- Enter your password: https://example.com");
   });
 
   it("resumes interrupted conversations with a notice, unattended only for bots", async () => {
