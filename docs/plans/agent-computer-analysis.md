@@ -118,17 +118,23 @@ Bot shell ─ agent-browser CLI ─(unix socket)─ agent-browser daemon ─(CDP
 2. It enforces the global browser cap and the idle stop.
 3. The daemon and Chromium run outside the bot shell's Landlock network rule (see §6), because agent-browser talks to Chromium over TCP CDP on a random loopback port.
 
-**The live view is not only the browser.** "Current status" is the running tool action label that already exists. For example, the shell action for `agent-browser click @e3` is shown as a caption over the frame, and navigations come from the stream's `url`/`tabs` events. The terminal and files are already visible: shell actions in the transcript and the workspace tree (`listBotWorkspaceTree`). v1 therefore needs no new terminal viewer.
+**The live view is not only the browser.** "Current status" comes from the running shell action. Its label is always "Web browser" (`lib/tool-executors.ts`), so the caption is built from the action's `detail`, which holds the command: for example `agent-browser click @e3`, shown over the frame. and navigations come from the stream's `url`/`tabs` events. The terminal and files are already visible: shell actions in the transcript and the workspace tree (`listBotWorkspaceTree`). v1 therefore needs no new terminal viewer.
 
 ## 4. Take control / return control
 
 **Can input go back over the same channel? Yes, and it's measured.** The relay forwards the viewer's `input_mouse`/`input_keyboard`/`input_touch` to agent-browser's stream, which calls `Input.dispatchMouseEvent`/`dispatchKeyEvent`/`dispatchTouchEvent`. CDP-injected events are `isTrusted=true` ([crawlex](https://blog.crawlex.net/blog/synthesizing-human-input-events/)), so logins and payments behave as if a person did them. Paste works by reading the clipboard on the viewer's side and sending the text as key events. Version 0.27 has no `insertText` passthrough, and the Ctrl+V clipboard lives on the wrong machine anyway. On macOS clients, Cmd shortcuts need CDP `commands`, but 0.27 doesn't forward that field, so the relay maps Cmd→Ctrl ([issue](https://github.com/vercel-labs/agent-browser/issues/1453)).
 
-**Reuse the approval gate.** Branch `bot-interactive-approvals` (`01a39eb4`) already has everything a pause needs:
+**Reuse the approval gate.** PR #344, merged to `dev` as `87905548`, already has everything a pause needs:
 - `requestToolExecutionApproval` creates a pending `message_action` card.
 - `waitForToolApprovalDecision` awaits the settlement in memory (`PENDING_TOOL_APPROVALS_KEY`). It adopts a decision already written to the DB, expires on timeout and stops on abort.
 - `onWaitChange(true/false)` marks the run `waiting_approval`. It also pauses the run deadline (`lib/pausable-timeout.ts`) and the stall watchdog, and frees the delegated-run limiter slot.
-- Settlement arrives through `/api/message-actions/[actionId]/approve|dismiss`. Restart cleanup stops orphaned waits.
+- Settlement arrives through `/api/message-actions/[actionId]/approve|dismiss`.
+
+**Revalidated on `dev` `aa637084` (2026-09-26):**
+- **Restart:** restart handling now lives in `lib/interrupted-work.ts` (#350). Waiting bot runs become **stopped**, or are **requeued** if they are delegated runs; they are not failed. Pending `tool_approval` cards are resolved as stopped, and the resume notice asks the bot to request them again. The new card kinds must be added to both.
+- **WebSocket gap:** resolutions are still only emitted to the SSE chat emitter (`broadcastToolApprovalUpdate`). The shared broadcast helper follows `broadcastMessageDraftUpdate` in `lib/message-drafts.ts`.
+- **Drafts:** `draft_message` (#354) is a non-blocking pending card that resolves outside the turn, so it stays outside the gate.
+- **Stop and redirect:** #353's stop aborts the turn, which fires the gate's abort path. Mid-run redirects apply only at step boundaries, so the "return control" note is the tool result, and messages typed during a handoff stay queued until control returns.
 
 Take control should be **a second kind on the same gate**, not a second mechanism:
 
@@ -142,11 +148,15 @@ Take control should be **a second kind on the same gate**, not a second mechanis
 
 **Timeouts (decided): 30 minutes for handoffs and secret requests.** A DM approval expires after 5 minutes, which is too short for someone who has to fetch a 2FA device. The unattended 24 h timeout is too long to keep a browser alive. The bot's browser (or its tab, §7) stays alive while a handoff is pending. The profile is on disk, so an expired handoff costs nothing to resume later.
 
-**Status enum (decided): rename to `waiting_user`.** The approvals branch adds `waiting_approval` to the OpenAPI and WebSocket contracts. Rename it to a generic `waiting_user` **before `bot-interactive-approvals` merges**, so tool approvals, handoffs and secret requests share one run status and one contract change. The card's `message_action.kind` already says what the wait is for, so no separate `waitReason` field is needed. Every place the branch touches needs the rename:
-- `lib/bot-runs.ts`, `lib/bots.ts`, `lib/bot-delegation.ts`
-- `components/agents/bot-status.tsx`, `hooks/use-delegation-status.ts`
-- `lib/db-migrations.ts`
-- both contract files and their tests.
+**Status enum (decided): rename to `waiting_user`.** #344 is merged to `dev`, but `waiting_approval` is in no release yet, so it is renamed on `dev` before the next release (PR A in `agent-computer-plan.md`). Tool approvals, handoffs and secret requests then share one run status. The card's `message_action.kind` says what the wait is for, so the attention label becomes kind-aware instead of adding a `waitReason` field.
+
+The rename touches:
+- `lib/types.ts`, `lib/bot-runs.ts`, `lib/bots.ts`, `lib/interrupted-work.ts`, `lib/bot-delegation.ts`
+- `components/agents/bot-runs.tsx`, `components/agents/bot-status.tsx`, `hooks/use-delegation-status.ts`
+- both contracts and about 13 test files
+- the helpers `setBotRunAwaitingApproval`, `setTurnAwaitingApproval` and `onApprovalWait`.
+
+There is no CHECK constraint on the column. Restart reconciliation matches both the old and the new value, so no migration is needed.
 
 ## 5. Secure secret request
 
@@ -160,14 +170,18 @@ Take control should be **a second kind on the same gate**, not a second mechanis
 5. The server settles the gate with a tool result of "Secret entered into @e7 on github.com", holding the value only in memory. The card becomes "Provided" and stores no value.
 6. **Output redaction:** for the rest of the run, every tool result (shell stdout/stderr, snapshot, `eval`) is scrubbed of exact matches of the value and its base64 and URL-encoded forms before it reaches the model or `message_actions`. After that the value is dropped.
 
-**Where it cannot leak:** transcripts and the semantic index only ingest message content, memory nodes and attachment text (`lib/semantic-index.ts:100-114`). The value is in none of them. Frames are not persisted. Password fields render masked in the snapshot: I measured `textbox [ref=e2]: •••••••`.
+**Where it can leak unless redacted first (corrected on revalidation):** the semantic index ingests message content, user memories, memory nodes and attachment text (`lib/semantic-index.ts:97-118`). It does not index `message_actions` directly, but tool output still reaches both the model and the index through two paths:
+- completed shell `resultSummary` values are replayed into later prompts (`lib/compaction.ts`);
+- compaction summarises them into `memory_nodes`, which are indexed (`lib/compaction-turns.ts`).
+
+Redaction must therefore run **before** the result is saved (`onActionComplete`/`onActionError`), not only before the model sees it. Frames are not persisted. Password fields render masked in the snapshot: I measured `textbox [ref=e2]: •••••••`.
 
 **Honest limit (measured):** once the value is in the page, the bot can read it back. `agent-browser eval 'document.getElementById("p").value'` returned `"S3cr3t!"`. The redaction layer stops accidental echo, but a prompt-injected bot that deliberately re-encodes the value (reverses it, `charCodeAt`, sends it to a URL) can still get it out. Grok's wording has the same boundary: the value is "not shown to the model"; the model is still not blocked from reading it. Mitigations, in order of cost:
 1. Redaction, as above.
 2. Hold the gate until the form is submitted, and deny `eval` for the rest of that step. The action policy for that only exists in agent-browser 0.38 or later, and any shell command could get around it.
 3. The egress proxy from §6, which limits where the value could be sent.
 
-**Storing credentials (later phase).** "Save for next time" encrypts the value with the existing `lib/crypto.ts` `encryptValue` into a `bot_credentials` table scoped to (user, bot or user, origin). A later `use_credential({ name, target })` fills it through the same server-side path. Do **not** use agent-browser's `auth save` vault: it lives in `$HOME/.agent-browser/auth` next to its auto-generated key (`~/.agent-browser/.encryption-key`), which the bot shell can read.
+**Storing credentials (decided: ships with the secrets PR).** "Save for next time" encrypts the value with the existing `lib/crypto.ts` `encryptValue` into a `user_credentials` table scoped to (user, origin), since the browser is per user. `use_credential({ origin, target })` fills it through the same server-side path with no prompt, same origin only. The API field is `savedLogins`, because the mobile sanitiser strips `credentials`. The secrets PR lands **after** Landlock hardening: without it, a bot shell could read `eidon.db` and the server's `/proc/1/environ`, which holds the encryption secret. Do **not** use agent-browser's `auth save` vault: it lives in `$HOME/.agent-browser/auth` next to its auto-generated key (`~/.agent-browser/.encryption-key`), which the bot shell can read.
 
 ## 6. Isolation inside the one app container
 
@@ -192,6 +206,9 @@ Landlock plus the in-process proxy:
 
 Two launcher profiles are needed:
 - **"shell"**: filesystem rules plus the TCP-connect allow-list with only the proxy port.
+  - Read-write: the bot's own workspace, the team folder `bot-workspaces/<owner>/shared` (#351), `$TMPDIR`, `/tmp`, the bot's own socket dir, and a per-bot `HOME` (`<botWorkspace>/.home`). The shared `/app/data/home` holds `.agent-browser/` state for every user.
+  - No access to `agent-computer/`, `eidon.db`, `.env`, other bots' private workspaces or other socket dirs.
+  - The launcher execs in place, so the shell's process-group kill (10-minute ceiling) keeps working.
 - **"browser"**: filesystem rules only, applied when the server starts the daemon. agent-browser has to reach Chromium over TCP CDP on a random loopback port, so the network rule can't apply here.
 
 On kernels without Landlock (older Docker Desktop LinuxKit 5.15, some NAS kernels), the launcher detects that and reports "isolation: unavailable" in Settings instead of failing silently ([Docker Desktop kernel notes](https://github.com/docker/for-mac/issues/7877)).
@@ -310,59 +327,50 @@ Published reports agree with these: 300–500 MB per rendering instance ([crawle
 | `lib/agent-computer.ts` (new) | Lifecycle of the shared per-user Chromium (launch with `--user-data-dir`, read `DevToolsActivePort`, supervise and restart, rebind tabs on `tab_gone`) and of per-bot pinned sessions (stream-port discovery, idle stop). Global memory budget, relay hub (viewers, latest-frame fan-out, fps cap, backpressure), `controlOwner`, key-event normalisation (always set `code`), secret typing. |
 | `lib/bot-sandbox.ts` | Per-user profile dir `agent-computer/<user>/profile`. Drop `AGENT_BROWSER_SESSION_NAME`. Give each bot `AGENT_BROWSER_CDP=<port>`, `AGENT_BROWSER_PIN_TAB=1` and a unique `AGENT_BROWSER_SESSION=<botId>`. Add idle timeout and proxy. On bot delete, close the bot's tab. |
 | `lib/local-shell.ts` | Allow `AGENT_BROWSER_CDP`, `AGENT_BROWSER_PIN_TAB`, `AGENT_BROWSER_PROXY`, `AGENT_BROWSER_IDLE_TIMEOUT_MS`. Later, wrap the spawn in the Landlock "shell" launcher when available. |
-| `lib/tool-approvals.ts` (from the approvals branch) | Extract the generic user gate (settle registry, timeout, abort, DB adoption) that `tool_approval`, `computer_handoff` and `secret_request` share. |
+| `lib/tool-approvals.ts` (on `dev` since #344) | Extract the generic user gate (settle registry, timeout, abort, DB adoption) that `tool_approval`, `computer_handoff` and `secret_request` share. Drafts stay separate. Add a shared `loadPendingAction(kind)` and a WS `broadcastActionUpdate`. |
+| `lib/interrupted-work.ts`, `lib/bots.ts`, `components/agents/bot-status.tsx` | Restart resolves the new card kinds as stopped and the resume notice re-asks. `getBotStatus` counts the three gate kinds. The attention label is kind-aware. |
 | `lib/tool-definitions.ts`, `lib/tool-executors.ts` | New `request_takeover` and `request_secret` tools (later `use_credential`). Refuse `agent-browser` commands while the user holds control. Redact secrets from tool output. |
 | `lib/types.ts`, `lib/db-migrations.ts` | `MessageActionKind` gains `computer_handoff` and `secret_request`. Later, a `bot_credentials` table (values encrypted with `lib/crypto.ts`). |
-| `lib/ws-upgrade-router.ts`, `server.cjs`, `lib/computer-protocol.ts` (new) | Exact paths `/ws/computer` and `/api/v1/ws/computer` (`?botId=`), the same auth, and a small schema for the binary-frame and JSON control messages. `resolveWebSocketAuthMode` learns the new mobile path. |
+| `lib/ws-upgrade-router.ts`, `server.cjs`, `lib/computer-protocol.ts` (new) | A second `WebSocketServer` for the exact paths `/ws/computer` and `/api/v1/ws/computer` (`?botId=`). The same auth, via exported `extractToken`/`extractBearerToken`. An Origin check. A small schema for the binary-frame and JSON control messages. `resolveWebSocketAuthMode` learns the new mobile path. Production SIGTERM handling. |
 | `app/api/bots/[botId]/computer/route.ts` (new) | `GET` status (running, url, controlOwner, isolation availability), `POST` start/stop. |
 | `app/api/bots/[botId]/computer/control/route.ts` (new) | `POST {action: "take" \| "return", note?}`. |
 | `app/api/message-actions/[actionId]/secret/route.ts` (new) | `POST {value}`. Never logged, and never echoed back. |
 | `app/api/v1/[...path]/route.ts` | Mount the three new routes. |
 | `lib/db-builtin-skills.ts` | Skill text changes (§8, item 3). |
 | `lib/bot-run-limiter.ts` | Add a global memory-budget waiter next to the per-user run slots. |
-| UI: `components/agents/agent-computer-panel.tsx` (new), `hooks/use-agent-computer.ts` (new) | The live view in the bot's conversation: frame canvas, status caption, Take/Return control, keyboard capture. |
-| UI: `components/computer-handoff-card.tsx`, `components/secret-request-card.tsx` (new) | Built alongside `components/tool-approval-card.tsx`, reusing its card anatomy. |
-| Contracts | `contracts/mobile-api-v1.openapi.json`: the four operations above, new action kinds, and the status enum `waiting_user` (renamed from `waiting_approval` on the approvals branch before it merges). `contracts/mobile-api-v1.websocket.schema.json` (or a new `…computer-websocket.schema.json`): frame, status, url, tabs, control and input messages. Update counts in `tests/unit/mobile-contracts.test.ts` and `tests/unit/mobile-routes.test.ts`. **The PR must say that native clients have to regenerate their derived specs.** |
-| iOS | Draw JPEG frames, map touches to `input_mouse` (tap) and `input_touch` (scroll), send keys through a hidden text field, and show the masked secret sheet. All of it goes through the documented API. |
+| UI: `components/agents/agent-computer-panel.tsx` (new), `hooks/use-bot-computer-stream.ts` (new, owns its own socket) | The live view on the bot page: frame canvas, status caption, Take/Return control, keyboard capture. The 320 px detail aside is too narrow, so the design gate presents a main-pane swap with ChatView or an overlay. |
+| UI: `components/computer-handoff-card.tsx`, `components/secret-request-card.tsx` (new) | Rendered in `components/message-bubble.tsx` on the `draft_message` card template, next to the tool-approval branch. |
+| Contracts | `contracts/mobile-api-v1.openapi.json`: the four operations above, new action kinds, and the status enum `waiting_user` (renamed from `waiting_approval` on `dev` before the next release). `contracts/mobile-api-v1.websocket.schema.json` (or a new `…computer-websocket.schema.json`): frame, status, url, tabs, control and input messages. Update counts in `tests/unit/mobile-contracts.test.ts` and `tests/unit/mobile-routes.test.ts`. **The PR must say that native clients have to regenerate their derived specs.** |
+| iOS | Out of this plan. A separate agent's PR uses the `sync-parity` skill. The client draws JPEG frames, maps touches to `input_mouse` (tap) and `input_touch` (scroll), sends keys through a hidden text field, and shows the masked secret sheet, all through the documented API. |
 
 UI work follows the design-direction gate when it is built. Nothing here chooses a visual direction.
 
 ## 11. Phased rollout
 
-0. **Hygiene.** Small PRs, worth doing even if Agent Computer never ships:
-   - **Node 24 base.** Includes the `better-sqlite3` 12 bump, CI and `@types/node`. Pin `agent-browser@0.38.1` and trim its binaries (−60 MB).
-   - Fix the shared cookie file: a real `--profile`, per user if the recommendation in §7 is accepted, with a unique `AGENT_BROWSER_SESSION` per bot. Then delete `bot-bot.json`.
-   - Server-owned idle stop at 10 minutes.
-   - Global memory budget.
-   - Update the skill text.
-   - **On the approvals branch, before it merges:** rename `waiting_approval` to `waiting_user`.
-1. **Live view, read-only, web.** `lib/agent-computer.ts` relay, `/ws/computer`, and the panel in the bot conversation with the status caption.
-2. **Take control / return control, web.** Extract the generic gate from the approvals branch, add `computer_handoff` and `request_takeover`, user-initiated takeover, and the executor guard.
-3. **Secure secret request (fill).** `secret_request`, the POST route, origin pinning, stream typing, redaction. Then 3b: encrypted stored credentials.
-4. **Mobile.** Contract operations and WebSocket schema, then the iOS live view, control and secret sheet. The contract is written in each phase above; this phase ships the native client.
-5. **Hardening.**
-   - Landlock "shell" and "browser" launcher profiles (0 MB, `python3`).
-   - The in-process egress proxy.
-   - An isolation status in Settings.
-   - Optionally, the root-entrypoint uid split.
-6. **Later.**
-   - Teach a task: record the relay's input events plus url and tab events and a sampled frame per step, for up to 10 minutes, then draft a skill. Do **not** add `ffmpeg`, which is +141 MB and 89 packages, measured.
-   - Optional isolated profile for individual bots.
-   - Optional browser sidecar compose profile.
+The locked PR order and scope are in `docs/plans/agent-computer-plan.md`:
+
+- **PR A:** `waiting_user` rename and WS broadcast of resolved cards.
+- **PR 0:** Node 24 and agent-browser 0.38.1.
+- **PR 1:** browser host (shared per-user browser, persistence, memory budget; also fixes the cross-user browser in non-bot chats).
+- **PR 2:** live view.
+- **PR 3:** take control and return control.
+- **PR 4:** Landlock and the egress proxy.
+- **PR 5:** secure secret request and saved credentials.
+
+Hardening comes before secrets on purpose. iOS is handled separately. Later: teach a task (no `ffmpeg`, which is +141 MB and 89 packages, measured), an optional isolated per-bot profile, and an optional sidecar.
 
 ## 12. Decisions and open questions
 
-**Decided (2026-09-25):**
+**Decided (2026-09-25 and 2026-09-26). All former open questions are closed:**
 - **Node 24 base image.** Unlocks agent-browser 0.38: `--pin-tab`, stream `maxFps`/quality, `--allowed-domains`, `--action-policy`, `--confirm-actions`, `--content-boundaries`. Needs `better-sqlite3` 12.
-- **`waiting_user`** replaces `waiting_approval`, before the approvals branch merges.
-- **Handoff and secret-request timeout: 30 minutes.** The bot's browser or tab stays alive meanwhile.
-
-**Open:**
-1. **Browser profile scope:** a shared per-user browser with a tab per bot is recommended (−43 % RAM, measured in §7). The cost is one login jar for all of a user's bots: one account per site, and a prompt-injected bot can use every login. Accept this, and should individual bots be able to opt out into an isolated profile, at the cost of a full browser each?
-2. **Stored credentials:** include "save for next time" in phase 3, or later? And may a bot reuse a stored credential without asking each time?
-3. **Isolation depth:** is the root-entrypoint uid split acceptable? It changes `USER` in the Dockerfile and needs a volume-ownership migration for existing installs. Or is Landlock alone enough, and should Agent Computer be refused, or only warned about, on hosts without Landlock?
-4. **Availability:** should Agent Computer be a per-bot toggle, off by default?
-5. **Scope of the view:** browser only for v1 (the terminal and files are already visible through shell actions and the workspace tree), or a terminal pane too?
+- **`waiting_user`** replaces `waiting_approval`, on `dev` before the next release.
+- **Timeout:** 30 minutes for handoffs and secret requests; the bot's tab stays alive meanwhile.
+- **Browser profile:** one shared browser per user, one pinned tab per bot.
+- **Saved credentials:** ship with the secrets PR; same-origin reuse needs no prompt.
+- **Isolation:** Landlock plus the in-process egress proxy. Warn, not refuse, without Landlock. No uid split, no sidecar.
+- **Availability:** on for every bot, with a memory budget.
+- **Scope:** a browser-only view.
+- **iOS:** handled separately via `sync-parity`.
 
 ## Method and cleanup
 
