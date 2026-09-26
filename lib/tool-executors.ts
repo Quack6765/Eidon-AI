@@ -37,6 +37,7 @@ import {
   requestToolExecutionApproval
 } from "@/lib/tool-approvals";
 import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
+import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
@@ -49,6 +50,7 @@ import type {
   MessageActionStatus,
   MemoryProposalState,
   MessageActionKind,
+  MessageDraftProposalPayload,
   ProposalPayload,
   DelegationChain,
   ToolApprovalContext,
@@ -93,7 +95,8 @@ export function isProposalToolCall(name: string) {
     name === "create_memory" ||
     name === "update_memory" ||
     name === "delete_memory" ||
-    name === "create_automation"
+    name === "create_automation" ||
+    name === "draft_message"
   );
 }
 
@@ -409,6 +412,32 @@ export async function executeImageGeneration(
   }
 }
 
+function resolveMcpToolFunction(
+  functionName: string,
+  toolSets: ToolSet[]
+): { server: McpServer; tool: McpTool } | null {
+  if (!functionName.startsWith("mcp_")) {
+    return null;
+  }
+
+  const withoutPrefix = functionName.slice(4);
+  const toolSetsBySpecificity = [...toolSets].sort(
+    (left, right) => right.server.slug.length - left.server.slug.length
+  );
+
+  for (const { server, tools } of toolSetsBySpecificity) {
+    if (withoutPrefix.startsWith(server.slug + "_")) {
+      const toolName = withoutPrefix.slice(server.slug.length + 1);
+      const tool = tools.find((t) => t.name === toolName);
+      if (tool) {
+        return { server, tool };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -430,26 +459,8 @@ export async function executeMcpToolCall(
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
-  const withoutPrefix = functionName.slice(4);
-  const toolSets = context.input.mcpToolSets;
-  let resolvedServer: McpServer | null = null;
-  let resolvedTool: McpTool | null = null;
-
-  const toolSetsBySpecificity = [...toolSets].sort(
-    (left, right) => right.server.slug.length - left.server.slug.length
-  );
-
-  for (const { server, tools } of toolSetsBySpecificity) {
-    if (withoutPrefix.startsWith(server.slug + "_")) {
-      const toolName = withoutPrefix.slice(server.slug.length + 1);
-      const tool = tools.find((t) => t.name === toolName);
-      if (tool) {
-        resolvedServer = server;
-        resolvedTool = tool;
-        break;
-      }
-    }
-  }
+  const { server: resolvedServer, tool: resolvedTool } =
+    resolveMcpToolFunction(functionName, context.input.mcpToolSets) ?? {};
 
   if (!resolvedServer || !resolvedTool) {
     const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
@@ -1163,6 +1174,106 @@ export async function executeCreateAutomationProposal(
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
+export async function executeDraftMessage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      mcpToolSets: ToolSet[];
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const fail = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  const functionName = typeof args.tool === "string" ? args.tool.trim() : "";
+  const rawArguments = args.arguments;
+
+  if (!functionName) {
+    return fail("tool is required: pass the exact name of the connected tool that sends the message");
+  }
+
+  if (!rawArguments || typeof rawArguments !== "object" || Array.isArray(rawArguments)) {
+    return fail("arguments must be an object with the arguments for the sending tool");
+  }
+
+  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets);
+  if (!resolved) {
+    return fail(`${functionName} is not a connected tool. Use the exact name of a tool from your tool list, such as mcp_<server>_<tool>.`);
+  }
+
+  const { server, tool } = resolved;
+  if (tool.annotations?.readOnlyHint === true) {
+    return fail(`${functionName} is read-only and does not send anything. Call it directly instead.`);
+  }
+
+  const toolArguments = coerceEnumValues(tool.inputSchema ?? {}, rawArguments as Record<string, unknown>);
+  const missing = (tool.inputSchema?.required ?? []).filter((key) => toolArguments[key] === undefined);
+  if (missing.length) {
+    return fail(`missing required arguments for ${functionName}: ${missing.join(", ")}`);
+  }
+
+  const fields = buildMessageDraftFields(tool, toolArguments);
+  if (!fields.length) {
+    return fail(`${functionName} has no text for the user to review. Call it directly instead.`);
+  }
+
+  const replacesDraftId = typeof args.replaces_draft_id === "string" ? args.replaces_draft_id.trim() : "";
+  const replaced =
+    replacesDraftId && context.input.conversationId
+      ? supersedeMessageDraft(replacesDraftId, context.input.conversationId)
+      : false;
+
+  const proposalPayload: MessageDraftProposalPayload = {
+    operation: "message_draft",
+    mcpServerId: server.id,
+    mcpServerName: server.name,
+    mcpToolName: tool.name,
+    toolLabel: getToolLabel(tool),
+    arguments: toolArguments,
+    fields
+  };
+
+  throwIfAborted(context.input.abortSignal);
+  const handle = await context.input.onActionStart?.({
+    kind: "draft_message",
+    status: "pending",
+    label: `Message draft for ${server.name}`,
+    detail: buildArgumentsSummary(toolArguments),
+    serverId: server.id,
+    toolName: "draft_message",
+    arguments: { tool: functionName, arguments: toolArguments },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+  const draftId = typeof handle === "string" && handle ? handle : null;
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    [
+      `Draft${draftId ? ` ${draftId}` : ""} is ready for the user to review, edit, and send with ${server.name}. Nothing has been sent.`,
+      replacesDraftId
+        ? replaced
+          ? `Draft ${replacesDraftId} was withdrawn and replaced by this one.`
+          : `Draft ${replacesDraftId} was not replaced because it is no longer waiting; the user may already have sent or discarded it.`
+        : "",
+      "Tell the user the draft is ready below without repeating its full text, and never claim it was sent."
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
 const VISION_ANALYSIS_SYSTEM_PROMPT =
   "You are a vision analysis sub-agent. Describe what is visible in the provided images precisely and answer the question about the images. Be thorough but concise. Never invent details that are not visible in the images.";
 
@@ -1478,6 +1589,10 @@ export async function executeToolCall(
 
   if (name === "create_automation") {
     return executeCreateAutomationProposal(toolCallId, args, context);
+  }
+
+  if (name === "draft_message") {
+    return executeDraftMessage(toolCallId, args, context);
   }
 
   if (name === "web_search") {

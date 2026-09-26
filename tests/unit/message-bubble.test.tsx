@@ -750,3 +750,77 @@ describe("delegation event lines", () => {
     expect(parseDelegationWakeMessage("[Message from ]\nAnswer")).toBeNull();
   });
 });
+
+describe("message bubble drafts", () => {
+  function createDraftMessage(): Message {
+    return {
+      ...createAssistantMessage(),
+      content: "Here is the draft for Sarah.",
+      actions: [
+        {
+          id: "act_draft",
+          messageId: "msg_assistant",
+          kind: "draft_message",
+          status: "pending",
+          serverId: "mcp_gmail",
+          skillId: null,
+          toolName: "draft_message",
+          label: "Message draft for Gmail",
+          detail: "",
+          arguments: null,
+          resultSummary: "",
+          sortOrder: 0,
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          proposalState: "pending",
+          proposalPayload: {
+            operation: "message_draft",
+            mcpServerId: "mcp_gmail",
+            mcpServerName: "Gmail",
+            mcpToolName: "send_email",
+            toolLabel: "Send email",
+            arguments: { subject: "Q3 recap", body: "Hi Sarah" },
+            fields: [
+              { key: "subject", label: "Subject", format: "text", required: true },
+              { key: "body", label: "Body", format: "multiline", required: true }
+            ]
+          },
+          proposalUpdatedAt: null
+        }
+      ]
+    };
+  }
+
+  it("renders a pending draft card after the reply and sends through the bubble handler", async () => {
+    const onSendMessageDraft = vi.fn().mockResolvedValue(undefined);
+    render(
+      React.createElement(MessageBubble, {
+        message: createDraftMessage(),
+        onSendMessageDraft,
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const card = screen.getByTestId("message-draft-card");
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Here is the draft for Sarah.");
+    expect(card).toHaveTextContent("Ready to send");
+    expect(card).toHaveTextContent("Q3 recap");
+    expect(screen.queryByText(/1 tool/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSendMessageDraft).toHaveBeenCalledWith("act_draft", undefined));
+  });
+
+  it("hides the draft card while the reply is still streaming", () => {
+    const message = { ...createDraftMessage(), status: "streaming" as const };
+    render(
+      React.createElement(MessageBubble, {
+        message,
+        streamingTimeline: message.actions!.map((action) => ({ ...action, timelineKind: "action" as const })),
+        streamingAnswer: ""
+      })
+    );
+
+    expect(screen.queryByTestId("message-draft-card")).not.toBeInTheDocument();
+  });
+});

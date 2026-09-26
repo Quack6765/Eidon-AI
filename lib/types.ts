@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan";
+export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -476,10 +476,31 @@ export type ToolApprovalContext = {
   onWaitChange?: (waiting: boolean) => Promise<void> | void;
 };
 
+export type MessageDraftFieldFormat = "text" | "multiline" | "list";
+
+export type MessageDraftField = {
+  key: string;
+  label: string;
+  format: MessageDraftFieldFormat;
+  required: boolean;
+};
+
+export type MessageDraftProposalPayload = {
+  operation: "message_draft";
+  mcpServerId: string;
+  mcpServerName: string;
+  mcpToolName: string;
+  toolLabel: string;
+  arguments: Record<string, unknown>;
+  fields: MessageDraftField[];
+  sendError?: string | null;
+};
+
 export type ProposalPayload =
   | MemoryProposalPayload
   | AutomationProposalPayload
-  | ToolApprovalProposalPayload;
+  | ToolApprovalProposalPayload
+  | MessageDraftProposalPayload;
 
 export type UserMemory = {
   id: string;

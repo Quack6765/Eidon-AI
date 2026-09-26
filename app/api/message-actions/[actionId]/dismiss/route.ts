@@ -6,6 +6,7 @@ import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { dismissMemoryProposal } from "@/lib/memory-proposals";
 import { dismissAutomationProposal } from "@/lib/automation-proposals";
 import { dismissToolApproval } from "@/lib/tool-approvals";
+import { discardMessageDraft } from "@/lib/message-drafts";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -28,6 +29,11 @@ export async function POST(
 
     if (getMessageActionKind(params.actionId) === "tool_approval") {
       const action = dismissToolApproval(params.actionId, user.id);
+      return ok({ action });
+    }
+
+    if (getMessageActionKind(params.actionId) === "draft_message") {
+      const action = discardMessageDraft(params.actionId, user.id);
       return ok({ action });
     }
 

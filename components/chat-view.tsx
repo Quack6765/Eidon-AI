@@ -1982,6 +1982,40 @@ export function ChatView({
     }
   }
 
+  async function postMessageDraftAction(
+    actionId: string,
+    endpoint: "approve" | "dismiss",
+    body: Record<string, unknown>,
+    fallbackError: string
+  ) {
+    const response = await fetch(`/api/message-actions/${actionId}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const result = (await response.json().catch(() => ({}))) as {
+      action?: MessageAction;
+      error?: string;
+    };
+
+    if (!response.ok || !result.action) {
+      throw new Error(result.error ?? fallbackError);
+    }
+
+    setMessages((current) => replaceMessageAction(current, result.action!));
+  }
+
+  async function sendMessageDraft(actionId: string, fields?: Record<string, string>) {
+    await postMessageDraftAction(actionId, "approve", fields ? { fields } : {}, "Unable to send the draft");
+  }
+
+  async function discardMessageDraft(actionId: string) {
+    await postMessageDraftAction(actionId, "dismiss", {}, "Unable to discard the draft");
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -2287,6 +2321,8 @@ export function ChatView({
   const onDismissToolApprovalStable = useStableHandler(dismissToolApproval);
   const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
   const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
+  const onSendMessageDraftStable = useStableHandler(sendMessageDraft);
+  const onDiscardMessageDraftStable = useStableHandler(discardMessageDraft);
   const onForkMessageStable = useStableHandler(forkMessage);
   const onRewindMessageStable = useStableHandler(rewindMessage);
   const onRemovePendingAttachmentStable = useStableHandler(async (attachmentId: string) => {
@@ -2423,6 +2459,8 @@ export function ChatView({
                   onDismissToolApproval={onDismissToolApprovalStable}
                   onApproveAutomationProposal={onApproveAutomationProposalStable}
                   onDismissAutomationProposal={onDismissAutomationProposalStable}
+                  onSendMessageDraft={onSendMessageDraftStable}
+                  onDiscardMessageDraft={onDiscardMessageDraftStable}
                   onForkMessage={canForkMessages && !message.id.startsWith("local_") ? onForkMessageStable : undefined}
                   onRewindMessage={
                     canRewindMessages &&

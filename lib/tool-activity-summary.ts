@@ -22,7 +22,8 @@ const PROPOSAL_ACTION_KINDS: ReadonlySet<MessageActionKind> = new Set([
   "create_memory",
   "update_memory",
   "delete_memory",
-  "create_automation"
+  "create_automation",
+  "draft_message"
 ]);
 
 const BUCKETS = [
