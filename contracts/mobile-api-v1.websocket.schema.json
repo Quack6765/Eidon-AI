@@ -76,6 +76,34 @@
         "resolution": { "type": "string", "enum": ["once", "always", "denied", "expired", "stopped"] }
       }
     },
+    "MessageDraftProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "mcpServerId", "mcpServerName", "mcpToolName", "toolLabel", "arguments", "fields"],
+      "properties": {
+        "operation": { "const": "message_draft" },
+        "mcpServerId": { "$ref": "#/$defs/OpaqueId" },
+        "mcpServerName": { "type": "string" },
+        "mcpToolName": { "type": "string" },
+        "toolLabel": { "type": "string" },
+        "arguments": { "type": "object", "additionalProperties": true },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "format", "required"],
+            "properties": {
+              "key": { "type": "string" },
+              "label": { "type": "string" },
+              "format": { "type": "string", "enum": ["text", "multiline", "list"] },
+              "required": { "type": "boolean" }
+            }
+          }
+        },
+        "sendError": { "type": ["string", "null"] }
+      }
+    },
     "Attachment": {
       "type": "object",
       "additionalProperties": false,
@@ -100,7 +128,7 @@
         "id": { "$ref": "#/$defs/OpaqueId" },
         "messageId": { "$ref": "#/$defs/OpaqueId" },
         "timelineKind": { "const": "action" },
-        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan"] },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "save_skill", "research_plan", "draft_message"] },
         "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
         "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
@@ -113,7 +141,7 @@
         "startedAt": { "$ref": "#/$defs/Timestamp" },
         "completedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "proposalState": { "type": ["string", "null"], "enum": ["pending", "approved", "dismissed", "superseded", null] },
-        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "type": "null" }] },
+        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "$ref": "#/$defs/AutomationProposalPayload" }, { "$ref": "#/$defs/ToolApprovalProposalPayload" }, { "$ref": "#/$defs/MessageDraftProposalPayload" }, { "type": "null" }] },
         "proposalUpdatedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
       }
     },
@@ -240,7 +268,7 @@
     "BotSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "providerProfileId", "status", "waitingForInput", "lastRunAt", "createdAt", "updatedAt"],
+      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "providerProfileId", "status", "waitingForInput", "unread", "lastRunAt", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "name": { "type": "string" },
@@ -250,8 +278,9 @@
         "isChief": { "type": "boolean" },
         "homeConversationId": { "$ref": "#/$defs/OpaqueId" },
         "providerProfileId": { "oneOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
-        "status": { "type": "string", "enum": ["idle", "queued", "running"] },
+        "status": { "type": "string", "enum": ["idle", "queued", "running", "waiting_approval"] },
         "waitingForInput": { "type": "boolean" },
+        "unread": { "type": "boolean" },
         "lastRunAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "createdAt": { "$ref": "#/$defs/Timestamp" },
         "updatedAt": { "$ref": "#/$defs/Timestamp" }
@@ -261,16 +290,17 @@
     "BotRun": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "botId", "conversationId", "triggerSource", "status", "startedAt", "finishedAt", "parentMessageId", "errorMessage", "createdAt"],
+      "required": ["id", "botId", "conversationId", "triggerSource", "status", "startedAt", "finishedAt", "parentMessageId", "requestedByBotId", "errorMessage", "createdAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "botId": { "$ref": "#/$defs/OpaqueId" },
         "conversationId": { "$ref": "#/$defs/OpaqueId" },
         "triggerSource": { "type": "string", "enum": ["dm", "delegated", "routine"] },
-        "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "stopped"] },
+        "status": { "type": "string", "enum": ["queued", "running", "waiting_approval", "completed", "failed", "stopped"] },
         "startedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "finishedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "parentMessageId": { "type": ["string", "null"] },
+        "requestedByBotId": { "type": ["string", "null"] },
         "errorMessage": { "type": ["string", "null"] },
         "createdAt": { "$ref": "#/$defs/Timestamp" }
       }
@@ -296,6 +326,7 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "conversation"], "properties": { "type": { "enum": ["conversation_created", "conversation_updated"] }, "conversation": { "$ref": "#/$defs/Conversation" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_deleted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_cleared" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "messageIds"], "properties": { "type": { "const": "messages_deleted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "messageIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/OpaqueId" } } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "isActive"], "properties": { "type": { "const": "conversation_activity" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "isActive": { "type": "boolean" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "bot"], "properties": { "type": { "const": "bot_updated" }, "bot": { "$ref": "#/$defs/BotSummary" } } },

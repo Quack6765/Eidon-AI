@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { markBotPendingInputSeen, toBotSummary } from "@/lib/bots";
+import { markBotRead, toBotSummary } from "@/lib/bots";
 import { broadcastBotUpsert } from "@/lib/bot-runs";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
@@ -18,7 +18,7 @@ export async function POST(
   const params = await parseRouteParams(context, paramsSchema, "bot id");
   if (params instanceof NextResponse) return params;
 
-  const bot = markBotPendingInputSeen(params.botId, user.id);
+  const bot = markBotRead(params.botId, user.id);
   if (!bot) {
     return badRequest("Bot not found", 404);
   }

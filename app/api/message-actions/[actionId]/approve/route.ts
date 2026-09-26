@@ -8,6 +8,7 @@ import {
   approveAutomationProposal
 } from "@/lib/automation-proposals";
 import { approveToolApproval } from "@/lib/tool-approvals";
+import { sendMessageDraft } from "@/lib/message-drafts";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -25,7 +26,8 @@ const bodySchema = z.object({
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
   continuePreviousConversation: z.boolean().optional(),
-  allowAlways: z.boolean().optional()
+  allowAlways: z.boolean().optional(),
+  fields: z.record(z.string(), z.string().max(100_000)).optional()
 });
 
 async function parseApprovalBody(request: Request) {
@@ -68,6 +70,11 @@ export async function POST(
 
     if (getMessageActionKind(params.actionId) === "tool_approval") {
       const action = approveToolApproval(params.actionId, { allowAlways: body.data.allowAlways }, user.id);
+      return ok({ action });
+    }
+
+    if (getMessageActionKind(params.actionId) === "draft_message") {
+      const action = await sendMessageDraft(params.actionId, body.data.fields, user.id);
       return ok({ action });
     }
 

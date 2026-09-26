@@ -7,7 +7,9 @@ vi.mock("@/lib/semantic-index", () => ({
   isSemanticRecallAvailable: vi.fn(() => true)
 }));
 
+import { createBot } from "@/lib/bots";
 import { buildToolDefinitions } from "@/lib/tool-definitions";
+import { createLocalUser } from "@/lib/users";
 import { executeSearchWorkspace, executeToolCall } from "@/lib/tool-executors";
 
 function definitionInput(overrides: Partial<Parameters<typeof buildToolDefinitions>[0]> = {}) {
@@ -75,7 +77,7 @@ describe("search_workspace tool", () => {
       }
     );
 
-    expect(searchWorkspace).toHaveBeenCalledWith({ userId: "user_a", query: "backend stack", limit: 20 });
+    expect(searchWorkspace).toHaveBeenCalledWith({ userId: "user_a", query: "backend stack", limit: 20, memoryBotId: null });
     expect(onActionStart).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "mcp_tool_call", toolName: "search_workspace", label: "Search workspace" })
     );
@@ -86,6 +88,25 @@ describe("search_workspace tool", () => {
     expect(content).toContain("1. [memory] Memory (work) (2026-03-01, memory mem_1, score 0.91)");
     expect(content).toContain("We picked TypeScript");
     expect(content).toContain("2. [message] Architecture decision (2026-02-01, conversation conv_1, score 0.77)");
+  });
+
+  it("scopes memory matches to the bot when searching from a bot conversation", async () => {
+    const user = await createLocalUser({ username: "searchbotowner", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Searcher", title: "Recall" }, user.id);
+    searchWorkspace.mockResolvedValue([]);
+
+    await executeSearchWorkspace(
+      "call",
+      { query: "what did I learn" },
+      { input: { memoryUserId: user.id, conversationId: bot.homeConversationId }, timelineSortOrder: 0, promptMessages: [] }
+    );
+
+    expect(searchWorkspace).toHaveBeenCalledWith({
+      userId: user.id,
+      query: "what did I learn",
+      limit: 8,
+      memoryBotId: bot.id
+    });
   });
 
   it("reports empty results, invalid input, missing owner and unavailable index without throwing", async () => {
@@ -99,7 +120,7 @@ describe("search_workspace tool", () => {
     const empty = await executeSearchWorkspace("call", { query: "anything" }, context);
     expect(empty.promptMessages[0].content).toBe("No matching content found in the workspace.");
     expect(empty.toolSucceeded).toBe(true);
-    expect(searchWorkspace).toHaveBeenCalledWith({ userId: "user_a", query: "anything", limit: 8 });
+    expect(searchWorkspace).toHaveBeenCalledWith({ userId: "user_a", query: "anything", limit: 8, memoryBotId: null });
 
     const blank = await executeSearchWorkspace("call", { query: "   " }, context);
     expect(blank.toolSucceeded).toBe(false);

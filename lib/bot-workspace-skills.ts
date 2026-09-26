@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getBotWorkspaceDir } from "@/lib/bot-sandbox";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { getSkillResolvedName } from "@/lib/skill-runtime";
-import { deriveDescription } from "@/lib/skills";
+import { deriveDescription, listEnabledSkills } from "@/lib/skills";
 import type { Bot, Skill } from "@/lib/types";
 
 export const BOT_WORKSPACE_SKILL_ID_PREFIX = "botws-";
 
-const MAX_BOT_WORKSPACE_SKILLS = 50;
+export const MAX_BOT_WORKSPACE_SKILLS = 50;
 export const MAX_SKILL_FILE_BYTES = 200 * 1024;
 const SKILL_FILE_NAME = "SKILL.md";
 const MAX_SKILL_NAME_CHARS = 100;
@@ -62,6 +62,14 @@ function normalizeSingleLine(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function countSkillFolders(skillsDir: string) {
+  try {
+    return readdirSync(skillsDir).filter((entry) => existsSync(join(skillsDir, entry, SKILL_FILE_NAME))).length;
+  } catch {
+    return 0;
+  }
+}
+
 export function saveBotWorkspaceSkill(
   bot: Pick<Bot, "id" | "userId">,
   input: BotWorkspaceSkillInput,
@@ -96,19 +104,27 @@ export function saveBotWorkspaceSkill(
 
   const skillsDir = getBotSkillsDir(bot);
   const previousFolderSlug = previousSkillId ? parseBotWorkspaceSkillId(bot, previousSkillId) : null;
+  const previousDir = previousFolderSlug ? join(skillsDir, previousFolderSlug) : null;
   const skillDir = join(skillsDir, slug);
   const skillFilePath = join(skillDir, SKILL_FILE_NAME);
+  const renaming = previousDir !== null && previousFolderSlug !== slug && existsSync(previousDir);
+  const creating = previousFolderSlug !== slug && !renaming;
 
   if (previousFolderSlug !== slug && existsSync(skillFilePath)) {
-    return { error: "A skill with this name already exists." };
+    return { error: "A skill with the same or a similar name already exists. Choose a different name." };
+  }
+  if (renaming && existsSync(skillDir)) {
+    return { error: `The workspace already has a skills/${slug} folder. Choose a different name or remove that folder first.` };
+  }
+  if (creating && countSkillFolders(skillsDir) >= MAX_BOT_WORKSPACE_SKILLS) {
+    return { error: `This bot already has ${MAX_BOT_WORKSPACE_SKILLS} skills. Delete one before adding another.` };
   }
 
+  if (renaming) {
+    renameSync(previousDir, skillDir);
+  }
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(skillFilePath, content, "utf8");
-
-  if (previousFolderSlug && previousFolderSlug !== slug) {
-    rmSync(join(skillsDir, previousFolderSlug), { recursive: true, force: true });
-  }
 
   const timestamp = statSync(skillFilePath).mtime.toISOString();
   return {
@@ -122,6 +138,21 @@ export function saveBotWorkspaceSkill(
       updatedAt: timestamp
     }
   };
+}
+
+export function upsertBotWorkspaceSkill(
+  bot: Pick<Bot, "id" | "userId">,
+  input: BotWorkspaceSkillInput
+): BotWorkspaceSkillSaveResult {
+  const name = normalizeSingleLine(input.name).toLowerCase();
+  const slug = slugifySkillFolderName(name);
+  const existing = slug ? readSkillFolder(getBotSkillsDir(bot), bot.id, slug) : null;
+  if (existing && existing.name.toLowerCase() !== name) {
+    return {
+      error: `The skill "${existing.name}" already uses this folder. Save with that exact name to update it, or choose a different name.`
+    };
+  }
+  return saveBotWorkspaceSkill(bot, input, existing?.id);
 }
 
 export function deleteBotWorkspaceSkill(bot: Pick<Bot, "id" | "userId">, skillId: string) {
@@ -215,4 +246,8 @@ export function mergeSkillsWithWorkspace(globalSkills: Skill[], workspaceSkills:
     ),
     ...workspaceSkills
   ];
+}
+
+export function listConversationSkills(bot: Bot | null): Skill[] {
+  return mergeSkillsWithWorkspace(listEnabledSkills(), bot ? listBotWorkspaceSkills(bot) : []);
 }

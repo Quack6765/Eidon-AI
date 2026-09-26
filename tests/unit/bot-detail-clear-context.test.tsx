@@ -61,6 +61,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -79,7 +80,8 @@ function mockDetailEndpoints(options: { failClear?: boolean } = {}) {
       return {
         ok: true,
         json: async () => ({
-          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
+          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
       } as Response;
     }
@@ -112,7 +114,9 @@ function renderView(bot: BotSummary = buildBot()) {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
   fireEvent.click(findDetailsToggle());

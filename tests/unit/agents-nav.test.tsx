@@ -2,7 +2,7 @@
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import { AgentsNav } from "@/components/agents/agents-nav";
 import type { BotSummary } from "@/lib/types";
@@ -27,8 +27,17 @@ vi.mock("next/link", () => ({
   )
 }));
 
+const wsMocks = vi.hoisted(() => ({
+  reconnectListeners: new Set<() => void>()
+}));
+
 vi.mock("@/lib/ws-client", () => ({
-  addGlobalWsListener: () => () => undefined
+  addGlobalWsListener: (_listener: unknown, options?: { onReconnect?: () => void }) => {
+    if (options?.onReconnect) wsMocks.reconnectListeners.add(options.onReconnect);
+    return () => {
+      if (options?.onReconnect) wsMocks.reconnectListeners.delete(options.onReconnect);
+    };
+  }
 }));
 
 vi.mock("@/components/sidebar-footer-nav", () => ({
@@ -51,6 +60,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -68,10 +78,33 @@ describe("AgentsNav", () => {
     expect(dot?.className).toContain("h-2 w-2");
   });
 
+  it("marks a bot with a new result as unread", () => {
+    render(<AgentsNav bots={[buildBot({ unread: true })]} onCloseAction={() => {}} />);
+
+    const row = screen.getByRole("link", { name: /Research Bot/ });
+    expect(row).toHaveTextContent("Unread");
+    expect(row.querySelector("span.bg-\\[\\#f4f4f5\\]")).not.toBeNull();
+  });
+
   it("renders no indicator for an idle bot without pending input", () => {
     render(<AgentsNav bots={[buildBot()]} onCloseAction={() => {}} />);
 
     const row = screen.getByRole("link", { name: /Research Bot/ });
     expect(row.querySelector("span.bg-\\[var\\(--accent\\)\\]")).toBeNull();
+  });
+
+  it("refetches bot statuses after the live connection comes back", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ bots: [buildBot({ status: "idle", waitingForInput: false })] })
+    }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    render(<AgentsNav bots={[buildBot({ status: "waiting_approval" })]} onCloseAction={() => {}} />);
+    expect(screen.getByText("Needs approval")).toBeInTheDocument();
+
+    for (const onReconnect of wsMocks.reconnectListeners) onReconnect();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/bots"));
+    await waitFor(() => expect(screen.queryByText("Needs approval")).not.toBeInTheDocument());
   });
 });

@@ -170,6 +170,70 @@ describe("lossless compaction", () => {
     expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
   });
 
+  it("reminds the assistant where the files it delivered live, including files-only replies", () => {
+    const deliveredFile = (id: string, messageId: string, sourcePath: string | null) => ({
+      id,
+      conversationId: "conv_1",
+      messageId,
+      filename: "report.csv",
+      mimeType: "text/csv",
+      byteSize: 5,
+      sha256: "hash",
+      relativePath: `conv_1/${id}_report.csv`,
+      kind: "text" as const,
+      extractedText: "a,b",
+      sourcePath,
+      createdAt: new Date().toISOString()
+    });
+    const baseMessage = {
+      conversationId: "conv_1",
+      thinkingContent: "",
+      status: "completed" as const,
+      estimatedTokens: 2,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString()
+    };
+
+    const prompt = buildPromptMessages({
+      systemPrompt: "System.",
+      activeMemoryNodes: [],
+      messages: [
+        { ...baseMessage, id: "msg_user", role: "user", content: "Build the report" },
+        {
+          ...baseMessage,
+          id: "msg_with_text",
+          role: "assistant",
+          content: "Here is the report.",
+          attachments: [deliveredFile("att_1", "msg_with_text", "/work/bot/report.csv")]
+        },
+        {
+          ...baseMessage,
+          id: "msg_files_only",
+          role: "assistant",
+          content: "",
+          attachments: [deliveredFile("att_2", "msg_files_only", "/work/shared/team report.csv")]
+        },
+        {
+          ...baseMessage,
+          id: "msg_uploaded_copy",
+          role: "assistant",
+          content: "",
+          attachments: [deliveredFile("att_3", "msg_uploaded_copy", null)]
+        }
+      ]
+    });
+
+    const assistantContents = prompt
+      .filter((message) => message.role === "assistant")
+      .map((message) => (typeof message.content === "string" ? message.content : ""));
+
+    expect(assistantContents).toEqual([
+      "Here is the report.\n\n[report.csv](/work/bot/report.csv)",
+      "[team report.csv](</work/shared/team report.csv>)"
+    ]);
+  });
+
   it("excludes error-status assistant turns from the prompt", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "System.",

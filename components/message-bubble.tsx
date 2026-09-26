@@ -1,8 +1,9 @@
 "use client";
 
 import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
-import { Streamdown } from "streamdown";
+import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
+import { Streamdown, defaultRemarkPlugins } from "streamdown";
+import type { Pluggable } from "unified";
 import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
@@ -10,6 +11,7 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
+import { ReferenceTokenMark } from "@/components/composer-references";
 import {
   InProgressIndicator,
   StatusLine,
@@ -22,6 +24,7 @@ import {
   summarizeToolActivity
 } from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
+import { REFERENCE_TAG, remarkReferenceTokens, type ReferenceCandidate } from "@/lib/reference-tokens";
 import { openMermaidFullscreenFromCard } from "@/lib/mermaid-fullscreen";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
@@ -38,6 +41,10 @@ import {
   isToolApprovalAction,
   ToolApprovalCard
 } from "@/components/tool-approval-card";
+import {
+  isMessageDraftAction,
+  MessageDraftCard
+} from "@/components/message-draft-card";
 import {
   AttachmentTile,
   MessageAttachments,
@@ -59,14 +66,18 @@ import type {
   ToolCallDisplayMode
 } from "@/lib/types";
 import { normalizeRealLineBreaks } from "@/lib/text-utils";
+import { RESTART_RESUME_NOTICE_HEADER } from "@/lib/constants";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Message,
   MessageContent,
   MessageAction
 } from "@/components/ai-elements/message";
+import { MessageActionsMenu } from "@/components/message-actions-menu";
 
 const COPY_RESET_DELAY_MS = 1600;
+const REFERENCE_ALLOWED_TAGS = { [REFERENCE_TAG]: ["kind"] };
+const REFERENCE_COMPONENTS = { [REFERENCE_TAG]: ReferenceTokenMark };
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
 
@@ -182,6 +193,28 @@ const AssistantMarkdown = React.memo(
     previous.isStatic === next.isStatic &&
     previous.linkSafety === next.linkSafety
 );
+
+function AutomatedMessageMarker({
+  messageId,
+  testId,
+  children
+}: {
+  messageId: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Message from="user" data-message-id={messageId}>
+      <div className="flex w-full min-w-0 flex-col items-stretch gap-2" data-testid={testId}>
+        <div className="flex w-full min-w-0 justify-center">
+          <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
+            <span className="min-w-0 truncate">{children}</span>
+          </span>
+        </div>
+      </div>
+    </Message>
+  );
+}
 
 function DelegateBotGlyph({ botName }: { botName: string }) {
   const seed = useBotAvatarSeed(botName);
@@ -425,8 +458,9 @@ function MessageBubbleImpl({
   toolCallDisplay = "pills",
   onUpdateUserMessage,
   isUpdating = false,
-  onForkAssistantMessage,
+  onForkMessage,
   isForking = false,
+  onRewindMessage,
   onRetryAssistantMessage,
   isRetrying = false,
   onRegenerateUserMessage,
@@ -437,8 +471,11 @@ function MessageBubbleImpl({
   onDismissAutomationProposal,
   onApproveToolApproval,
   onDismissToolApproval,
+  onSendMessageDraft,
+  onDiscardMessageDraft,
   onPreviewAttachment,
-  readOnly = false
+  readOnly = false,
+  referenceCandidates
 }: {
   message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
@@ -464,15 +501,19 @@ function MessageBubbleImpl({
     options?: { allowAlways?: boolean }
   ) => Promise<void>;
   onDismissToolApproval?: (actionId: string) => Promise<void>;
+  onSendMessageDraft?: (actionId: string, fields?: Record<string, string>) => Promise<void>;
+  onDiscardMessageDraft?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onForkMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   isRetrying?: boolean;
   onRegenerateUserMessage?: (messageId: string) => void;
   isRegenerating?: boolean;
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -501,6 +542,17 @@ function MessageBubbleImpl({
   const userPlugins = useMemo(
     () => ({ math, ...sharedUserPlugins }),
     [sharedUserPlugins]
+  );
+  const referenceRenderKey = useMemo(
+    () => (referenceCandidates ?? []).map((candidate) => `${candidate.trigger}${candidate.name}`).join("\n"),
+    [referenceCandidates]
+  );
+  const userRemarkPlugins = useMemo(
+    () =>
+      referenceCandidates?.length
+        ? [...Object.values(defaultRemarkPlugins), [remarkReferenceTokens, referenceCandidates] as Pluggable]
+        : undefined,
+    [referenceCandidates]
   );
 
   useEffect(() => {
@@ -580,7 +632,12 @@ function MessageBubbleImpl({
           return;
         }
 
-        if (isMemoryProposalAction(item) || isAutomationProposalAction(item) || isToolApprovalAction(item)) {
+        if (
+          isMemoryProposalAction(item) ||
+          isAutomationProposalAction(item) ||
+          isToolApprovalAction(item) ||
+          isMessageDraftAction(item)
+        ) {
           deferredProposalBlocks.push(item);
           return;
         }
@@ -705,6 +762,7 @@ function MessageBubbleImpl({
     [assistantBlocks]
   );
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
+  const isRestartResume = message.role === "user" && content.startsWith(RESTART_RESUME_NOTICE_HEADER);
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -820,6 +878,23 @@ function MessageBubbleImpl({
             action={item}
             onApprove={onApproveMemoryProposal}
             onDismiss={onDismissMemoryProposal}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
+    if (isMessageDraftAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <MessageDraftCard
+            action={item}
+            onSend={onSendMessageDraft}
+            onDiscard={onDiscardMessageDraft}
             readOnly={readOnly}
           />
         </div>
@@ -981,7 +1056,8 @@ function MessageBubbleImpl({
       (item.timelineKind === "action" &&
         !isMemoryProposalAction(item) &&
         !isAutomationProposalAction(item) &&
-        !isToolApprovalAction(item));
+        !isToolApprovalAction(item) &&
+        !isMessageDraftAction(item));
 
     return isActivity ? index + 1 : insertionIndex;
   }, 0);
@@ -1054,24 +1130,22 @@ function MessageBubbleImpl({
   }
 
   if (message.role === "user") {
+    if (isRestartResume && !isEditing) {
+      return (
+        <AutomatedMessageMarker messageId={message.id} testId="restart-resume-message">
+          <RefreshCw className="mr-1.5 inline h-3 w-3 align-[-2px] text-white/40" aria-hidden="true" />
+          Resumed after a server restart
+        </AutomatedMessageMarker>
+      );
+    }
+
     if (delegationWake && !isEditing) {
       return (
-        <Message from="user" data-message-id={message.id}>
-          <div
-            className="flex w-full min-w-0 flex-col items-stretch gap-2"
-            data-testid="delegation-wake-message"
-          >
-            <div className="flex w-full min-w-0 justify-center">
-              <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
-                <span className="min-w-0 truncate">
-                  {"Message from "}
-                  <DelegateBotGlyph botName={delegationWake.botName} />
-                  <span className="text-white/60">{delegationWake.botName}</span>
-                </span>
-              </span>
-            </div>
-          </div>
-        </Message>
+        <AutomatedMessageMarker messageId={message.id} testId="delegation-wake-message">
+          {"Message from "}
+          <DelegateBotGlyph botName={delegationWake.botName} />
+          <span className="text-white/60">{delegationWake.botName}</span>
+        </AutomatedMessageMarker>
       );
     }
 
@@ -1100,7 +1174,17 @@ function MessageBubbleImpl({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body" onClick={openMermaidFullscreenFromCard}>
-                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>{content.replace(/\n/g, "  \n")}</Streamdown>
+                  <Streamdown
+                    key={referenceRenderKey}
+                    mode="static"
+                    plugins={userPlugins}
+                    linkSafety={linkSafety}
+                    remarkPlugins={userRemarkPlugins}
+                    allowedTags={userRemarkPlugins ? REFERENCE_ALLOWED_TAGS : undefined}
+                    components={userRemarkPlugins ? REFERENCE_COMPONENTS : undefined}
+                  >
+                    {content.replace(/\n/g, "  \n")}
+                  </Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1164,9 +1248,18 @@ function MessageBubbleImpl({
                     </MessageAction>
                   </>
                 ) : !readOnly ? (
-                  <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </MessageAction>
+                  <>
+                    <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </MessageAction>
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="end"
+                      onFork={onForkMessage}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
+                  </>
                 ) : null}
               </div>
             ) : null}
@@ -1375,20 +1468,13 @@ function MessageBubbleImpl({
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </MessageAction>
-                    {onForkAssistantMessage && message.status === "completed" ? (
-                      <MessageAction
-                        label="Fork conversation from message"
-                        tooltip="Fork conversation from message"
-                        onClick={() => onForkAssistantMessage(message.id)}
-                        disabled={isForking}
-                      >
-                        {isForking ? (
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <GitFork className="h-3.5 w-3.5" />
-                        )}
-                      </MessageAction>
-                    ) : null}
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="start"
+                      onFork={message.status === "completed" ? onForkMessage : undefined}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
                   </div>
                 ) : null}
               </div>

@@ -6,17 +6,19 @@ import { describe, expect, it } from "vitest";
 import { createLocalUser } from "@/lib/users";
 import { createBot } from "@/lib/bots";
 import { createConversation } from "@/lib/conversations";
-import { getBotSkillsDir, listBotWorkspaceSkills } from "@/lib/bot-workspace-skills";
+import { MAX_SKILL_FILE_BYTES, getBotSkillsDir, listBotWorkspaceSkills } from "@/lib/bot-workspace-skills";
 import { executeLoadSkill, executeSaveSkill, executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
 import type { PromptMessage } from "@/lib/types";
 
 function buildContext(conversationId?: string) {
   const actions: RuntimeAction[] = [];
   const completions: Array<{ handle?: string; patch: { detail?: string; resultSummary?: string } }> = [];
+  const failures: Array<{ handle?: string; patch: { detail?: string; resultSummary?: string } }> = [];
 
   return {
     actions,
     completions,
+    failures,
     context: {
       input: {
         conversationId,
@@ -30,6 +32,12 @@ function buildContext(conversationId?: string) {
           patch: { detail?: string; resultSummary?: string }
         ) => {
           completions.push({ handle, patch });
+        },
+        onActionError: async (
+          handle: string | undefined,
+          patch: { detail?: string; resultSummary?: string }
+        ) => {
+          failures.push({ handle, patch });
         }
       },
       timelineSortOrder: 0,
@@ -104,7 +112,7 @@ describe("save_skill tool", () => {
   it("rejects invalid arguments with an error tool result", async () => {
     const user = await createLocalUser({ username: "argowner", password: "password-123", role: "user" as const });
     const bot = createBot({ name: "Validator", title: "Skills" }, user.id);
-    const { actions, context } = buildContext(bot.homeConversationId);
+    const { actions, failures, context } = buildContext(bot.homeConversationId);
 
     const missingDescription = await executeSaveSkill(
       "call_1",
@@ -122,8 +130,56 @@ describe("save_skill tool", () => {
     expect(unusableName.toolSucceeded).toBe(false);
     expect(resultText(unusableName.promptMessages)).toContain("valid skill folder name");
 
-    expect(actions).toHaveLength(0);
+    expect(actions.map((action) => [action.kind, action.detail])).toEqual([
+      ["save_skill", "Broken"],
+      ["save_skill", "!!!"]
+    ]);
+    expect(failures.map((failure) => failure.patch.resultSummary)).toEqual([
+      expect.stringContaining("description is required"),
+      expect.stringContaining("valid skill folder name")
+    ]);
     expect(existsSync(getBotSkillsDir(bot))).toBe(false);
+  });
+
+  it("enforces the same size, name and folder guards as the skills editor", async () => {
+    const user = await createLocalUser({ username: "guardowner", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Guarded", title: "Skills" }, user.id);
+    const { failures, completions, context } = buildContext(bot.homeConversationId);
+
+    const oversized = await executeSaveSkill(
+      "call_1",
+      { name: "Huge", description: "Too big.", instructions: "x".repeat(MAX_SKILL_FILE_BYTES) },
+      context
+    );
+    expect(oversized.toolSucceeded).toBe(false);
+    expect(resultText(oversized.promptMessages)).toContain("under 200 KB");
+
+    const longName = await executeSaveSkill(
+      "call_2",
+      { name: "n".repeat(101), description: "Long.", instructions: "Body." },
+      context
+    );
+    expect(longName.toolSucceeded).toBe(false);
+    expect(resultText(longName.promptMessages)).toContain("100 characters or fewer");
+
+    await executeSaveSkill(
+      "call_3",
+      { name: "Release Notes", description: "Original.", instructions: "Keep me." },
+      context
+    );
+    const clash = await executeSaveSkill(
+      "call_4",
+      { name: "release-notes", description: "Clash.", instructions: "Clobber." },
+      context
+    );
+    expect(clash.toolSucceeded).toBe(false);
+    expect(resultText(clash.promptMessages)).toContain('The skill "Release Notes" already uses this folder');
+
+    expect(completions.map((completion) => completion.patch.detail)).toEqual(["Release Notes"]);
+    expect(failures.map((failure) => failure.patch.detail)).toEqual(["Huge", "n".repeat(101), "release-notes"]);
+    expect(listBotWorkspaceSkills(bot).map((skill) => skill.content)).toEqual([
+      expect.stringContaining("Keep me.")
+    ]);
   });
 
   it("returns an error tool result for conversations without a bot workspace", async () => {

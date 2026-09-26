@@ -146,6 +146,9 @@ export function describeDelegationStatus(status: DelegationStatus | null, now: n
   if (run.status === "queued") {
     return { text: "queued", stalled: false };
   }
+  if (run.status === "waiting_approval") {
+    return { text: "waiting for your approval", stalled: false };
+  }
   if (run.status !== "running") {
     return null;
   }

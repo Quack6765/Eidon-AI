@@ -297,6 +297,7 @@ describe("message bubble bot action cards", () => {
           providerProfileId: null,
           status: "running",
           waitingForInput: false,
+          unread: false,
           lastRunAt: startedAt,
           createdAt: startedAt,
           updatedAt: startedAt
@@ -312,6 +313,7 @@ describe("message bubble bot action cards", () => {
           startedAt,
           finishedAt: null,
           parentMessageId: "msg_assistant",
+          requestedByBotId: null,
           errorMessage: null,
           createdAt: startedAt
         }
@@ -701,6 +703,25 @@ describe("delegation event lines", () => {
     expect(wake.querySelector(".markdown-body")).toBeNull();
   });
 
+  it("renders a restart resume notice as a marker without the automated instructions", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_resume",
+          content: "[Resumed after a server restart]\nContinue from where you left off instead of starting over."
+        }
+      })
+    );
+
+    const marker = screen.getByTestId("restart-resume-message");
+    expect(marker).toHaveTextContent("Resumed after a server restart");
+    expect(marker).not.toHaveTextContent("Continue from where you left off");
+    expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(container.querySelector(".rounded-2xl")).toBeNull();
+  });
+
   it("keeps normal user messages as bubbles when the marker pattern does not match", () => {
     render(
       React.createElement(MessageBubble, {
@@ -727,5 +748,122 @@ describe("delegation event lines", () => {
     });
     expect(parseDelegationWakeMessage("Hello [Message from Research Bot]\nAnswer")).toBeNull();
     expect(parseDelegationWakeMessage("[Message from ]\nAnswer")).toBeNull();
+  });
+});
+
+describe("MessageBubble reference tokens", () => {
+  it("tints known @bot and /skill tokens in user messages but leaves code alone", () => {
+    const message = {
+      ...createUserMessage(),
+      content: "Ask @Chief of Staff to run /daily-report, not `/daily-report` or @Nobody."
+    };
+    const { container } = render(
+      <MessageBubble
+        message={message}
+        referenceCandidates={[
+          { trigger: "@", name: "Chief of Staff" },
+          { trigger: "/", name: "daily-report" }
+        ]}
+      />
+    );
+
+    const marks = Array.from(container.querySelectorAll("[data-reference-kind]"));
+    expect(marks.map((mark) => [mark.getAttribute("data-reference-kind"), mark.textContent])).toEqual([
+      ["bot", "@Chief of Staff"],
+      ["skill", "/daily-report"]
+    ]);
+    expect(container.querySelector("code")).toHaveTextContent("/daily-report");
+  });
+
+  it("tints tokens once references arrive after the first render", () => {
+    const message = { ...createUserMessage(), content: "Ask @Writer now" };
+    const { container, rerender } = render(<MessageBubble message={message} referenceCandidates={[]} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    rerender(<MessageBubble message={message} referenceCandidates={[{ trigger: "@", name: "Writer" }]} />);
+
+    expect(container.querySelector("[data-reference-kind='bot']")).toHaveTextContent("@Writer");
+  });
+
+  it("renders plain text when no references are known", () => {
+    const message = { ...createUserMessage(), content: "Ask @Chief of Staff" };
+    const { container } = render(<MessageBubble message={message} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    expect(container).toHaveTextContent("Ask @Chief of Staff");
+  });
+});
+
+describe("message bubble drafts", () => {
+  function createDraftMessage(): Message {
+    return {
+      ...createAssistantMessage(),
+      content: "Here is the draft for Sarah.",
+      actions: [
+        {
+          id: "act_draft",
+          messageId: "msg_assistant",
+          kind: "draft_message",
+          status: "pending",
+          serverId: "mcp_gmail",
+          skillId: null,
+          toolName: "draft_message",
+          label: "Message draft for Gmail",
+          detail: "",
+          arguments: null,
+          resultSummary: "",
+          sortOrder: 0,
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          proposalState: "pending",
+          proposalPayload: {
+            operation: "message_draft",
+            mcpServerId: "mcp_gmail",
+            mcpServerName: "Gmail",
+            mcpToolName: "send_email",
+            toolLabel: "Send email",
+            arguments: { subject: "Q3 recap", body: "Hi Sarah" },
+            fields: [
+              { key: "subject", label: "Subject", format: "text", required: true },
+              { key: "body", label: "Body", format: "multiline", required: true }
+            ]
+          },
+          proposalUpdatedAt: null
+        }
+      ]
+    };
+  }
+
+  it("renders a pending draft card after the reply and sends through the bubble handler", async () => {
+    const onSendMessageDraft = vi.fn().mockResolvedValue(undefined);
+    render(
+      React.createElement(MessageBubble, {
+        message: createDraftMessage(),
+        onSendMessageDraft,
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const card = screen.getByTestId("message-draft-card");
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Here is the draft for Sarah.");
+    expect(card).toHaveTextContent("Ready to send");
+    expect(card).toHaveTextContent("Q3 recap");
+    expect(screen.queryByText(/1 tool/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSendMessageDraft).toHaveBeenCalledWith("act_draft", undefined));
+  });
+
+  it("hides the draft card while the reply is still streaming", () => {
+    const message = { ...createDraftMessage(), status: "streaming" as const };
+    render(
+      React.createElement(MessageBubble, {
+        message,
+        streamingTimeline: message.actions!.map((action) => ({ ...action, timelineKind: "action" as const })),
+        streamingAnswer: ""
+      })
+    );
+
+    expect(screen.queryByTestId("message-draft-card")).not.toBeInTheDocument();
   });
 });

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,9 +10,13 @@ import {
   POST as mobilePost,
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
+import { createBotRunRecord } from "@/lib/bot-runs";
+import { getSharedBotWorkspaceDir, resolveBotSandbox } from "@/lib/bot-sandbox";
+import { getBot } from "@/lib/bots";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
-import { createConversation, createMessage } from "@/lib/conversations";
+import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
 import { createToolApprovalRules } from "@/lib/tool-approvals";
 import { createLocalUser } from "@/lib/users";
@@ -179,7 +186,8 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(created.status).toBe(201);
     await assertResponseContract("/bots", "post", created);
-    const botId = ((await created.json()) as { data: { bot: { id: string } } }).data.bot.id;
+    const createdBot = ((await created.json()) as { data: { bot: { id: string; homeConversationId: string } } }).data.bot;
+    const botId = createdBot.id;
 
     const crossOwner = await mobileGet(
       request(["bots", botId], outsiderSession.token),
@@ -218,13 +226,116 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
-    const seenInput = await mobilePost(
-      request(["bots", botId, "seen-input"], memberSession.token, { method: "POST" }),
-      context(["bots", botId, "seen-input"])
+
+    const workspaceBot = getBot(botId)!;
+    fs.writeFileSync(path.join(resolveBotSandbox(workspaceBot).workspaceDir, "notes.md"), "# Notes");
+    fs.writeFileSync(path.join(getSharedBotWorkspaceDir(workspaceBot), "handoff.bin"), Buffer.from([1, 2, 3]));
+
+    const filePreview = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, { query: "?path=notes.md&format=text" }),
+      context(["bots", botId, "workspace", "file"])
     );
-    expect(seenInput.status).toBe(200);
-    await assertResponseContract("/bots/{botId}/seen-input", "post", seenInput);
-    await expect(seenInput.json()).resolves.toMatchObject({ data: { bot: { id: botId } } });
+    expect(filePreview.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/workspace/file", "get", filePreview);
+    await expect(filePreview.json()).resolves.toEqual({
+      data: { filename: "notes.md", mimeType: "text/markdown", content: "# Notes" }
+    });
+
+    const sharedDownload = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, {
+        query: "?path=handoff.bin&scope=shared&download=1"
+      }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(sharedDownload.status).toBe(200);
+    expect(sharedDownload.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await sharedDownload.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
+
+    const outsiderFile = await mobileGet(
+      request(["bots", botId, "workspace", "file"], outsiderSession.token, { query: "?path=notes.md" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(outsiderFile.status).toBe(404);
+    const read = await mobilePost(
+      request(["bots", botId, "read"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "read"])
+    );
+    expect(read.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/read", "post", read);
+    await expect(read.json()).resolves.toMatchObject({ data: { bot: { id: botId, unread: false } } });
+
+    const queuedRun = createBotRunRecord({
+      botId,
+      conversationId: createdBot.homeConversationId,
+      triggerSource: "delegated"
+    });
+    const crossOwnerRunStop = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], outsiderSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(crossOwnerRunStop.status).toBe(404);
+    const stoppedRun = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(stoppedRun.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/runs/{runId}/stop", "post", stoppedRun);
+    await expect(stoppedRun.json()).resolves.toMatchObject({ data: { run: { id: queuedRun.id, status: "stopped" } } });
+    const stoppedBot = await mobilePost(
+      request(["bots", botId, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "stop"])
+    );
+    expect(stoppedBot.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/stop", "post", stoppedBot);
+    await expect(stoppedBot.json()).resolves.toMatchObject({ data: { bot: { id: botId, status: "idle" } } });
+
+    const approvalMessage = createMessage({
+      conversationId: createdBot.homeConversationId,
+      role: "assistant",
+      content: ""
+    });
+    const approvalAction = createMessageAction({
+      messageId: approvalMessage.id,
+      kind: "tool_approval",
+      status: "pending",
+      label: 'Allow "git" commands?',
+      detail: "git push",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
+    const pendingApprovals = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    expect(pendingApprovals.status).toBe(200);
+    await assertResponseContract("/bots/approvals", "get", pendingApprovals);
+    await expect(pendingApprovals.json()).resolves.toMatchObject({
+      data: {
+        approvals: [
+          {
+            botId,
+            botName: "Researcher",
+            conversationId: createdBot.homeConversationId,
+            action: { id: approvalAction.id, kind: "tool_approval", proposalState: "pending" }
+          }
+        ]
+      }
+    });
+    const outsiderApprovals = await mobileGet(
+      request(["bots", "approvals"], outsiderSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(outsiderApprovals.json()).resolves.toEqual({ data: { approvals: [] } });
+    const approved = await mobilePost(
+      request(["message-actions", approvalAction.id, "approve"], memberSession.token, { method: "POST", body: {} }),
+      context(["message-actions", approvalAction.id, "approve"])
+    );
+    expect(approved.status).toBe(200);
+    const afterApproval = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(afterApproval.json()).resolves.toEqual({ data: { approvals: [] } });
 
     const cleared = await mobilePost(
       request(["bots", botId, "clear-context"], memberSession.token, { method: "POST" }),
@@ -291,6 +402,13 @@ describe("Mobile API v1 REST adapter", () => {
       context(["bots", chiefId])
     );
     expect(chiefDelete.status).toBe(400);
+
+    const homeThreadDelete = await mobileDelete(
+      request(["conversations", createdBot.homeConversationId], memberSession.token, { method: "DELETE" }),
+      context(["conversations", createdBot.homeConversationId])
+    );
+    expect(homeThreadDelete.status).toBe(409);
+    await assertResponseContract("/conversations/{conversationId}", "delete", homeThreadDelete);
 
     const deleted = await mobileDelete(
       request(["bots", botId], memberSession.token, { method: "DELETE" }),
@@ -585,6 +703,32 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { content: "Updated contract message" }
     );
+    const reply = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "Contract reply"
+    });
+    const [draftAttachment] = await createAttachments(conversationId, [
+      { filename: "draft.txt", mimeType: "text/plain", bytes: Buffer.from("draft attachment", "utf8") }
+    ]);
+    bindAttachmentsToMessage(conversationId, message.id, [draftAttachment.id]);
+    const userForkBody = await call(
+      "/messages/{messageId}/fork",
+      ["messages", message.id, "fork"],
+      "POST"
+    ) as { data: { draft: { content: string; attachments: Array<Record<string, unknown>> } } };
+    expect(userForkBody.data.draft.content).toBe("Updated contract message");
+    expect(userForkBody.data.draft.attachments[0]).not.toHaveProperty("relativePath");
+    await call("/messages/{messageId}/fork", ["messages", reply.id, "fork"], "POST");
+    const rewindBody = await call(
+      "/messages/{messageId}/rewind",
+      ["messages", message.id, "rewind"],
+      "POST"
+    ) as { data: { messages: unknown[]; draft: { attachments: Array<{ id: string; messageId: string | null }> } } };
+    expect(rewindBody.data.messages).toEqual([]);
+    expect(rewindBody.data.draft.attachments).toEqual([
+      expect.objectContaining({ id: draftAttachment.id, messageId: null })
+    ]);
 
     const formData = new FormData();
     formData.set("conversationId", conversationId);

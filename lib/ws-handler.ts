@@ -5,19 +5,18 @@ import { createAutomationScheduler as createAutomationSchedulerBase } from "@/li
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import {
-  createQueuedMessage,
   deleteQueuedMessage,
   getConversationSnapshot,
   getMessage,
   listActiveConversations,
   listQueuedMessages,
-  moveQueuedMessageToFront,
   reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
+import { queueFollowUpMessage, sendQueuedMessageNow } from "@/lib/queued-chat-dispatcher";
+import { stopConversationWork } from "@/lib/bot-runs";
 import { MAX_WS_CONNECTIONS, type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
-import { requestStop } from "@/lib/chat-turn-control";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import type { ChatResearchOptions, Message, QueuedMessage } from "@/lib/types";
@@ -27,7 +26,7 @@ import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { startSemanticIndex } from "@/lib/semantic-index";
 import { getDb } from "@/lib/db";
 import { sendWebSocketData } from "@/lib/ws-send";
-import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
+import { bootstrapRuntimeState, resumeRuntimeWork } from "@/lib/runtime-bootstrap";
 import { truncateText } from "@/lib/bounded-text";
 import { sanitizeMobilePayload } from "@/lib/mobile-api";
 import {
@@ -90,6 +89,7 @@ function buildSnapshotMessage(
 
 export {
   bootstrapRuntimeState,
+  resumeRuntimeWork,
   disposeTitleModel,
   getDb,
   initTitleModel,
@@ -397,7 +397,7 @@ function handleMessage(
         sendError(ws, "Conversation not found", "not_found", versioned);
         break;
       }
-      requestStop(msg.conversationId);
+      stopConversationWork(msg.conversationId);
       break;
     }
     case "queue_message": {
@@ -405,7 +405,7 @@ function handleMessage(
         break;
       }
 
-      createQueuedMessage({
+      queueFollowUpMessage({
         conversationId: msg.conversationId,
         content: msg.content
       });
@@ -454,7 +454,7 @@ function handleMessage(
         break;
       }
 
-      const moved = moveQueuedMessageToFront({
+      const moved = sendQueuedMessageNow({
         conversationId: msg.conversationId,
         queuedMessageId: msg.queuedMessageId
       });
@@ -464,7 +464,6 @@ function handleMessage(
         break;
       }
 
-      requestStop(msg.conversationId);
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
     }

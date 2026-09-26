@@ -3,6 +3,7 @@
 import React, { useSyncExternalStore } from "react";
 import { MessageBubble } from "@/components/message-bubble";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
+import type { ReferenceCandidate } from "@/lib/reference-tokens";
 import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
   MemoryCategory,
@@ -41,13 +42,17 @@ function StreamingMessageImpl({
   onDismissAutomationProposal,
   onApproveToolApproval,
   onDismissToolApproval,
-  onForkAssistantMessage,
+  onSendMessageDraft,
+  onDiscardMessageDraft,
+  onForkMessage,
+  onRewindMessage,
   onRetryAssistantMessage,
   onRegenerateUserMessage,
   isUpdating,
   isForking,
   isRetrying,
-  isRegenerating
+  isRegenerating,
+  referenceCandidates
 }: {
   active: boolean;
   buffer: StreamBuffer;
@@ -75,13 +80,17 @@ function StreamingMessageImpl({
     options?: { allowAlways?: boolean }
   ) => Promise<void>;
   onDismissToolApproval?: (actionId: string) => Promise<void>;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onSendMessageDraft?: (actionId: string, fields?: Record<string, string>) => Promise<void>;
+  onDiscardMessageDraft?: (actionId: string) => Promise<void>;
+  onForkMessage?: (messageId: string) => void;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   onRegenerateUserMessage?: (messageId: string) => void;
   isUpdating?: boolean;
   isForking?: boolean;
   isRetrying?: boolean;
   isRegenerating?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
 }) {
   const snapshot = useSyncExternalStore(
     active ? buffer.subscribe : noopSubscribe,
@@ -121,13 +130,17 @@ function StreamingMessageImpl({
       onDismissAutomationProposal={onDismissAutomationProposal}
       onApproveToolApproval={onApproveToolApproval}
       onDismissToolApproval={onDismissToolApproval}
-      onForkAssistantMessage={onForkAssistantMessage}
+      onSendMessageDraft={onSendMessageDraft}
+      onDiscardMessageDraft={onDiscardMessageDraft}
+      onForkMessage={onForkMessage}
+      onRewindMessage={onRewindMessage}
       onRetryAssistantMessage={onRetryAssistantMessage}
       onRegenerateUserMessage={onRegenerateUserMessage}
       isUpdating={isUpdating}
       isForking={isForking}
       isRetrying={isRetrying}
       isRegenerating={isRegenerating}
+      referenceCandidates={referenceCandidates}
     />
   );
 }

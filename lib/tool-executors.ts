@@ -29,10 +29,7 @@ import {
 } from "@/lib/screenshot-artifact-capabilities";
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
-import { buildBotWorkspaceSkillId, buildSkillMarkdown, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
-import { nowIso } from "@/lib/utils";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import {
   classifyShellCommand,
@@ -40,6 +37,7 @@ import {
   requestToolExecutionApproval
 } from "@/lib/tool-approvals";
 import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
+import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
@@ -52,7 +50,10 @@ import type {
   MessageActionStatus,
   MemoryProposalState,
   MessageActionKind,
+  MessageDraftProposalPayload,
   ProposalPayload,
+  DelegationChain,
+  ToolApprovalContext,
   ToolApprovalProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
@@ -94,7 +95,8 @@ export function isProposalToolCall(name: string) {
     name === "create_memory" ||
     name === "update_memory" ||
     name === "delete_memory" ||
-    name === "create_automation"
+    name === "create_automation" ||
+    name === "draft_message"
   );
 }
 
@@ -410,6 +412,32 @@ export async function executeImageGeneration(
   }
 }
 
+function resolveMcpToolFunction(
+  functionName: string,
+  toolSets: ToolSet[]
+): { server: McpServer; tool: McpTool } | null {
+  if (!functionName.startsWith("mcp_")) {
+    return null;
+  }
+
+  const withoutPrefix = functionName.slice(4);
+  const toolSetsBySpecificity = [...toolSets].sort(
+    (left, right) => right.server.slug.length - left.server.slug.length
+  );
+
+  for (const { server, tools } of toolSetsBySpecificity) {
+    if (withoutPrefix.startsWith(server.slug + "_")) {
+      const toolName = withoutPrefix.slice(server.slug.length + 1);
+      const tool = tools.find((t) => t.name === toolName);
+      if (tool) {
+        return { server, tool };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -419,7 +447,7 @@ export async function executeMcpToolCall(
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -431,26 +459,8 @@ export async function executeMcpToolCall(
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
-  const withoutPrefix = functionName.slice(4);
-  const toolSets = context.input.mcpToolSets;
-  let resolvedServer: McpServer | null = null;
-  let resolvedTool: McpTool | null = null;
-
-  const toolSetsBySpecificity = [...toolSets].sort(
-    (left, right) => right.server.slug.length - left.server.slug.length
-  );
-
-  for (const { server, tools } of toolSetsBySpecificity) {
-    if (withoutPrefix.startsWith(server.slug + "_")) {
-      const toolName = withoutPrefix.slice(server.slug.length + 1);
-      const tool = tools.find((t) => t.name === toolName);
-      if (tool) {
-        resolvedServer = server;
-        resolvedTool = tool;
-        break;
-      }
-    }
-  }
+  const { server: resolvedServer, tool: resolvedTool } =
+    resolveMcpToolFunction(functionName, context.input.mcpToolSets) ?? {};
 
   if (!resolvedServer || !resolvedTool) {
     const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
@@ -498,6 +508,8 @@ export async function executeMcpToolCall(
     detail: getToolLabel(resolvedTool),
     userId: context.input.toolApproval?.userId ?? null,
     unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart
   });
@@ -616,42 +628,53 @@ export async function executeLoadSkill(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  context.loadedSkillIds.add(skill.id);
-  try {
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: getSkillResolvedName(skill),
-      resultSummary: "Skill instructions loaded."
-    });
-    throwIfAborted(context.input.abortSignal);
-  } catch (error) {
-    context.loadedSkillIds.delete(skill.id);
-    throw error;
-  }
-
+  const skillContent = await loadSkillIntoTurn(skill, context.input, context.loadedSkillIds);
   sortOrder += 1;
-
-  const skillContent = truncateText([
-    `Skill loaded: ${getSkillResolvedName(skill)}`,
-    `Description: ${getSkillResolvedDescription(skill)}`,
-    "",
-    skill.content
-  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, resultMsg]
   };
+}
+
+export async function loadSkillIntoTurn(
+  skill: Skill,
+  input: {
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  },
+  loadedSkillIds: Set<string>
+) {
+  throwIfAborted(input.abortSignal);
+  const handle = await input.onActionStart?.({
+    kind: "skill_load",
+    label: "Load skill",
+    detail: getSkillResolvedName(skill),
+    skillId: skill.id
+  });
+  throwIfAborted(input.abortSignal);
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  loadedSkillIds.add(skill.id);
+  try {
+    await input.onActionComplete?.(actionHandle, {
+      detail: getSkillResolvedName(skill),
+      resultSummary: "Skill instructions loaded."
+    });
+    throwIfAborted(input.abortSignal);
+  } catch (error) {
+    loadedSkillIds.delete(skill.id);
+    throw error;
+  }
+
+  return truncateText([
+    `Skill loaded: ${getSkillResolvedName(skill)}`,
+    `Description: ${getSkillResolvedDescription(skill)}`,
+    "",
+    skill.content
+  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 }
 
 export async function executeSaveSkill(
@@ -681,111 +704,55 @@ export async function executeSaveSkill(
   toolSucceeded?: boolean;
 }> {
   throwIfAborted(context.input.abortSignal);
-  let sortOrder = context.timelineSortOrder;
-
-  const name = String(args.name ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const description = String(args.description ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const instructions = String(args.instructions ?? "").trim();
-
-  const invalidReason = !name
-    ? "a name is required"
-    : !description
-      ? "a description is required"
-      : !instructions
-        ? "instructions are required"
-        : null;
-
-  if (invalidReason) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot save skill — ${invalidReason}.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
+  const sortOrder = context.timelineSortOrder;
+  const errorResult = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
+    toolSucceeded: false
+  });
 
   const bot = context.input.conversationId
     ? getBotByConversationId(context.input.conversationId)
     : null;
 
   if (!bot) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      "Error: save_skill is only available in agent conversations that have a workspace."
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+    return errorResult("save_skill is only available in agent conversations that have a workspace.");
   }
 
-  const slug = slugifySkillFolderName(name);
-
-  if (!slug) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot derive a valid skill folder name from "${name}". Use lowercase letters, digits, and hyphens.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+  let result: ReturnType<typeof upsertBotWorkspaceSkill>;
+  try {
+    result = upsertBotWorkspaceSkill(bot, {
+      name: String(args.name ?? ""),
+      description: String(args.description ?? ""),
+      instructions: String(args.instructions ?? "")
+    });
+  } catch (error) {
+    result = { error: error instanceof Error ? error.message : "Failed to write the skill file" };
   }
-
-  const skillDir = join(getBotSkillsDir(bot), slug);
-  const skillFilePath = join(skillDir, "SKILL.md");
-  const content = buildSkillMarkdown(name, description, instructions);
 
   throwIfAborted(context.input.abortSignal);
+  const detail = "skill" in result ? result.skill.name : String(args.name ?? "").trim();
   const handle = await context.input.onActionStart?.({
     kind: "save_skill",
     label: "Save skill",
-    detail: name
+    detail
   });
-  throwIfAborted(context.input.abortSignal);
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(skillFilePath, content, "utf8");
-  } catch (error) {
-    throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "Failed to write the skill file";
-    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+  if ("error" in result) {
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: result.error });
+    return errorResult(`Cannot save skill — ${result.error}`);
   }
 
+  const savedSkill = result.skill;
   await context.input.onActionComplete?.(actionHandle, {
-    detail: name,
+    detail,
     resultSummary: "Skill saved to the workspace skills folder."
   });
 
   const turnSkills = context.input.skills;
   if (turnSkills) {
-    const savedSkill: Skill = {
-      id: buildBotWorkspaceSkillId(bot.id, slug),
-      name,
-      description,
-      content,
-      enabled: true,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    };
-    const resolvedNameLower = name.toLowerCase();
+    const resolvedNameLower = savedSkill.name.toLowerCase();
     for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
       const existing = turnSkills[index];
       if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
@@ -800,14 +767,12 @@ export async function executeSaveSkill(
     }
   }
 
-  sortOrder += 1;
-
   const resultMsg = buildToolResultMessage(
     toolCallId,
-    `Skill saved: ${name} (skills/${slug}/SKILL.md). It is available via load_skill, including right away in this turn.`
+    `Skill saved: ${savedSkill.name} (skills/${slugifySkillFolderName(savedSkill.name)}/SKILL.md). It is available via load_skill, including right away in this turn.`
   );
   return {
-    nextSortOrder: sortOrder,
+    nextSortOrder: sortOrder + 1,
     promptMessages: [...context.promptMessages, resultMsg],
     toolSucceeded: true
   };
@@ -820,7 +785,7 @@ export async function executeShellCommand(
     input: {
       conversationId?: string;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -853,6 +818,8 @@ export async function executeShellCommand(
     detail: buildShellDetail(command),
     userId: context.input.toolApproval?.userId ?? null,
     unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart
   });
@@ -1183,6 +1150,7 @@ export async function executeCreateAutomationProposal(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
   const proposalPayload = {
     name,
     prompt,
@@ -1193,7 +1161,8 @@ export async function executeCreateAutomationProposal(
     daysOfWeek: schedule.daysOfWeek,
     providerProfileId,
     personaId: null,
-    continuePreviousConversation
+    botId: bot?.id ?? null,
+    continuePreviousConversation: bot ? false : continuePreviousConversation
   };
   const scheduleSummary = describeSchedule(proposalPayload);
 
@@ -1212,6 +1181,106 @@ export async function executeCreateAutomationProposal(
   const resultMsg = buildToolResultMessage(
     toolCallId,
     `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+export async function executeDraftMessage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      mcpToolSets: ToolSet[];
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const fail = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  const functionName = typeof args.tool === "string" ? args.tool.trim() : "";
+  const rawArguments = args.arguments;
+
+  if (!functionName) {
+    return fail("tool is required: pass the exact name of the connected tool that sends the message");
+  }
+
+  if (!rawArguments || typeof rawArguments !== "object" || Array.isArray(rawArguments)) {
+    return fail("arguments must be an object with the arguments for the sending tool");
+  }
+
+  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets);
+  if (!resolved) {
+    return fail(`${functionName} is not a connected tool. Use the exact name of a tool from your tool list, such as mcp_<server>_<tool>.`);
+  }
+
+  const { server, tool } = resolved;
+  if (tool.annotations?.readOnlyHint === true) {
+    return fail(`${functionName} is read-only and does not send anything. Call it directly instead.`);
+  }
+
+  const toolArguments = coerceEnumValues(tool.inputSchema ?? {}, rawArguments as Record<string, unknown>);
+  const missing = (tool.inputSchema?.required ?? []).filter((key) => toolArguments[key] === undefined);
+  if (missing.length) {
+    return fail(`missing required arguments for ${functionName}: ${missing.join(", ")}`);
+  }
+
+  const fields = buildMessageDraftFields(tool, toolArguments);
+  if (!fields.length) {
+    return fail(`${functionName} has no text for the user to review. Call it directly instead.`);
+  }
+
+  const replacesDraftId = typeof args.replaces_draft_id === "string" ? args.replaces_draft_id.trim() : "";
+  const replaced =
+    replacesDraftId && context.input.conversationId
+      ? supersedeMessageDraft(replacesDraftId, context.input.conversationId)
+      : false;
+
+  const proposalPayload: MessageDraftProposalPayload = {
+    operation: "message_draft",
+    mcpServerId: server.id,
+    mcpServerName: server.name,
+    mcpToolName: tool.name,
+    toolLabel: getToolLabel(tool),
+    arguments: toolArguments,
+    fields
+  };
+
+  throwIfAborted(context.input.abortSignal);
+  const handle = await context.input.onActionStart?.({
+    kind: "draft_message",
+    status: "pending",
+    label: `Message draft for ${server.name}`,
+    detail: buildArgumentsSummary(toolArguments),
+    serverId: server.id,
+    toolName: "draft_message",
+    arguments: { tool: functionName, arguments: toolArguments },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+  const draftId = typeof handle === "string" && handle ? handle : null;
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    [
+      `Draft${draftId ? ` ${draftId}` : ""} is ready for the user to review, edit, and send with ${server.name}. Nothing has been sent.`,
+      replacesDraftId
+        ? replaced
+          ? `Draft ${replacesDraftId} was withdrawn and replaced by this one.`
+          : `Draft ${replacesDraftId} was not replaced because it is no longer waiting; the user may already have sent or discarded it.`
+        : "",
+      "Tell the user the draft is ready below without repeating its full text, and never claim it was sent."
+    ]
+      .filter(Boolean)
+      .join(" ")
   );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
@@ -1359,6 +1428,7 @@ export async function executeSearchWorkspace(
   context: {
     input: {
       memoryUserId?: string | null;
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -1397,7 +1467,12 @@ export async function executeSearchWorkspace(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const results = await searchWorkspace({ userId, query, limit });
+    const results = await searchWorkspace({
+      userId,
+      query,
+      limit,
+      memoryBotId: resolveMemoryScope(context.input.conversationId)?.botId ?? null
+    });
     throwIfAborted(context.input.abortSignal);
     if (!results) {
       throw new Error("Semantic index is unavailable");
@@ -1454,8 +1529,9 @@ export async function executeToolCall(
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
+      delegationChain?: DelegationChain;
       abortSignal?: AbortSignal;
-      toolApproval?: { userId: string | null; unattended: boolean };
+      toolApproval?: ToolApprovalContext;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
@@ -1524,6 +1600,10 @@ export async function executeToolCall(
 
   if (name === "create_automation") {
     return executeCreateAutomationProposal(toolCallId, args, context);
+  }
+
+  if (name === "draft_message") {
+    return executeDraftMessage(toolCallId, args, context);
   }
 
   if (name === "web_search") {

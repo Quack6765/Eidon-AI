@@ -21,6 +21,7 @@ const bot: BotSummary = {
   providerProfileId: null,
   status: "running",
   waitingForInput: false,
+  unread: false,
   lastRunAt: null,
   createdAt: "2026-09-04T10:00:00.000Z",
   updatedAt: "2026-09-04T10:00:00.000Z"
@@ -36,6 +37,7 @@ function run(overrides: Partial<BotRun> = {}): BotRun {
     startedAt: "2026-09-04T10:00:00.000Z",
     finishedAt: null,
     parentMessageId: "msg_chief",
+    requestedByBotId: null,
     errorMessage: null,
     createdAt: "2026-09-04T10:00:00.000Z",
     ...overrides
@@ -85,6 +87,10 @@ describe("use-delegation-status store", () => {
     expect(describeDelegationStatus(null, now)).toBeNull();
     expect(describeDelegationStatus({ run: run({ status: "queued" }), activity: null }, now)).toEqual({
       text: "queued",
+      stalled: false
+    });
+    expect(describeDelegationStatus({ run: run({ status: "waiting_approval" }), activity: null }, now)).toEqual({
+      text: "waiting for your approval",
       stalled: false
     });
     expect(describeDelegationStatus({ run: run(), activity: null }, now)).toEqual({

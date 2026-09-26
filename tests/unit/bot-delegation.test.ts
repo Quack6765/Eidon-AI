@@ -9,10 +9,18 @@ vi.mock("@/lib/chat-turn", () => ({
 }));
 
 import { createLocalUser } from "@/lib/users";
-import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
+import { buildBotSystemPrompt, createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createMessage } from "@/lib/conversations";
-import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
+import {
+  getBotRun,
+  getBotRunDelegation,
+  listRecentBotRuns,
+  stopBotRun,
+  stopConversationWork,
+  updateBotRunStatus
+} from "@/lib/bot-runs";
 import { configureBotRunLimits, enqueueSerialTask, releaseBotUserSlot, resetBotRunLimiter, tryAcquireBotUserSlot } from "@/lib/bot-run-limiter";
 import { claimChatTurnStart, hasActiveChatTurn, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import {
@@ -23,14 +31,15 @@ import {
   scanTurnActivity
 } from "@/lib/turn-activity";
 import {
+  MAX_BOT_MESSAGES_PER_REQUEST,
   buildDelegationWakeContent,
-  deliverDelegationWake,
+  deliverWakeMessage,
   executeCreateBotTool,
   executeMessageBot,
   executeUpdateBotTool,
   executeUpdateOwnInstructionsTool
 } from "@/lib/bot-delegation";
-import type { PromptMessage } from "@/lib/types";
+import type { DelegationChain, PromptMessage } from "@/lib/types";
 
 function buildContext(memoryUserId: string | null, assistantMessageId?: string, conversationId = "conv_chief") {
   const calls: Array<{ label: string; kind: string }> = [];
@@ -125,6 +134,13 @@ describe("bot-delegation", () => {
     expect(runs[0].status).toBe("completed");
     expect(runs[0].triggerSource).toBe("delegated");
     expect(runs[0].parentMessageId).toBe(chiefMessage.id);
+    await vi.waitFor(() => expect(getBotRunDelegation(runs[0].id)?.pendingReply).toBeNull());
+    expect(getBotRunDelegation(runs[0].id)).toEqual({
+      prompt: workerCalls[0],
+      replyConversationId: chief.homeConversationId,
+      replyActionId: "action_1",
+      pendingReply: null
+    });
   });
 
   it("rejects messaging unknown bots or itself without creating runs", async () => {
@@ -283,6 +299,136 @@ describe("bot-delegation", () => {
     expect(startChatTurnMock).not.toHaveBeenCalled();
   });
 
+  it("shares one message budget with the worker turn and the reply wake", async () => {
+    const user = await createLocalUser({ username: "budgetshare", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Relay" }, user.id);
+    const chain: DelegationChain = { messagesSent: 2 };
+    const seen: Record<string, unknown> = {};
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { delegationChain?: DelegationChain }
+      ) => {
+        if (conversationId === worker.homeConversationId) {
+          seen.worker = options.delegationChain;
+          stubWorkerAnswer(conversationId, "Relayed.");
+        } else {
+          seen.wake = options.delegationChain;
+        }
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_budget", { bot: worker.id, message: "pass it on" }, {
+      ...context,
+      input: { ...context.input, delegationChain: chain }
+    });
+
+    await vi.waitFor(() => {
+      if (seen.wake === undefined) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+    expect(chain.messagesSent).toBe(3);
+    expect(seen.worker).toBe(chain);
+    expect(seen.wake).toBe(chain);
+  });
+
+  it("stops bots from messaging each other once the request's message budget is spent", async () => {
+    const user = await createLocalUser({ username: "budgetspent", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Ping" }, user.id);
+    const chain: DelegationChain = { messagesSent: MAX_BOT_MESSAGES_PER_REQUEST };
+
+    const { context, calls } = buildContext(user.id, undefined, chief.homeConversationId);
+    const result = await executeMessageBot("call_loop", { bot: worker.id, message: "again" }, {
+      ...context,
+      input: { ...context.input, delegationChain: chain }
+    });
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBeUndefined();
+    expect(result.promptMessages.at(-1)?.content).toContain(`already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages`);
+    expect(result.promptMessages.at(-1)?.content).toContain("Report what you have to the user");
+    expect(result.promptMessages.at(-1)?.content).toContain("message bots again after the user replies");
+    expect(chain.messagesSent).toBe(MAX_BOT_MESSAGES_PER_REQUEST);
+    expect(calls).toHaveLength(0);
+    expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
+    expect(startChatTurnMock).not.toHaveBeenCalled();
+  });
+
+  it("counts parallel messages from one turn against the same budget, but not failed lookups", async () => {
+    const user = await createLocalUser({ username: "budgetparallel", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    createBot({ name: "Left" }, user.id);
+    createBot({ name: "Right" }, user.id);
+    startChatTurnMock.mockImplementation(async () => ({ status: "completed" as const }));
+    const chain: DelegationChain = { messagesSent: MAX_BOT_MESSAGES_PER_REQUEST - 1 };
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    const withChain = { ...context, input: { ...context.input, delegationChain: chain } };
+
+    const missing = await executeMessageBot("call_missing", { bot: "Nobody", message: "hi" }, withChain);
+    expect(missing.promptMessages.at(-1)?.content).toContain('no other bot "Nobody"');
+    expect(chain.messagesSent).toBe(MAX_BOT_MESSAGES_PER_REQUEST - 1);
+
+    const replies = await Promise.all([
+      executeMessageBot("call_left", { bot: "Left", message: "go" }, withChain),
+      executeMessageBot("call_right", { bot: "Right", message: "go" }, withChain)
+    ]);
+
+    const texts = replies.map((reply) => String(reply.promptMessages.at(-1)?.content));
+    expect(texts.filter((text) => text.startsWith("Message sent to"))).toHaveLength(1);
+    expect(texts.filter((text) => text.includes("message_bot is paused"))).toHaveLength(1);
+    expect(chain.messagesSent).toBe(MAX_BOT_MESSAGES_PER_REQUEST);
+    await vi.waitFor(() => {
+      if (listRecentBotRuns({ userId: user.id })[0]?.status !== "completed") throw new Error("waiting for run");
+    }, { timeout: 5_000, interval: 10 });
+  });
+
+  it("makes a reply wake into a bot conversation wait for a free concurrency slot", async () => {
+    const user = await createLocalUser({ username: "wakeslot", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    let slotFreeDuringWake: boolean | null = null;
+    startChatTurnMock.mockImplementation(async () => {
+      slotFreeDuringWake = tryAcquireBotUserSlot(user.id);
+      if (slotFreeDuringWake) releaseBotUserSlot(user.id);
+      return { status: "completed" as const };
+    });
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    try {
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      const wake = deliverWakeMessage({
+        recipientConversationId: chief.homeConversationId,
+        ownerUserId: user.id,
+        content: "reply"
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(startChatTurnMock).not.toHaveBeenCalled();
+
+      releaseBotUserSlot(user.id);
+      await expect(wake).resolves.toMatchObject({ status: "completed" });
+      expect(slotFreeDuringWake).toBe(false);
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      releaseBotUserSlot(user.id);
+
+      expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+      const plainWake = await deliverWakeMessage({
+        recipientConversationId: "conv_plain_chat",
+        ownerUserId: user.id,
+        content: "reply"
+      });
+      expect(plainWake.status).toBe("completed");
+      releaseBotUserSlot(user.id);
+    } finally {
+      configureBotRunLimits({ maxConcurrentPerUser: 4 });
+    }
+  });
+
   it("waits for a free concurrency slot instead of failing the delegation", async () => {
     const user = await createLocalUser({ username: "delegatecap", password: "password-123", role: "user" as const });
     const worker = createBot({ name: "Busy" }, user.id);
@@ -324,6 +470,109 @@ describe("bot-delegation", () => {
     expect(wakeCalls[0]).toContain("Done after waiting.");
     const runs = listRecentBotRuns({ userId: user.id });
     expect(runs[0].status).toBe("completed");
+    configureBotRunLimits({ maxConcurrentPerUser: 4 });
+  });
+
+  it("pauses on a tool approval: frees its slot while waiting and takes one back to resume", async () => {
+    const user = await createLocalUser({ username: "delegateapproval", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Gatekeeper" }, user.id);
+    const observed: Record<string, unknown> = {};
+    const wakeOptions: Array<Record<string, unknown>> = [];
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { unattended?: boolean; onApprovalWait?: (waiting: boolean) => Promise<void> }
+      ) => {
+        if (conversationId !== worker.homeConversationId) {
+          wakeOptions.push(options as Record<string, unknown>);
+          return { status: "completed" as const };
+        }
+        observed.unattended = options.unattended;
+        const runId = listRecentBotRuns({ userId: user.id })[0].id;
+        await options.onApprovalWait?.(true);
+        observed.waitingStatus = getBotRun(runId)?.status;
+        observed.slotFreeWhileWaiting = tryAcquireBotUserSlot(user.id);
+        releaseBotUserSlot(user.id);
+        await options.onApprovalWait?.(false);
+        observed.resumedStatus = getBotRun(runId)?.status;
+        observed.slotFreeAfterResume = tryAcquireBotUserSlot(user.id);
+        stubWorkerAnswer(conversationId, "Approved and done.");
+        return { status: "completed" as const };
+      }
+    );
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_gate", { bot: worker.id, message: "push it" }, context);
+
+    await vi.waitFor(() => {
+      if (wakeOptions.length === 0) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+
+    expect(observed).toEqual({
+      unattended: true,
+      waitingStatus: "waiting_approval",
+      slotFreeWhileWaiting: true,
+      resumedStatus: "running",
+      slotFreeAfterResume: false
+    });
+    expect(wakeOptions[0].unattended).toBe(true);
+    expect(listRecentBotRuns({ userId: user.id })[0].status).toBe("completed");
+    expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+    releaseBotUserSlot(user.id);
+    configureBotRunLimits({ maxConcurrentPerUser: 4 });
+  });
+
+  it("does not hold a slot it could not take back after an approval", async () => {
+    const user = await createLocalUser({ username: "delegatenoslot", password: "password-123", role: "user" as const });
+    const worker = createBot({ name: "Latecomer" }, user.id);
+    const wakeCalls: string[] = [];
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        content: string,
+        _attachments: string[],
+        _persona: string | undefined,
+        options: { onApprovalWait?: (waiting: boolean) => Promise<void> }
+      ) => {
+        if (conversationId !== worker.homeConversationId) {
+          wakeCalls.push(content);
+          return { status: "completed" as const };
+        }
+        await options.onApprovalWait?.(true);
+        expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+        await options.onApprovalWait?.(false);
+        stubWorkerAnswer(conversationId, "Finished anyway.");
+        return { status: "completed" as const };
+      }
+    );
+
+    configureBotRunLimits({ maxConcurrentPerUser: 1 });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { context } = buildContext(user.id);
+      await executeMessageBot("call_late", { bot: worker.id, message: "go" }, context);
+      await vi.waitFor(() => {
+        if (startChatTurnMock.mock.calls.length === 0) throw new Error("waiting for worker");
+      });
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await vi.waitFor(() => {
+      if (wakeCalls.length === 0) throw new Error("waiting for wake");
+    }, { timeout: 5_000, interval: 10 });
+    expect(tryAcquireBotUserSlot(user.id)).toBe(false);
+    releaseBotUserSlot(user.id);
+    expect(tryAcquireBotUserSlot(user.id)).toBe(true);
+    releaseBotUserSlot(user.id);
     configureBotRunLimits({ maxConcurrentPerUser: 4 });
   });
 
@@ -426,12 +675,12 @@ describe("bot-delegation", () => {
       return { status: "completed" as const };
     });
 
-    const first = deliverDelegationWake({
+    const first = deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "first"
     });
-    const second = deliverDelegationWake({
+    const second = deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "second"
@@ -505,6 +754,40 @@ describe("bot-delegation", () => {
     expect(runs[0].triggerSource).toBe("delegated");
   });
 
+  it("hands the files a worker delivered to the bot that messaged it", async () => {
+    const user = await createLocalUser({ username: "fileshandoff", password: "password-123", role: "user" as const });
+    ensureChiefBot(user.id);
+    const worker = createBot({ name: "Analyst" }, user.id);
+    const sourcePath = "/workspaces/shared/q3 revenue.csv";
+
+    const chiefWakeCalls: string[] = [];
+    startChatTurnMock.mockImplementation(
+      async (_manager: unknown, conversationId: string, content: string) => {
+        if (conversationId === worker.homeConversationId) {
+          createMessage({ conversationId, role: "user", content: "task" });
+          const reply = createMessage({ conversationId, role: "assistant", content: "" });
+          const [attachment] = await createAttachments(conversationId, [
+            { filename: "q3 revenue.csv", mimeType: "text/csv", bytes: Buffer.from("q,rev"), sourcePath }
+          ]);
+          bindAttachmentsToMessage(conversationId, reply.id, [attachment.id]);
+          return { status: "completed" as const };
+        }
+        chiefWakeCalls.push(content);
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id);
+    await executeMessageBot("call_files", { bot: "Analyst", message: "build the Q3 sheet" }, context);
+    await vi.waitFor(() => {
+      if (chiefWakeCalls.length === 0) throw new Error("not woken yet");
+    }, { timeout: 5_000, interval: 10 });
+
+    expect(chiefWakeCalls[0]).toContain("[Message from Analyst]");
+    expect(chiefWakeCalls[0]).toContain(`[Message from Analyst]\n[q3 revenue.csv](<${sourcePath}>)`);
+    expect(chiefWakeCalls[0]).not.toContain("finished without a visible response");
+  });
+
   it("wakes the chief with a failure notice when an async delegation fails", async () => {
     const user = await createLocalUser({ username: "asyncfail", password: "password-123", role: "user" as const });
     ensureChiefBot(user.id);
@@ -546,7 +829,7 @@ describe("bot-delegation", () => {
       return { status: "completed" as const };
     });
 
-    const wake = await deliverDelegationWake({
+    const wake = await deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: buildDelegationWakeContent("Bot", { status: "completed", summary: "done" }),
@@ -574,7 +857,7 @@ describe("bot-delegation", () => {
       errorMessage: "Conversation already has an active assistant turn"
     }));
 
-    const wake = await deliverDelegationWake({
+    const wake = await deliverWakeMessage({
       recipientConversationId: chief.homeConversationId,
       ownerUserId: user.id,
       content: "wake",
@@ -626,6 +909,77 @@ describe("bot-delegation", () => {
       startChatTurnMock.mock.calls.filter(
         ([, conversationId]) => conversationId === worker.homeConversationId
       )
+    ).toHaveLength(0);
+  });
+
+  it("does not wake the sender when the user stops a queued hand-off", async () => {
+    const user = await createLocalUser({ username: "userstopqueued", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    void enqueueSerialTask(worker.id, () => blocker);
+    startChatTurnMock.mockImplementation(async () => ({ status: "completed" as const }));
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    await executeMessageBot("call_user_stop", { bot: "researcher", message: "find sources" }, context);
+    const queuedRun = listRecentBotRuns({ userId: user.id, botId: worker.id })[0];
+
+    expect(stopBotRun(queuedRun.id)?.status).toBe("stopped");
+    releaseBlocker();
+    await enqueueSerialTask(worker.id, async () => {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(getBotRun(queuedRun.id)?.status).toBe("stopped");
+    expect(startChatTurnMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the sender's thread", "chief"],
+    ["the worker's own thread", "worker"]
+  ] as const)("stops a running hand-off when %s is stopped, without waking the sender", async (_label, stoppedThread) => {
+    const user = await createLocalUser({ username: `cascade${stoppedThread}`, password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+    const handoff = createMessage({ conversationId: chief.homeConversationId, role: "assistant", content: "" });
+    const observed: { runId?: string; aborted?: boolean } = {};
+
+    startChatTurnMock.mockImplementation(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _personaId: string | undefined,
+        options: { botRun?: { runId?: string }; onMessagesCreated?: (ids: { userMessageId: string; assistantMessageId: string }) => void }
+      ) => {
+        const claimed = claimChatTurnStart(conversationId);
+        if (!claimed.ok) return { status: "failed" as const, errorMessage: "Conversation already has an active assistant turn" };
+        claimed.control.botRunId = options.botRun?.runId ?? null;
+        observed.runId = options.botRun?.runId;
+        options.onMessagesCreated?.({ userMessageId: "msg_task", assistantMessageId: "msg_reply" });
+        await new Promise<void>((resolve) => claimed.control.abortController.signal.addEventListener("abort", () => resolve()));
+        observed.aborted = true;
+        releaseChatTurnStart(conversationId, claimed.control);
+        return { status: "stopped" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id, handoff.id, chief.homeConversationId);
+    await executeMessageBot("call_cascade", { bot: "researcher", message: "dig deeper" }, context);
+    await vi.waitFor(() => expect(hasActiveChatTurn(worker.homeConversationId)).toBe(true));
+
+    stopConversationWork(stoppedThread === "chief" ? chief.homeConversationId : worker.homeConversationId);
+
+    await vi.waitFor(() => expect(observed.aborted).toBe(true));
+    await vi.waitFor(() => expect(hasActiveChatTurn(worker.homeConversationId)).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getBotRun(observed.runId!)?.status).toBe("stopped");
+    expect(
+      startChatTurnMock.mock.calls.filter(([, conversationId]) => conversationId === chief.homeConversationId)
     ).toHaveLength(0);
   });
 
@@ -742,6 +1096,22 @@ describe("bot-delegation", () => {
     );
     expect(tooLong.promptMessages.at(-1)?.content).toContain("instructions are too long");
     expect(getBot(worker.id, user.id)?.systemPrompt).toBe("You keep the ledger.");
+  });
+
+  it("applies the chief's self-edited instructions to its own prompt", async () => {
+    const user = await createLocalUser({ username: "chiefselfedit", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+
+    const result = await executeUpdateOwnInstructionsTool(
+      "call_cs1",
+      { instructions: "Summarize every delegated reply in three bullets." },
+      buildContext(user.id, undefined, chief.homeConversationId).context
+    );
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
+    expect(buildBotSystemPrompt(getBot(chief.id, user.id)!)).toContain(
+      "Summarize every delegated reply in three bullets."
+    );
   });
 
   it("updates and renames a bot via the update_bot tool", async () => {

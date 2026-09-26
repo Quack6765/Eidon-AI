@@ -401,6 +401,43 @@ describe("db", () => {
     }
   });
 
+  it("links existing routine runs to the answer they produced when adding the result column", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const automations = await import("@/lib/automations");
+    const conversations = await import("@/lib/conversations");
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO automations (id, name, prompt, provider_profile_id, schedule_kind, interval_minutes, enabled, created_at, updated_at)
+       VALUES ('auto_backfill', 'Digest', 'Digest', 'profile_backfill', 'interval', 60, 0, ?, ?)`
+    ).run("2026-04-10T07:00:00.000Z", "2026-04-10T07:00:00.000Z");
+    const conversation = conversations.createConversation("Shared thread");
+    const run = automations.createAutomationRun({
+      automationId: "auto_backfill",
+      scheduledFor: "2026-04-10T08:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    automations.attachConversationToRun(run.id, conversation.id);
+    automations.updateAutomationRunStatus(run.id, {
+      status: "completed",
+      startedAt: "2026-04-10T08:00:00.000Z",
+      finishedAt: "2026-04-10T08:05:00.000Z"
+    });
+
+    const createAnswerAt = (content: string, createdAt: string) => {
+      const message = conversations.createMessage({ conversationId: conversation.id, role: "assistant", content });
+      db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(createdAt, message.id);
+    };
+    createAnswerAt("Earlier chat reply", "2026-04-10T07:59:00.000Z");
+    createAnswerAt("Routine answer", "2026-04-10T08:01:00.000Z");
+    createAnswerAt("Later chat reply", "2026-04-10T08:30:00.000Z");
+
+    db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
+    migrate(db);
+
+    expect(automations.getPreviousAutomationRunResult("auto_backfill", "run_next")).toBe("Routine answer");
+  });
+
   it("seeds new accounts with the running version so a fresh install is not announced", async () => {
     process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
     try {
@@ -984,6 +1021,20 @@ describe("db", () => {
       triggerSource: "delegated"
     });
     botRuns.updateBotRunStatus(botRun.id, { status: "running", startedAt: "2026-07-12T12:00:00.000Z" });
+    const pausedBotRun = botRuns.createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "routine"
+    });
+    botRuns.updateBotRunStatus(pausedBotRun.id, { status: "waiting_approval", startedAt: "2026-07-12T12:00:00.000Z" });
+    const toolApprovalAction = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "tool_approval",
+      label: "Allow \"git\" commands?",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
     const delegationAction = conversations.createMessageAction({
       messageId: assistantMessage.id,
       kind: "message_bot",
@@ -1063,19 +1114,31 @@ describe("db", () => {
       .get(delegationAction.id) as { status: string; result_summary: string; completed_at: string | null };
 
     expect(recoveredConversation).toEqual({ is_active: 0, title_generation_status: "failed" });
-    expect(recoveredMessage.status).toBe("error");
+    expect(recoveredMessage.status).toBe("stopped");
     expect(recoveredAction.status).toBe("error");
     expect(recoveredAction.completed_at).not.toBeNull();
-    expect(recoveredQueue).toEqual({ status: "failed", processing_started_at: null });
+    expect(recoveredQueue).toEqual({ status: "pending", processing_started_at: null });
     expect(recoveredPendingQueue).toEqual({ status: "pending", processing_started_at: null });
-    expect(recoveredRun.status).toBe("failed");
-    expect(recoveredRun.finished_at).not.toBeNull();
-    expect(recoveredBotRun.status).toBe("failed");
+    expect(recoveredRun).toEqual({ status: "queued", finished_at: null });
+    expect(recoveredBotRun.status).toBe("stopped");
     expect(recoveredBotRun.finished_at).not.toBeNull();
-    expect(recoveredBotRun.error_message).toContain("interrupted by server restart");
+    expect(recoveredBotRun.error_message).toBe("Interrupted by a server restart");
     expect(recoveredDelegationAction.status).toBe("error");
     expect(recoveredDelegationAction.result_summary).toContain("interrupted");
     expect(recoveredDelegationAction.completed_at).not.toBeNull();
+    expect(reopened.prepare("SELECT status FROM bot_runs WHERE id = ?").get(pausedBotRun.id)).toEqual({ status: "stopped" });
+    const recoveredToolApproval = reopened
+      .prepare("SELECT status, proposal_state, proposal_payload_json, completed_at FROM message_actions WHERE id = ?")
+      .get(toolApprovalAction.id) as {
+      status: string;
+      proposal_state: string;
+      proposal_payload_json: string;
+      completed_at: string | null;
+    };
+    expect(recoveredToolApproval.status).toBe("completed");
+    expect(recoveredToolApproval.proposal_state).toBe("dismissed");
+    expect(JSON.parse(recoveredToolApproval.proposal_payload_json)).toMatchObject({ command: "git push", resolution: "stopped" });
+    expect(recoveredToolApproval.completed_at).not.toBeNull();
     expect(bootstrapResult).toMatchObject({
       recovered: {
         conversations: 1,
@@ -1084,8 +1147,11 @@ describe("db", () => {
         titles: 1,
         queuedMessages: 1,
         automationRuns: 1,
-        botRuns: 1,
-        delegationActions: 1
+        delegatedRuns: 0,
+        botRuns: 2,
+        delegationActions: 1,
+        toolApprovals: 1,
+        conversationIds: [conversation.id]
       }
     });
 
