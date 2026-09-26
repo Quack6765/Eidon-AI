@@ -23,9 +23,11 @@ export function lastOpenedUrl(actions: ActionItem[]) {
   return null;
 }
 
-function displayUrl(url: string) {
+function displayUrl(url: string | null) {
+  if (!url) return null;
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
     return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
   } catch {
     return url;
@@ -47,10 +49,11 @@ export function ComputerSessionCard({
 }) {
   const view = useComputerStream(liveConversationId);
   const isLive = Boolean(liveConversationId);
-  const url = view.url ?? lastOpenedUrl(actions);
+  const url = displayUrl(view.url ?? (isLive ? null : lastOpenedUrl(actions)));
   const runningAction = [...actions].reverse().find((action) => action.status === "running");
   const caption = view.caption ?? runningAction?.detail ?? null;
-  const aspectRatio = view.viewport ? `${view.viewport.width} / ${view.viewport.height}` : "16 / 10";
+  const width = view.viewport?.width ?? 16;
+  const height = view.viewport?.height ?? 9;
   const stepLabel = `${actions.length} ${actions.length === 1 ? "step" : "steps"}`;
 
   return (
@@ -70,7 +73,7 @@ export function ComputerSessionCard({
         )}
         <span className="text-[12px] font-medium text-white/88">Browser</span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-white/45" title={url ?? undefined}>
-          {url ? displayUrl(url) : null}
+          {url}
         </span>
         {isLive ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-300/90" data-testid="computer-live-badge">
@@ -85,7 +88,7 @@ export function ComputerSessionCard({
           type="button"
           onClick={onToggleSteps}
           aria-expanded={stepsOpen}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
         >
           {stepLabel}
           <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${stepsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -95,14 +98,14 @@ export function ComputerSessionCard({
       {isLive ? (
         <div className="mt-2.5">
           <div
-            className="relative w-full overflow-hidden rounded-md border border-white/6 bg-black/40"
-            style={{ aspectRatio }}
+            className="relative mx-auto overflow-hidden rounded-md border border-white/6 bg-black/40"
+            style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, calc(60vh * ${width} / ${height}))` }}
           >
             {view.frameUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- Frames are in-memory blob URLs from the live browser stream that next/image cannot load.
               <img
                 src={view.frameUrl}
-                alt={url ? `Live view of ${displayUrl(url)}` : "Live view of the browser"}
+                alt={url ? `Live view of ${url}` : "Live view of the browser"}
                 className="absolute inset-0 h-full w-full object-contain"
                 data-testid="computer-live-frame"
               />

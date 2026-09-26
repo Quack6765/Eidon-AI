@@ -203,4 +203,18 @@ describe("agent computer relay", () => {
     expect(late.frames()).toEqual([JPEG]);
     expect(late.json()[0].viewport).toEqual({ width: 800, height: 600 });
   });
+
+  it("sizes the view from the JPEG itself when the stream metadata disagrees", () => {
+    const session = botBrowserTarget({ id: "relay-jpeg-size", userId: null });
+    writeStreamPort(session, 9300);
+    const viewer = new FakeViewer();
+    attachComputerViewer(viewer as never, session, { mobile: false });
+    const sized = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0xc9, 0x05, 0x00, 0x03, 0xff, 0xd9
+    ]);
+
+    emitUpstream(0, { type: "frame", data: sized.toString("base64"), metadata: { deviceWidth: 1280, deviceHeight: 720 } });
+
+    expect(viewer.json().at(-1).viewport).toEqual({ width: 1280, height: 713 });
+  });
 });

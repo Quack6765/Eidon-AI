@@ -144,6 +144,18 @@ function scheduleReconnect(channel: Channel) {
   channel.reconnect.unref?.();
 }
 
+function jpegSize(image: Buffer) {
+  let offset = 2;
+  while (offset + 9 <= image.length && image[offset] === 0xff) {
+    const marker = image[offset + 1];
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { width: image.readUInt16BE(offset + 7), height: image.readUInt16BE(offset + 5) };
+    }
+    offset += 2 + image.readUInt16BE(offset + 2);
+  }
+  return null;
+}
+
 type UpstreamMessage = {
   type?: string;
   data?: string;
@@ -166,7 +178,7 @@ function handleUpstreamMessage(channel: Channel, raw: WebSocket.RawData) {
     const height = message.metadata?.deviceHeight;
     updateState(channel, {
       live: true,
-      viewport: width && height ? { width, height } : channel.state.viewport
+      viewport: jpegSize(channel.frame) ?? (width && height ? { width, height } : channel.state.viewport)
     });
     for (const viewer of channel.viewers) deliverFrame(channel, viewer);
   } else if (message.type === "url" && typeof message.url === "string") {

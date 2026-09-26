@@ -104,6 +104,32 @@ describe("ComputerSessionCard", () => {
     expect(screen.getByTestId("computer-caption")).toHaveTextContent("agent-browser click @e7");
   });
 
+  it("shows only the browser's real web address while live and caps the frame height", () => {
+    const actions = [browserAction("a1", "agent-browser open https://example.com", "running")];
+    render(<ComputerSessionCard actions={actions} liveConversationId="conv_1" stepsOpen={false} onToggleSteps={() => {}} />);
+    expect(screen.queryByText("example.com")).not.toBeInTheDocument();
+
+    FakeWebSocket.instances[0].receive(JSON.stringify({
+      type: "computer_state",
+      live: true,
+      url: "about:blank",
+      caption: null,
+      viewport: { width: 1280, height: 713 }
+    }));
+
+    expect(screen.queryByText("blank")).not.toBeInTheDocument();
+    const frame = screen.getByText("Waiting for the browser…").parentElement as HTMLElement;
+    expect(frame.style.aspectRatio).toBe("1280 / 713");
+    expect(frame.style.width).toMatch(/^min\(100%, 107\.71\d*vh\)$/);
+  });
+
+  it("names the last page the bot opened on a finished run", () => {
+    render(<ComputerSessionCard actions={[browserAction("a1", "agent-browser open https://example.com/done")]} stepsOpen={false} onToggleSteps={() => {}} />);
+
+    expect(screen.getByText("example.com/done")).toBeInTheDocument();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
   it("keeps the last frame as a thumbnail once the run ends and lists the steps on demand", () => {
     const actions = [browserAction("a1", "agent-browser open https://example.com"), browserAction("a2", "agent-browser snapshot")];
     const onToggle = vi.fn();

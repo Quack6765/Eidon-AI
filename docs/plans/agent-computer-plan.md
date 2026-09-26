@@ -161,9 +161,9 @@ The measured facts also still hold:
   - Export and reuse `extractToken`/`extractBearerToken`/`verify*SessionToken`, including the `getCurrentUser` fallback.
   - An Origin check, and HTTPS for mobile in production.
   - Owner-only.
-  - The schema goes in `lib/computer-protocol.ts`.
-- **API:** `GET /api/bots/[botId]/computer` (running, url, controlOwner, isolation), mounted in the bots block of `app/api/v1/[...path]/route.ts:105-117`.
-- **Client:** new `hooks/use-bot-computer-stream.ts`, which owns its own socket, backoff and cleanup. The `/ws` singleton can't be reused.
+  - The message schema lives in `lib/types.ts` (`ComputerState`) and the WebSocket contract.
+- **API:** `GET /api/conversations/[conversationId]/computer` (live, url, caption, viewport), mounted in `app/api/v1/[...path]/route.ts`. Addressing is by conversation, so the same view serves a bot's thread and a regular chat (which uses its owner's session); the socket takes `?conversationId=`.
+- **Client:** new `hooks/use-computer-stream.ts`, which owns its own socket, backoff and cleanup. The `/ws` singleton can't be reused. The chosen UI is a live card in the thread (`components/computer-session-card.tsx`).
 - **UI (behind the design-direction gate):** impeccable context → Mobbin → your choice on the decision page. Constraint from the revalidation: the right aside is `lg:w-[320px]`, too narrow for a usable view. Candidates to present:
   - an alternate main pane that swaps with ChatView in the `bot-detail-view.tsx:571-578` slot, with a "Live" toggle next to Details (:530);
   - or an overlay.
@@ -185,7 +185,7 @@ The measured facts also still hold:
   - Registered in `buildToolDefinitions` (`lib/tool-definitions.ts:35`, next to the `botTeam` block at :271) and in `buildCopilotTools` (`lib/copilot-tools.ts:25`), gated on bot conversations.
   - Dispatched in `executeToolCall` (`lib/tool-executors.ts:1514`).
   - Returns "User completed the step and returned control. Note: …". The note is the tool result, not a redirect.
-- **User-initiated control:** `POST /api/bots/[botId]/computer/control {action:"take"|"return", note?}`.
+- **User-initiated control:** `POST /api/conversations/[conversationId]/computer/control {action:"take"|"return", note?}`.
   - While the user holds control, `executeShellCommand` refuses "Web browser" commands before `onActionStart` (`lib/tool-executors.ts:845`).
   - Stop or abort (`stopConversationWork`) resets `controlOwner` and closes control mode.
   - The composer shows that messages typed during a handoff are queued until control returns.
