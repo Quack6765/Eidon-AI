@@ -322,6 +322,35 @@ describe("message bubble", () => {
     }
   });
 
+  it("shows the bot's browser hand-off in place, in every tool display mode", () => {
+    const handoff = createToolAction({
+      id: "act_handoff",
+      messageId: "msg_assistant",
+      resultSummary: "",
+      kind: "computer_handoff",
+      status: "pending",
+      label: "Your turn in the browser",
+      detail: "Sign in",
+      sortOrder: 1,
+      proposalState: "pending",
+      proposalPayload: { operation: "computer_handoff", reason: "Sign in with your code" }
+    });
+    const message = {
+      ...createAssistantMessage(),
+      actions: [
+        createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com", sortOrder: 0 }),
+        handoff
+      ]
+    };
+
+    const { rerender } = render(React.createElement(MessageBubble, { message, computerConversationId: "conv_1" }));
+    expect(screen.getByTestId("computer-handoff-card")).toHaveTextContent("Sign in with your code");
+    expect(screen.getByRole("button", { name: "Take over" })).toBeInTheDocument();
+
+    rerender(React.createElement(MessageBubble, { message, toolCallDisplay: "status_line", computerConversationId: "conv_1" }));
+    expect(screen.getByTestId("computer-handoff-card")).toBeInTheDocument();
+  });
+
   it("renders pending create proposals with operation-specific copy", () => {
     render(
       React.createElement(MessageBubble, {

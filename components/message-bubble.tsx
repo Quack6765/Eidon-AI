@@ -772,7 +772,14 @@ function MessageBubbleImpl({
       (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
         item.timelineKind === "action" && isBrowserAction(item)
     );
-    return { headId: actions[0]?.id ?? null, actions };
+    const handoffPending = assistantBlocks.some(
+      (item) =>
+        item.timelineKind === "action" &&
+        isComputerHandoffAction(item) &&
+        item.status === "pending" &&
+        item.proposalState === "pending"
+    );
+    return { headId: actions[0]?.id ?? null, actions, handoffPending };
   }, [assistantBlocks]);
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
   const isRestartResume = message.role === "user" && content.startsWith(RESTART_RESUME_NOTICE_HEADER);
@@ -946,6 +953,7 @@ function MessageBubbleImpl({
           <ComputerSessionCard
             actions={browserSession.actions}
             liveConversationId={computerLive ? computerConversationId : undefined}
+            handoffPending={browserSession.handoffPending}
             stepsOpen={toolOpenItems[stepsKey] ?? false}
             onToggleSteps={() => toggleToolItem(stepsKey)}
           >

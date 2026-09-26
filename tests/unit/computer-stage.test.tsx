@@ -242,6 +242,18 @@ describe("browser control", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ action: "return" });
   });
 
+  it("sends a pending hand-off's return through the note, not a bare Return control", () => {
+    render(
+      <ComputerSessionCard actions={[action({})]} liveConversationId="conv_1" handoffPending stepsOpen={false} onToggleSteps={() => {}} />
+    );
+    FakeWebSocket.instances[0].state({ controlOwner: "user" });
+
+    expect(screen.getByTestId("computer-user-control")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Return control" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(screen.getByLabelText("Note for the bot")).toBeInTheDocument();
+  });
+
   it("explains when control could not be taken", async () => {
     fetchMock.mockResolvedValue(new Response("{}", { status: 500 }));
     render(<ComputerSessionCard actions={[action({})]} liveConversationId="conv_1" stepsOpen={false} onToggleSteps={() => {}} />);
