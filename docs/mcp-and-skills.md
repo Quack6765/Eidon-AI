@@ -35,6 +35,16 @@ The slug is derived from the server name, so `Composio Connect` becomes `composi
 
 A per-user MCP timeout setting bounds how long a single tool call may run.
 
+### Message drafts
+
+When the model writes something that a connected tool would send on your behalf — an email through Gmail, a Slack message, a reply, a post — it calls `draft_message` instead of the sending tool. The draft appears as a card in the conversation with its recipients, subject, and body. Nothing is sent until you press **Send**; you can edit any text field first, or **Discard** the draft.
+
+- Drafts wait as long as you need. They survive restarts, and bots and routines can leave drafts for you to review later; a bot with a waiting draft shows **Waiting for input**.
+- **Send** calls the named tool once with the draft's arguments and your edits. If the connector fails, the error appears on the card and the draft stays editable so you can fix it and send again.
+- To revise a draft, ask in the chat. The model writes a new draft and withdraws the old one.
+- The model sees what happened to each draft on your next message — what was sent (including your edits), what was discarded, and what is still waiting.
+- Sending from a draft is its own approval, so it does not need a tool-approval rule. The model can still call a sending tool directly when you explicitly ask it to skip the draft, and that call goes through the normal tool approval.
+
 ## MCP OAuth
 
 Remote MCP servers that follow the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) — OAuth 2.1 with PKCE — can be connected with a browser sign-in instead of a static API key. This works with hosted MCP gateways such as [Composio Connect](https://docs.composio.dev/docs/composio-connect).
