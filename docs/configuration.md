@@ -17,10 +17,11 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 | `EIDON_SESSION_SECRET` | HMAC key for signing session JWTs. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Key material for encrypting stored provider credentials, MCP headers and env values, and MCP OAuth tokens. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_DATA_DIR` | Directory holding the SQLite database and all runtime data. | `./.data` (the Docker image sets `/app/data`) | No |
+| `EIDON_BASE_URL` | Externally reachable base URL of the instance (for example `https://eidon.example.com`). Used for share links, notification deep links, MCP OAuth registration, and the default GitHub Copilot callback. Required in production; startup fails without it. | unset | Yes in production |
 | `EIDON_BROWSER_MEMORY_BUDGET_MB` | Memory the bots' browsers may use, in MB. Each signed-in user's browser counts about 500 MB and each extra bot tab about 120 MB; when the budget is full, a bot waits up to a minute for a slot and is then told the browser is busy. | Total system memory minus 1200 MB, and at least 500 | No |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the GitHub Copilot provider. | unset | No |
-| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | unset | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | `${EIDON_BASE_URL}/api/providers/github/callback` | No |
 | `EIDON_EMBEDDING_MODEL` | Hugging Face model id used for local embeddings powering semantic recall. | `Xenova/paraphrase-multilingual-MiniLM-L12-v2` | No |
 | `EIDON_EMBEDDING_DISABLED` | Set to `1` to skip loading the embedding model entirely. Semantic recall and the `search_workspace` tool become unavailable. | unset | No |
 
