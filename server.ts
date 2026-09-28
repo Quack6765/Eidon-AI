@@ -8,6 +8,9 @@ import {
   resolveWebSocketAuthMode,
   routeWebSocketUpgrade
 } from "@/lib/ws-upgrade-router";
+import { assertProductionBaseUrl } from "@/lib/env";
+
+assertProductionBaseUrl();
 
 const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;

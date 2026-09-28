@@ -19,7 +19,7 @@ import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type { Automation, BotSummary, Persona } from "@/lib/types";
+import type { Automation, BotSummary, NotifyChannel, NotifyConfig, Persona } from "@/lib/types";
 import { AUTOMATION_WEEKDAYS, describeSchedule } from "@/lib/automation-display";
 
 type SettingsPayload = {
@@ -28,6 +28,21 @@ type SettingsPayload = {
     id: string;
     name: string;
   }>;
+};
+
+type NotifyHeaderDraft = { name: string; valueStored: boolean; value: string };
+
+type NotifyChannelDraft = {
+  id?: string;
+  kind: NotifyChannel["kind"];
+  server: string;
+  topic: string;
+  priority: string;
+  device: string;
+  urlStored: boolean;
+  urlValue: string;
+  headers: NotifyHeaderDraft[];
+  includeSummary: boolean;
 };
 
 type AutomationFormState = {
@@ -45,7 +60,160 @@ type AutomationFormState = {
   enabled: boolean;
   research: boolean;
   runTimeoutMinutes: number | null;
+  notifyChannels: NotifyChannelDraft[];
+  notifyTouched: boolean;
 };
+
+const NOTIFY_CHANNEL_LABELS: Record<NotifyChannel["kind"], string> = {
+  ntfy: "ntfy",
+  webhook: "Webhook",
+  pushover: "Pushover",
+  push: "Web push"
+};
+
+function createChannelDraft(kind: NotifyChannel["kind"]): NotifyChannelDraft {
+  return {
+    kind,
+    server: "",
+    topic: "",
+    priority: "",
+    device: "",
+    urlStored: false,
+    urlValue: "",
+    headers: [],
+    includeSummary: false
+  };
+}
+
+function channelToDraft(channel: NotifyChannel): NotifyChannelDraft {
+  const draft = createChannelDraft(channel.kind);
+  if (channel.kind === "ntfy") {
+    return {
+      ...draft,
+      id: channel.id,
+      server: channel.server ?? "",
+      topic: channel.topic,
+      priority: channel.priority === undefined ? "" : String(channel.priority),
+      includeSummary: channel.includeSummary ?? false
+    };
+  }
+  if (channel.kind === "webhook") {
+    return {
+      ...draft,
+      id: channel.id,
+      urlStored: typeof channel.url !== "string",
+      urlValue: typeof channel.url === "string" ? channel.url : "",
+      headers: Object.entries(channel.headers ?? {}).map(([name, value]) => ({
+        name,
+        valueStored: typeof value !== "string",
+        value: typeof value === "string" ? value : ""
+      })),
+      includeSummary: channel.includeSummary ?? false
+    };
+  }
+  if (channel.kind === "pushover") {
+    return {
+      ...draft,
+      id: channel.id,
+      device: channel.device ?? "",
+      priority: channel.priority === undefined ? "" : String(channel.priority),
+      includeSummary: channel.includeSummary ?? false
+    };
+  }
+  return {
+    ...draft,
+    id: channel.id,
+    includeSummary: channel.includeSummary ?? false
+  };
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function buildNotifyConfig(channels: NotifyChannelDraft[]): { config: NotifyConfig } | { error: string } {
+  const built: NotifyChannel[] = [];
+
+  for (const draft of channels) {
+    if (draft.kind === "ntfy") {
+      const topic = draft.topic.trim();
+      if (!topic) {
+        return { error: "ntfy topic is required" };
+      }
+      const server = draft.server.trim();
+      if (server && !isValidHttpUrl(server)) {
+        return { error: "ntfy server must be an http or https URL" };
+      }
+      built.push({
+        ...(draft.id ? { id: draft.id } : {}),
+        kind: "ntfy",
+        ...(server ? { server } : {}),
+        topic,
+        ...(draft.priority ? { priority: Number(draft.priority) } : {}),
+        includeSummary: draft.includeSummary
+      });
+      continue;
+    }
+
+    if (draft.kind === "webhook") {
+      const urlValue = draft.urlValue.trim();
+      if (!urlValue && !draft.urlStored) {
+        return { error: "Webhook URL is required" };
+      }
+      if (urlValue && !isValidHttpUrl(urlValue)) {
+        return { error: "Webhook URL must be an http or https URL" };
+      }
+      const headers: Record<string, string | { set: true }> = {};
+      for (const header of draft.headers) {
+        const name = header.name.trim();
+        const value = header.value.trim();
+        if (!name && !value && !header.valueStored) {
+          continue;
+        }
+        if (!name) {
+          return { error: "Webhook header name is required" };
+        }
+        if (!value && !header.valueStored) {
+          return { error: "Webhook header value is required" };
+        }
+        headers[name] = value || { set: true };
+      }
+      built.push({
+        ...(draft.id ? { id: draft.id } : {}),
+        kind: "webhook",
+        url: urlValue || { set: true },
+        ...(Object.keys(headers).length ? { headers } : {}),
+        includeSummary: draft.includeSummary
+      });
+      continue;
+    }
+
+    if (draft.kind === "pushover") {
+      const device = draft.device.trim();
+      built.push({
+        ...(draft.id ? { id: draft.id } : {}),
+        kind: "pushover",
+        ...(device ? { device } : {}),
+        ...(draft.priority ? { priority: Number(draft.priority) } : {}),
+        includeSummary: draft.includeSummary
+      });
+      continue;
+    }
+
+    built.push({
+      ...(draft.id ? { id: draft.id } : {}),
+      kind: "push",
+      includeSummary: draft.includeSummary
+    });
+  }
+
+  return { config: { channels: built } };
+}
 
 const WEEKDAYS = AUTOMATION_WEEKDAYS;
 
@@ -64,7 +232,9 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     continuePreviousConversation: false,
     enabled: true,
     research: false,
-    runTimeoutMinutes: null
+    runTimeoutMinutes: null,
+    notifyChannels: [],
+    notifyTouched: false
   };
 }
 
@@ -83,7 +253,9 @@ function automationToForm(automation: Automation): AutomationFormState {
     continuePreviousConversation: automation.continuePreviousConversation,
     enabled: automation.enabled,
     research: automation.research,
-    runTimeoutMinutes: automation.runTimeoutMinutes
+    runTimeoutMinutes: automation.runTimeoutMinutes,
+    notifyChannels: (automation.notifyConfig?.channels ?? []).map(channelToDraft),
+    notifyTouched: false
   };
 }
 
@@ -247,6 +419,73 @@ export function AutomationsSection() {
     });
   }
 
+  function addNotifyChannel(kind: NotifyChannel["kind"]) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: [...current.notifyChannels, createChannelDraft(kind)]
+    }));
+  }
+
+  function updateNotifyChannel(index: number, patch: Partial<NotifyChannelDraft>) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: current.notifyChannels.map((draft, channelIndex) =>
+        channelIndex === index ? { ...draft, ...patch } : draft
+      )
+    }));
+  }
+
+  function removeNotifyChannel(index: number) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: current.notifyChannels.filter((_, channelIndex) => channelIndex !== index)
+    }));
+  }
+
+  function addNotifyHeader(channelIndex: number) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: current.notifyChannels.map((draft, index) =>
+        index === channelIndex
+          ? { ...draft, headers: [...draft.headers, { name: "", valueStored: false, value: "" }] }
+          : draft
+      )
+    }));
+  }
+
+  function updateNotifyHeader(channelIndex: number, headerIndex: number, patch: Partial<NotifyHeaderDraft>) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: current.notifyChannels.map((draft, index) =>
+        index === channelIndex
+          ? {
+              ...draft,
+              headers: draft.headers.map((header, headerPosition) =>
+                headerPosition === headerIndex ? { ...header, ...patch } : header
+              )
+            }
+          : draft
+      )
+    }));
+  }
+
+  function removeNotifyHeader(channelIndex: number, headerIndex: number) {
+    setForm((current) => ({
+      ...current,
+      notifyTouched: true,
+      notifyChannels: current.notifyChannels.map((draft, index) =>
+        index === channelIndex
+          ? { ...draft, headers: draft.headers.filter((_, headerPosition) => headerPosition !== headerIndex) }
+          : draft
+      )
+    }));
+  }
+
   function restoreAutomationDraft() {
     const saved = automations.find((automation) => automation.id === selectedAutomationId);
     const restored = saved
@@ -279,6 +518,16 @@ export function AutomationsSection() {
       return false;
     }
 
+    let notifyConfig: NotifyConfig | null = null;
+    if (form.notifyTouched) {
+      const notifyResult = buildNotifyConfig(form.notifyChannels);
+      if ("error" in notifyResult) {
+        toast.showToast("error", notifyResult.error);
+        return false;
+      }
+      notifyConfig = notifyResult.config;
+    }
+
     toast.dismissToast();
 
     const payload = {
@@ -295,7 +544,8 @@ export function AutomationsSection() {
       continuePreviousConversation: form.botId ? false : form.continuePreviousConversation,
       enabled: form.enabled,
       research: form.research,
-      runTimeoutMinutes: form.runTimeoutMinutes
+      runTimeoutMinutes: form.runTimeoutMinutes,
+      ...(notifyConfig ? { notifyConfig } : {})
     };
 
     try {
@@ -742,6 +992,206 @@ export function AutomationsSection() {
                         </span>
                       </label>
                     ) : null}
+                  </div>
+                </div>
+
+                <div className="py-5">
+                  <h4 className={sectionTitle}>Notifications</h4>
+                  <div className="mt-4 space-y-4">
+                    {form.notifyChannels.length === 0 ? (
+                      <p className="text-xs leading-5 text-[var(--muted)]">
+                        Add a channel to get notified when this automation&apos;s runs finish.
+                      </p>
+                    ) : null}
+
+                    {form.notifyChannels.map((draft, index) => (
+                      <div key={index} className="rounded-xl border border-white/6 bg-white/[0.03] p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-[var(--text)]">{NOTIFY_CHANNEL_LABELS[draft.kind]}</p>
+                          <button
+                            type="button"
+                            onClick={() => removeNotifyChannel(index)}
+                            aria-label={`Remove ${NOTIFY_CHANNEL_LABELS[draft.kind]} channel`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-red-500/[0.06] hover:text-red-300"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="mt-4 space-y-4">
+                          {draft.kind === "ntfy" ? (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div>
+                                <label className={fieldLabel}>Topic</label>
+                                <Input
+                                  aria-label="ntfy topic"
+                                  value={draft.topic}
+                                  onChange={(event) => updateNotifyChannel(index, { topic: event.target.value })}
+                                  placeholder="automation-alerts"
+                                />
+                              </div>
+                              <div>
+                                <label className={fieldLabel}>Server URL</label>
+                                <Input
+                                  aria-label="ntfy server URL"
+                                  value={draft.server}
+                                  onChange={(event) => updateNotifyChannel(index, { server: event.target.value })}
+                                  placeholder="https://ntfy.sh"
+                                />
+                              </div>
+                              <div>
+                                <label className={fieldLabel}>Priority</label>
+                                <select
+                                  aria-label="ntfy priority"
+                                  className={selectLike}
+                                  value={draft.priority}
+                                  onChange={(event) => updateNotifyChannel(index, { priority: event.target.value })}
+                                >
+                                  <option value="">Default</option>
+                                  <option value="1">1 (min)</option>
+                                  <option value="2">2 (low)</option>
+                                  <option value="3">3 (normal)</option>
+                                  <option value="4">4 (high)</option>
+                                  <option value="5">5 (max)</option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {draft.kind === "webhook" ? (
+                            <div className="space-y-4">
+                              <div>
+                                <label className={fieldLabel}>URL</label>
+                                {draft.urlStored ? (
+                                  <p className="mb-1.5 text-xs leading-5 text-[var(--muted)]">
+                                    Configured — enter a new URL to replace.
+                                  </p>
+                                ) : null}
+                                <Input
+                                  aria-label="Webhook URL"
+                                  value={draft.urlValue}
+                                  onChange={(event) => updateNotifyChannel(index, { urlValue: event.target.value })}
+                                  placeholder="https://example.com/hook"
+                                />
+                              </div>
+                              <div>
+                                <label className={fieldLabel}>Extra headers</label>
+                                <div className="space-y-2">
+                                  {draft.headers.map((header, headerIndex) => (
+                                    <div key={headerIndex} className="flex items-center gap-2">
+                                      <Input
+                                        aria-label="Header name"
+                                        value={header.name}
+                                        onChange={(event) =>
+                                          updateNotifyHeader(index, headerIndex, { name: event.target.value })
+                                        }
+                                        placeholder="Name"
+                                        className="sm:max-w-[180px]"
+                                      />
+                                      <Input
+                                        aria-label="Header value"
+                                        value={header.value}
+                                        onChange={(event) =>
+                                          updateNotifyHeader(index, headerIndex, { value: event.target.value })
+                                        }
+                                        placeholder={header.valueStored ? "Configured" : "Value"}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => removeNotifyHeader(index, headerIndex)}
+                                        aria-label="Remove header"
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-red-500/[0.06] hover:text-red-300"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => addNotifyHeader(index)}
+                                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-[var(--accent)] hover:underline"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  Add header
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {draft.kind === "pushover" ? (
+                            <div className="space-y-4">
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div>
+                                  <label className={fieldLabel}>Device</label>
+                                  <Input
+                                    aria-label="Pushover device"
+                                    value={draft.device}
+                                    onChange={(event) => updateNotifyChannel(index, { device: event.target.value })}
+                                    placeholder="All devices"
+                                  />
+                                </div>
+                                <div>
+                                  <label className={fieldLabel}>Priority</label>
+                                  <select
+                                    aria-label="Pushover priority"
+                                    className={selectLike}
+                                    value={draft.priority}
+                                    onChange={(event) => updateNotifyChannel(index, { priority: event.target.value })}
+                                  >
+                                    <option value="">Default (0)</option>
+                                    <option value="-2">-2 (lowest)</option>
+                                    <option value="-1">-1 (low)</option>
+                                    <option value="1">1 (high)</option>
+                                  </select>
+                                </div>
+                              </div>
+                              <p className="text-xs leading-5 text-[var(--muted)]">
+                                Uses your Pushover keys from Settings → Notifications. Priority 2 (emergency) is not
+                                supported.
+                              </p>
+                            </div>
+                          ) : null}
+
+                          {draft.kind === "push" ? (
+                            <p className="text-xs leading-5 text-[var(--muted)]">
+                              OS notification on this account&apos;s subscribed browsers.
+                            </p>
+                          ) : null}
+
+                          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)]">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={draft.includeSummary}
+                              onChange={(event) => updateNotifyChannel(index, { includeSummary: event.target.checked })}
+                            />
+                            <span>
+                              Include run summary in payload
+                              <span className="block text-xs font-normal text-[var(--muted)]">
+                                Notification services can see payload contents.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div>
+                      <label className={fieldLabel}>Add channel</label>
+                      <div className="flex flex-wrap gap-2">
+                        {(Object.keys(NOTIFY_CHANNEL_LABELS) as Array<NotifyChannel["kind"]>).map((kind) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            onClick={() => addNotifyChannel(kind)}
+                            className="rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-xs font-medium text-[var(--muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text)]"
+                          >
+                            {NOTIFY_CHANNEL_LABELS[kind]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
 

@@ -54,6 +54,7 @@ describe("env validation", () => {
       EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
       EIDON_PASSWORD_LOGIN_ENABLED: "true",
       EIDON_ADMIN_USERNAME: "admin",
+      EIDON_BASE_URL: "https://eidon.example.com/",
       EIDON_DATA_DIR: ".test-data"
     });
 
@@ -61,6 +62,70 @@ describe("env validation", () => {
     expect(env.EIDON_ADMIN_PASSWORD).toBe("production-password");
     expect(env.EIDON_SESSION_SECRET).toBe("production-session-secret-with-32-chars");
     expect(env.EIDON_ENCRYPTION_SECRET).toBe("production-encryption-secret-32-chars");
+    expect(env.EIDON_BASE_URL).toBe("https://eidon.example.com");
+  });
+
+  it("accepts a base URL with an uppercase scheme and canonicalizes it", () => {
+    const env = parseEnv({
+      NODE_ENV: "production",
+      EIDON_ADMIN_PASSWORD: "production-password",
+      EIDON_SESSION_SECRET: "production-session-secret-with-32-chars",
+      EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_BASE_URL: "HTTPS://eidon.example.com/",
+      EIDON_DATA_DIR: ".test-data"
+    });
+
+    expect(env.EIDON_BASE_URL).toBe("https://eidon.example.com");
+  });
+
+  it("fails startup when the base URL is missing in production", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "production",
+        EIDON_ADMIN_PASSWORD: "production-password",
+        EIDON_SESSION_SECRET: "production-session-secret-with-32-chars",
+        EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data"
+      })
+    ).toThrow("Environment variable EIDON_BASE_URL must be set to an http(s) URL in production");
+  });
+
+  it("fails startup when the production base URL is not an http URL", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "production",
+        EIDON_ADMIN_PASSWORD: "production-password",
+        EIDON_SESSION_SECRET: "production-session-secret-with-32-chars",
+        EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_BASE_URL: "ftp://eidon.example.com",
+        EIDON_DATA_DIR: ".test-data"
+      })
+    ).toThrow("Environment variable EIDON_BASE_URL must be set to an http(s) URL in production");
+  });
+
+  it("derives the GitHub app callback URL from the base URL when not set explicitly", async () => {
+    const { getGithubAppCallbackUrl } = await import("@/lib/env");
+
+    process.env.EIDON_BASE_URL = "https://eidon.example.com";
+    delete process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    expect(getGithubAppCallbackUrl()).toBe(
+      "https://eidon.example.com/api/providers/github/callback"
+    );
+
+    process.env.EIDON_GITHUB_APP_CALLBACK_URL = "https://explicit.example.com/api/providers/github/callback";
+    expect(getGithubAppCallbackUrl()).toBe(
+      "https://explicit.example.com/api/providers/github/callback"
+    );
+
+    delete process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    delete process.env.EIDON_BASE_URL;
+    expect(getGithubAppCallbackUrl()).toBeNull();
   });
 
   it("reads GitHub Copilot OAuth environment variables when provided", () => {
@@ -69,6 +134,7 @@ describe("env validation", () => {
       EIDON_ADMIN_PASSWORD: "production-admin-password-32-chars",
       EIDON_SESSION_SECRET: "production-session-secret-with-32-chars",
       EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
+      EIDON_BASE_URL: "https://eidon.example.com",
       EIDON_GITHUB_APP_CLIENT_ID: "Iv23exampleclientid",
       EIDON_GITHUB_APP_CLIENT_SECRET: "github-app-client-secret-value",
       EIDON_GITHUB_APP_CALLBACK_URL: "https://eidon.example.com/api/providers/github/callback"

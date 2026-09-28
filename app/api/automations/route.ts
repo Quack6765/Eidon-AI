@@ -5,6 +5,7 @@ import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 import { requireUser } from "@/lib/auth";
 import { createAutomation, listAutomations } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
+import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
@@ -23,7 +24,8 @@ const createSchema = z.object({
   continuePreviousConversation: z.boolean().default(false),
   enabled: z.boolean().default(true),
   research: z.boolean().default(false),
-  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null)
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null),
+  notifyConfig: notifyConfigInputSchema.optional()
 });
 
 export async function GET() {

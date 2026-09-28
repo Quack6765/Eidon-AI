@@ -42,6 +42,7 @@ const allowedVendorPathPrefixes = ["lib/provider-adapters/"];
 
 const allowedSharedLines: Record<string, RegExp[]> = {
   "app/layout.tsx": [/next\/font\/google/],
+  "components/settings/sections/notifications-section.tsx": [/PUSH_SERVICE_HOST_SUFFIXES/],
   "components/shared-conversation-view.tsx": [/github\.com\/Quack6765\/Eidon-AI/],
   "lib/markdown/formatting-rules-prompt.ts": [/GitHub (?:Flavored Markdown|pipe tables|alert\/admonition blocks)/],
   "lib/mobile-api.ts": [

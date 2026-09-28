@@ -8,7 +8,7 @@ import {
   getConversationShare
 } from "@/lib/conversations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
-import { getRequestOrigin } from "@/lib/request-url";
+import { resolveExternalOrigin } from "@/lib/request-url";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -19,7 +19,7 @@ const updateSchema = z.object({
 });
 
 function buildSharePayload(request: Request, share: { enabled: boolean; token: string | null }) {
-  const origin = getRequestOrigin(request);
+  const origin = resolveExternalOrigin(request);
   const url = share.enabled && share.token ? `${origin}/share/${share.token}` : null;
 
   return {

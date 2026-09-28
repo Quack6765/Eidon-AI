@@ -108,7 +108,7 @@ describe("Mobile API v1 contracts", () => {
       automations: true,
       providerConnections: true,
       offlineMutations: false,
-      pushNotifications: false
+      pushNotifications: true
     });
     expect(JSON.stringify(body)).not.toMatch(
       /apiKey|passwordHash|sessionSecret|encryptionSecret|providerProfiles|mcpServers/i
@@ -218,8 +218,8 @@ describe("Mobile API v1 contracts", () => {
     expect(universal35Languages.enum).not.toContain("sw");
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
-    expect(compileOpenApiJsonRequestBodies()).toBe(38);
-    expect(compileOpenApiJsonResponses()).toBe(97);
+    expect(compileOpenApiJsonRequestBodies()).toBe(40);
+    expect(compileOpenApiJsonResponses()).toBe(101);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

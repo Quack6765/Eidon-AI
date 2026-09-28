@@ -141,7 +141,7 @@ export function Shell({
 
     return {
       ...payload,
-      url: `${window.location.origin}/share/${payload.token}`
+      url: payload.url ?? `${window.location.origin}/share/${payload.token}`
     };
   };
 

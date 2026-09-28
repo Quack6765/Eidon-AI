@@ -34,6 +34,8 @@ import * as messageRegenerateRoute from "@/app/api/messages/[messageId]/regenera
 import * as messageRetryRoute from "@/app/api/messages/[messageId]/retry/route";
 import * as personaRoute from "@/app/api/personas/[personaId]/route";
 import * as personasRoute from "@/app/api/personas/route";
+import * as pushSubscribeRoute from "@/app/api/push/subscribe/route";
+import * as pushVapidRoute from "@/app/api/push/vapid/route";
 import * as providerConnectionRoute from "@/app/api/providers/[profileId]/connection/route";
 import * as providerConnectionFlowsRoute from "@/app/api/providers/[profileId]/connection/flows/route";
 import * as providerConnectionFlowRoute from "@/app/api/providers/[profileId]/connection/flows/[flowId]/route";
@@ -116,6 +118,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["settings"], module: settingsRoute },
   { pattern: ["personas"], module: personasRoute },
   { pattern: ["personas", ":personaId"], module: personaRoute },
+  { pattern: ["push", "subscribe"], module: pushSubscribeRoute },
+  { pattern: ["push", "vapid"], module: pushVapidRoute },
   { pattern: ["memories"], module: memoriesRoute },
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },

@@ -135,8 +135,11 @@ docker run -d \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
   -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
+  -e EIDON_BASE_URL="https://your-eidon-hostname.example.com" \
   ghcr.io/quack6765/eidon-ai
 ```
+
+`EIDON_BASE_URL` is required in production: it is the externally reachable address of your instance and is used for share links, notification deep links, and OAuth redirect URLs.
 
 ### 3. Or run it with Docker Compose
 
@@ -153,6 +156,7 @@ services:
       EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
       EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
       EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
+      EIDON_BASE_URL: "https://your-eidon-hostname.example.com"
     volumes:
       - eidon-data:/app/data
 
@@ -206,8 +210,9 @@ Eidon can route chats through your GitHub Copilot subscription instead of a dire
 ```bash
 EIDON_GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxx
 EIDON_GITHUB_APP_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-EIDON_GITHUB_APP_CALLBACK_URL=https://your-host/api/providers/github/callback
 ```
+
+The OAuth callback URL is derived automatically from `EIDON_BASE_URL` (`https://<your-host>/api/providers/github/callback`); set `EIDON_GITHUB_APP_CALLBACK_URL` explicitly only if you need to override it.
 
 ### Create the GitHub App
 
@@ -225,7 +230,7 @@ EIDON_GITHUB_APP_CALLBACK_URL=https://your-host/api/providers/github/callback
 4. Approve the authorization flow.
 5. Pick a model and start chatting.
 
-If those three environment variables are not set, the GitHub Copilot profile type is still visible in settings, but the OAuth connection flow will not work. Set all three values before using **Connect GitHub**.
+If the client ID and client secret are not set, the GitHub Copilot profile type is still visible in settings, but the OAuth connection flow will not work. Set both values (plus `EIDON_BASE_URL` for the derived callback) before using **Connect GitHub**.
 
 ## Configuration Essentials
 
@@ -237,9 +242,10 @@ If those three environment variables are not set, the GitHub Copilot profile typ
 | `EIDON_SESSION_SECRET` | Session signing secret | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials, MCP secrets, and MCP OAuth tokens | Yes |
 | `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
+| `EIDON_BASE_URL` | Externally reachable base URL; used for share links, notification deep links, MCP OAuth registration, and the default GitHub callback | Yes |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the Copilot provider | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the Copilot provider | No |
-| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for Copilot | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for Copilot; defaults to `${EIDON_BASE_URL}/api/providers/github/callback` | No |
 
 Useful defaults:
 

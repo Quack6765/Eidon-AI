@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { jwtVerify, SignJWT } from "jose";
 
 import { getDb } from "@/lib/db";
-import { env } from "@/lib/env";
+import { env, getGithubAppCallbackUrl } from "@/lib/env";
 import {
   exchangeGithubCodeForTokens,
   getGithubAuthorizeUrl,
@@ -112,7 +112,7 @@ function connectionResultResponse(
   status: "success" | "failure"
 ) {
   if (state.client === "native") return nativeRedirect(state.flowId, status);
-  const destination = new URL("/settings/providers", env.EIDON_GITHUB_APP_CALLBACK_URL);
+  const destination = new URL("/settings/providers", getGithubAppCallbackUrl()!);
   destination.searchParams.set("connection", status);
   return new Response(null, {
     status: 303,
@@ -135,7 +135,7 @@ export async function createGithubProviderConnectionFlow(
   if (
     !env.EIDON_GITHUB_APP_CLIENT_ID ||
     !env.EIDON_GITHUB_APP_CLIENT_SECRET ||
-    !env.EIDON_GITHUB_APP_CALLBACK_URL
+    !getGithubAppCallbackUrl()
   ) {
     throw new Error("GitHub OAuth is not configured");
   }

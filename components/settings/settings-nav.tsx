@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Bell,
   Brain,
   ChevronRight,
   Clock3,
@@ -42,7 +43,8 @@ const CAPABILITY_ITEMS = [
 ] as const;
 
 const AUTOMATION_ITEMS = [
-  { href: "/settings/automations", label: "Scheduled automations", icon: Clock3 }
+  { href: "/settings/automations", label: "Scheduled automations", icon: Clock3 },
+  { href: "/settings/notifications", label: "Notifications", icon: Bell }
 ] as const;
 
 const ADMINISTRATION_ITEMS = [

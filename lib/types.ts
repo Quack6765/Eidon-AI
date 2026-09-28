@@ -227,6 +227,47 @@ export type ConversationSearchResult = Conversation & {
   matchSnippet?: string;
 };
 
+export type NotifySecretRef = { set: true };
+
+export type NtfyNotifyChannel = {
+  id?: string;
+  kind: "ntfy";
+  server?: string;
+  topic: string;
+  priority?: number;
+  includeSummary?: boolean;
+};
+
+export type WebhookNotifyChannel = {
+  id?: string;
+  kind: "webhook";
+  url: string | NotifySecretRef;
+  headers?: Record<string, string | NotifySecretRef>;
+  includeSummary?: boolean;
+};
+
+export type PushoverNotifyChannel = {
+  id?: string;
+  kind: "pushover";
+  device?: string;
+  priority?: number;
+  includeSummary?: boolean;
+};
+
+export type PushNotifyChannel = {
+  id?: string;
+  kind: "push";
+  includeSummary?: boolean;
+};
+
+export type NotifyChannel =
+  | NtfyNotifyChannel
+  | WebhookNotifyChannel
+  | PushoverNotifyChannel
+  | PushNotifyChannel;
+
+export type NotifyConfig = { channels: NotifyChannel[] };
+
 export type Automation = {
   id: string;
   name: string;
@@ -248,6 +289,7 @@ export type Automation = {
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
   lastStatus: AutomationRunStatus | "paused" | null;
+  notifyConfig: NotifyConfig;
   createdAt: string;
   updatedAt: string;
 };

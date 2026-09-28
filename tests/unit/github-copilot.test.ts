@@ -182,6 +182,23 @@ describe("github copilot helpers", () => {
     expect(url.searchParams.get("scope")).toBe("read:user");
   });
 
+  it("derives the github authorize redirect URI from the base URL when no callback is set", () => {
+    const explicitCallback = process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    delete process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    process.env.EIDON_BASE_URL = "https://eidon.example.com";
+    try {
+      const url = new URL(getGithubAuthorizeUrl("state-token"));
+      expect(url.searchParams.get("redirect_uri")).toBe(
+        "https://eidon.example.com/api/providers/github/callback"
+      );
+    } finally {
+      delete process.env.EIDON_BASE_URL;
+      if (explicitCallback !== undefined) {
+        process.env.EIDON_GITHUB_APP_CALLBACK_URL = explicitCallback;
+      }
+    }
+  });
+
   it("exchanges an oauth code for tokens", async () => {
     vi.mocked(global.fetch).mockResolvedValue({
       json: async () => ({ access_token: "ghu_new" })

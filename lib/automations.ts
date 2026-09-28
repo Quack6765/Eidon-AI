@@ -2,13 +2,20 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import { getNextAutomationRunAt } from "@/lib/automation-schedule";
+import {
+  buildStoredNotifyConfig,
+  dispatchRunNotification,
+  isNotifiableRunStatus,
+  redactStoredNotifyConfig
+} from "@/lib/notifications";
 import type {
   Automation,
   AutomationCalendarFrequency,
   AutomationRun,
   AutomationRunStatus,
   AutomationScheduleKind,
-  AutomationTriggerSource
+  AutomationTriggerSource,
+  NotifyConfig
 } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
@@ -33,6 +40,7 @@ type AutomationRow = {
   last_started_at: string | null;
   last_finished_at: string | null;
   last_status: Automation["lastStatus"];
+  notify_config_json?: string;
   created_at: string;
   updated_at: string;
 };
@@ -73,6 +81,7 @@ export type CreateAutomationInput = {
   enabled?: boolean;
   research?: boolean;
   runTimeoutMinutes?: number | null;
+  notifyConfig?: NotifyConfig;
 };
 
 type UpdateAutomationInput = Partial<
@@ -224,6 +233,7 @@ function rowToAutomation(row: AutomationRow): Automation {
     lastStartedAt: row.last_started_at,
     lastFinishedAt: row.last_finished_at,
     lastStatus: row.last_status,
+    notifyConfig: redactStoredNotifyConfig(row.notify_config_json ?? "{}"),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -406,8 +416,16 @@ function refreshAutomationRunSummary(automationId: string, updatedAt: string) {
     );
 }
 
+function getStoredNotifyConfigJson(id: string): string {
+  const row = getDb()
+    .prepare("SELECT notify_config_json FROM automations WHERE id = ?")
+    .get(id) as { notify_config_json?: string } | undefined;
+  return row?.notify_config_json ?? "{}";
+}
+
 export function createAutomation(input: CreateAutomationInput, userId?: string) {
   const timestamp = nowIso();
+  const notifyConfigJson = buildStoredNotifyConfig(input.notifyConfig ?? { channels: [] }, "{}");
   const automation = normalizeAutomationSchedule({
     id: createId("auto"),
     name: input.name.trim(),
@@ -429,6 +447,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     lastStartedAt: null,
     lastFinishedAt: null,
     lastStatus: null,
+    notifyConfig: input.notifyConfig ?? { channels: [] },
     createdAt: timestamp,
     updatedAt: timestamp
   });
@@ -469,9 +488,10 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         last_started_at,
         last_finished_at,
         last_status,
+        notify_config_json,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       automation.id,
@@ -495,6 +515,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
       automation.lastStartedAt,
       automation.lastFinishedAt,
       automation.lastStatus,
+      notifyConfigJson,
       automation.createdAt,
       automation.updatedAt
     );
@@ -505,6 +526,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
 
   return {
     ...automation,
+    notifyConfig: redactStoredNotifyConfig(notifyConfigJson),
     nextRunAt
   };
 }
@@ -724,6 +746,7 @@ export function listAutomations(userId?: string): Automation[] {
             last_started_at,
             last_finished_at,
             last_status,
+            notify_config_json,
             created_at,
             updated_at
            FROM automations
@@ -754,6 +777,7 @@ export function listAutomations(userId?: string): Automation[] {
             last_started_at,
             last_finished_at,
             last_status,
+            notify_config_json,
             created_at,
             updated_at
            FROM automations
@@ -789,6 +813,7 @@ export function getAutomation(id: string, userId?: string) {
             last_started_at,
             last_finished_at,
             last_status,
+            notify_config_json,
             created_at,
             updated_at
            FROM automations
@@ -818,6 +843,7 @@ export function getAutomation(id: string, userId?: string) {
             last_started_at,
             last_finished_at,
             last_status,
+            notify_config_json,
             created_at,
             updated_at
            FROM automations
@@ -843,6 +869,10 @@ export function deleteAutomation(id: string, userId?: string) {
 export function updateAutomation(id: string, patch: UpdateAutomationInput, userId?: string) {
   const current = getAutomation(id, userId);
   if (!current) return null;
+
+  const notifyConfigJson = patch.notifyConfig
+    ? buildStoredNotifyConfig(patch.notifyConfig, getStoredNotifyConfigJson(id))
+    : getStoredNotifyConfigJson(id);
 
   const next = normalizeAutomationSchedule({
     ...current,
@@ -889,6 +919,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              last_started_at = ?,
              last_finished_at = ?,
              last_status = ?,
+             notify_config_json = ?,
              updated_at = ?
          WHERE id = ? AND user_id = ?`
       )
@@ -912,6 +943,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.lastStartedAt,
         next.lastFinishedAt,
         next.lastStatus,
+        notifyConfigJson,
         next.updatedAt,
         id,
         userId
@@ -939,6 +971,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              last_started_at = ?,
              last_finished_at = ?,
              last_status = ?,
+             notify_config_json = ?,
              updated_at = ?
          WHERE id = ?`
       )
@@ -962,6 +995,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.lastStartedAt,
         next.lastFinishedAt,
         next.lastStatus,
+        notifyConfigJson,
         next.updatedAt,
         id
       );
@@ -1099,6 +1133,7 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
   const currentRun = getAutomationRun(runId);
   if (!currentRun) return null;
 
+  const previousStatus = currentRun.status;
   const nextStartedAt = input.startedAt ?? currentRun.startedAt;
   const nextFinishedAt = input.finishedAt ?? currentRun.finishedAt;
   const nextErrorMessage = "errorMessage" in input ? input.errorMessage ?? null : currentRun.errorMessage;
@@ -1122,6 +1157,23 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
     );
     refreshAutomationRunSummary(currentRun.automationId, updatedAt);
   })();
+
+  if (
+    isNotifiableRunStatus(input.status) &&
+    !isNotifiableRunStatus(previousStatus)
+  ) {
+    const event = {
+      kind: "automation_run_done" as const,
+      status: input.status,
+      automationId: currentRun.automationId,
+      runId,
+      finishedAt: nextFinishedAt ?? updatedAt,
+      errorMessage: nextErrorMessage
+    };
+    queueMicrotask(() => {
+      void dispatchRunNotification(event);
+    });
+  }
 
   return getAutomationRun(runId);
 }

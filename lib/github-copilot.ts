@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CopilotClient } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
 
-import { env } from "@/lib/env";
+import { env, getGithubAppCallbackUrl } from "@/lib/env";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";
 import {
   updateProviderConnectionIfNonceMatches,
@@ -176,7 +176,7 @@ async function withAbort<T>(
 export function getGithubAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.EIDON_GITHUB_APP_CLIENT_ID!,
-    redirect_uri: env.EIDON_GITHUB_APP_CALLBACK_URL!,
+    redirect_uri: getGithubAppCallbackUrl()!,
     state,
     scope: "read:user"
   });

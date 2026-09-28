@@ -1,6 +1,6 @@
 import { completeMcpOAuthCallback } from "@/lib/mcp-oauth";
 import { evictMcpClientsByServerId } from "@/lib/mcp-client";
-import { getRequestOrigin } from "@/lib/request-url";
+import { resolveExternalOrigin } from "@/lib/request-url";
 
 export async function GET(request: Request) {
   const result = await completeMcpOAuthCallback(request);
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     evictMcpClientsByServerId(result.serverId);
   }
 
-  const destination = new URL("/settings/mcp-servers", getRequestOrigin(request));
+  const destination = new URL("/settings/mcp-servers", resolveExternalOrigin(request));
   destination.searchParams.set("connection", result.status);
   if (result.serverId) {
     destination.searchParams.set("server", result.serverId);
