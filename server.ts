@@ -10,6 +10,21 @@ import {
 } from "@/lib/ws-upgrade-router";
 import { assertProductionBaseUrl } from "@/lib/env";
 
+function loadLocalEnvFiles() {
+  const mode = process.env.NODE_ENV === "production" ? "production" : "development";
+  for (const file of [".env", ".env.local", `.env.${mode}`, `.env.${mode}.local`]) {
+    if (existsSync(file) && typeof process.loadEnvFile === "function") {
+      try {
+        process.loadEnvFile(file);
+      } catch {
+        return;
+      }
+    }
+  }
+}
+
+loadLocalEnvFiles();
+
 assertProductionBaseUrl();
 
 const DEV_SERVER_FILE = ".dev-server";

@@ -4,7 +4,7 @@ Every environment variable Eidon reads, how secrets are generated and stored, wh
 
 ## Environment variables
 
-Eidon parses and validates its environment at startup (`lib/env.ts`). Anything not listed here is not read by the app.
+Eidon parses and validates its environment at startup (`lib/env.ts`). Anything not listed here is not read by the app. Values come from the process environment first; anything missing is then read from `.env`, `.env.local`, and the mode-specific `.env.development`/`.env.production` variants, so a local `.env` works for `npm run dev`, `npm run start`, and Docker alike.
 
 | Variable | Purpose | Default | Required in production |
 | --- | --- | --- | --- |

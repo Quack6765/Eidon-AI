@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Bell, Check, Trash2 } from "lucide-react";
+import { Bell, Trash2 } from "lucide-react";
 
+import { Badge } from "@/components/settings/badge";
 import { DetailHeader } from "@/components/settings/detail-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -274,20 +275,29 @@ export function NotificationsSection() {
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <Button
-                  type="button"
-                  size="lg"
-                  variant={isPushEnabled ? "outline" : "default"}
-                  className="min-h-11 px-5 text-sm md:min-h-10"
-                  onClick={() => void enablePush()}
-                  disabled={isEnablingPush || isPushEnabled}
-                >
-                  {isPushEnabled ? <Check className="h-3.5 w-3.5" /> : null}
-                  {isPushEnabled ? "Push is enabled on this browser" : "Enable push on this browser"}
-                </Button>
-                {pushMessage ? <p className="text-xs leading-5 text-red-300/90">{pushMessage}</p> : null}
-              </div>
+              {isPushEnabled ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <Badge variant="default">Enabled</Badge>
+                    <p className="truncate text-xs text-[var(--muted)]">
+                      This browser receives OS notifications for your automation runs.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="min-h-11 px-5 text-sm md:min-h-10"
+                    onClick={() => void enablePush()}
+                    disabled={isEnablingPush}
+                  >
+                    Enable push on this browser
+                  </Button>
+                  {pushMessage ? <p className="text-xs leading-5 text-red-300/90">{pushMessage}</p> : null}
+                </div>
+              )}
 
               {subscriptions.length ? (
                 <div className="space-y-2">
@@ -377,9 +387,7 @@ export function NotificationsSection() {
               ) : (
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3">
                   <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="inline-flex shrink-0 items-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
-                      Configured
-                    </span>
+                    <Badge variant="default">Configured</Badge>
                     <p className="truncate text-xs text-[var(--muted)]">
                       Automation alerts are delivered through Pushover.
                     </p>
