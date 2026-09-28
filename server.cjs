@@ -3,6 +3,30 @@ const { writeFileSync, unlinkSync, existsSync, readFileSync } = require("node:fs
 const next = require("next");
 const { WebSocketServer } = require("ws");
 
+function loadLocalEnvFiles() {
+  const mode = process.env.NODE_ENV === "production" ? "production" : "development";
+  for (const file of [".env", ".env.local", `.env.${mode}`, `.env.${mode}.local`]) {
+    if (existsSync(file) && typeof process.loadEnvFile === "function") {
+      try {
+        process.loadEnvFile(file);
+      } catch {
+        return;
+      }
+    }
+  }
+}
+
+loadLocalEnvFiles();
+
+if (
+  process.env.NODE_ENV === "production" &&
+  !/^https?:\/\//i.test(process.env.EIDON_BASE_URL || "")
+) {
+  throw new Error(
+    "Environment variable EIDON_BASE_URL must be set to an http(s) URL in production; it is used for share links, notification deep links, and OAuth redirect URLs"
+  );
+}
+
 const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;
 const PORT_MAX = 4000;

@@ -114,7 +114,7 @@ describe("Mobile API v1 contracts", () => {
       providerReasoningControl: true,
       deepResearch: true,
       offlineMutations: false,
-      pushNotifications: false
+      pushNotifications: true
     });
     expect(JSON.stringify(body)).not.toMatch(
       /apiKey|passwordHash|sessionSecret|encryptionSecret|providerProfiles|mcpServers/i
@@ -327,8 +327,8 @@ describe("Mobile API v1 contracts", () => {
         }
       }
     });
-    expect(compileOpenApiJsonRequestBodies()).toBe(45);
-    expect(compileOpenApiJsonResponses()).toBe(131);
+    expect(compileOpenApiJsonRequestBodies()).toBe(47);
+    expect(compileOpenApiJsonResponses()).toBe(135);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

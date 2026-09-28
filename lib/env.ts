@@ -20,6 +20,20 @@ function getSystemTimeZone() {
   return isValidIanaTimeZone(systemTimeZone) ? systemTimeZone : "UTC";
 }
 
+function normalizeBaseUrl(value: string) {
+  const withoutTrailingSlashes = value.replace(/\/+$/, "");
+  return withoutTrailingSlashes.replace(
+    /^([a-z][a-z0-9+.-]*):\/\//i,
+    (_, scheme: string) => `${scheme.toLowerCase()}://`
+  );
+}
+
+const httpSchemePattern = /^https?:\/\//i;
+
+export function hasHttpScheme(value: string | undefined): boolean {
+  return httpSchemePattern.test(value ?? "");
+}
+
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   TZ: z
@@ -37,6 +51,11 @@ const nodeEnvSchema = z.object({
   EIDON_SESSION_SECRET: z.string().min(32).optional(),
   EIDON_ENCRYPTION_SECRET: z.string().min(32).optional(),
   EIDON_DATA_DIR: z.string().default("./.data"),
+  EIDON_BASE_URL: z
+    .string()
+    .url()
+    .optional()
+    .transform((value) => (value ? normalizeBaseUrl(value) : value)),
   EIDON_BROWSER_MEMORY_BUDGET_MB: z.coerce.number().int().positive().optional(),
   EIDON_GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
@@ -95,11 +114,14 @@ function resolveSensitiveEnvValue(
   return nonProductionDefaults[name];
 }
 
+const PRODUCTION_BASE_URL_MESSAGE =
+  "Environment variable EIDON_BASE_URL must be set to an http(s) URL in production; it is used for share links, notification deep links, and OAuth redirect URLs";
+
 export function parseEnv(input: NodeJS.ProcessEnv) {
   const parsedEnv = nodeEnvSchema.parse(input);
   const isProduction = parsedEnv.NODE_ENV === "production";
 
-  return {
+  const resolved = {
     ...parsedEnv,
     EIDON_ADMIN_PASSWORD: resolveSensitiveEnvValue(
       "EIDON_ADMIN_PASSWORD",
@@ -117,6 +139,19 @@ export function parseEnv(input: NodeJS.ProcessEnv) {
       isProduction
     )
   };
+
+  if (isProduction && !hasHttpScheme(resolved.EIDON_BASE_URL)) {
+    throw new Error(PRODUCTION_BASE_URL_MESSAGE);
+  }
+
+  return resolved;
+}
+
+export function assertProductionBaseUrl() {
+  const parsed = nodeEnvSchema.parse(process.env);
+  if (parsed.NODE_ENV === "production" && !hasHttpScheme(parsed.EIDON_BASE_URL)) {
+    throw new Error(PRODUCTION_BASE_URL_MESSAGE);
+  }
 }
 
 type EidonEnv = ReturnType<typeof parseEnv>;
@@ -165,4 +200,13 @@ export function isPasswordLoginEnabled() {
 
 export function isProduction() {
   return getEnvValue("NODE_ENV") === "production";
+}
+
+export function getGithubAppCallbackUrl() {
+  const explicit = getEnvValue("EIDON_GITHUB_APP_CALLBACK_URL");
+  if (explicit) {
+    return explicit;
+  }
+  const baseUrl = getEnvValue("EIDON_BASE_URL");
+  return baseUrl ? `${baseUrl}/api/providers/github/callback` : null;
 }

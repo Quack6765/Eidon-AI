@@ -128,14 +128,16 @@ docker run -d --name eidon --restart unless-stopped \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
   -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
+  -e EIDON_BASE_URL="https://your-eidon-hostname.example.com" \
   ghcr.io/quack6765/eidon-ai
 ```
+
+`EIDON_BASE_URL` is required in production: it is the externally reachable address of your instance and is used for share links, notification deep links, and OAuth redirect URLs.
 
 Open your Eidon URL, sign in, go to **Settings → Providers**, add a key, and start chatting.
 
 <details>
 <summary><kbd>Docker Compose</kbd></summary>
-
 ```yaml
 services:
   eidon:
@@ -148,6 +150,7 @@ services:
       EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
       EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
       EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
+      EIDON_BASE_URL: "https://your-eidon-hostname.example.com"
     volumes:
       - eidon-data:/app/data
 
@@ -201,7 +204,6 @@ A bot can also write its own skill for future use.
 
 <b>They ask first</b><br />
 <sub>A bot that notices repeating work offers to schedule it, then waits for your answer.</sub>
-
 </td>
 </tr>
 </table>
@@ -214,12 +216,10 @@ you want, then let it run.
 <table>
 <tr>
 <td width="50%">
-
 <img src="./.github/readme/desktop-research-plan.png" alt="An editable seven-step research plan" />
 
 <b>You approve the plan</b><br />
 <sub>Edit, reorder, or remove any step. Nothing runs until you say so.</sub>
-
 </td>
 <td width="50%">
 

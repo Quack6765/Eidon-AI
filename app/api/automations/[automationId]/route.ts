@@ -6,6 +6,7 @@ import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 import { requireUser } from "@/lib/auth";
 import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
+import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
@@ -28,7 +29,8 @@ const updateSchema = z.object({
   continuePreviousConversation: z.boolean().optional(),
   enabled: z.boolean().optional(),
   research: z.boolean().optional(),
-  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional()
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional(),
+  notifyConfig: notifyConfigInputSchema.optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid automation update"

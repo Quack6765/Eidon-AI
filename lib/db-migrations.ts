@@ -1168,6 +1168,18 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
     );
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_success_at TEXT,
+      last_error_at TEXT,
+      disabled_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS bots (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -1390,6 +1402,9 @@ export function migrate(db: Database.Database) {
     db.exec(
       "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
     );
+  }
+  if (!automationCols.some((col) => col.name === "notify_config_json")) {
+    db.exec("ALTER TABLE automations ADD COLUMN notify_config_json TEXT NOT NULL DEFAULT '{}'");
   }
 
   const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
@@ -1699,6 +1714,7 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
     CREATE INDEX IF NOT EXISTS idx_automations_enabled_next_run_at ON automations(enabled, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_scheduled_for ON automation_runs(automation_id, scheduled_for DESC);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status_scheduled_for ON automation_runs(status, scheduled_for);
     CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);

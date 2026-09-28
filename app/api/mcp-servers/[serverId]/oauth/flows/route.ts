@@ -5,7 +5,7 @@ import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok, parseRouteParams } from "@/lib/http";
 import { startMcpOAuthFlow } from "@/lib/mcp-oauth";
 import { getMcpServer } from "@/lib/mcp-servers";
-import { getMcpOAuthCallbackUrl, getRequestOrigin } from "@/lib/request-url";
+import { getMcpOAuthCallbackUrl, getRequestOrigin, resolveExternalOrigin } from "@/lib/request-url";
 
 const paramsSchema = z.object({ serverId: z.string().min(1) });
 
@@ -26,7 +26,7 @@ export async function POST(
   }
 
   try {
-    const origin = getRequestOrigin(request);
+    const origin = resolveExternalOrigin(request);
     const flow = await startMcpOAuthFlow({
       serverId: server.id,
       serverUrl: server.url,

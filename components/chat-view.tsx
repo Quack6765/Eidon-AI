@@ -10,6 +10,8 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import { useRouter } from "next/navigation";
 import { Plus, Share2 } from "lucide-react";
 
+import { maybeNotifyTurnReady } from "@/lib/chat-turn-ping";
+
 import {
   AttachmentPreviewModal,
   useAttachmentPreviewController
@@ -268,7 +270,11 @@ export function ChatView({
   const streamMessageIdRef = useRef<string | null>(null);
   const finishedStreamMessageIdsRef = useRef<Set<string>>(new Set());
   const setStreamMessageId = useCallback((messageId: string | null) => {
+    const wasStreaming = streamMessageIdRef.current !== null;
     streamMessageIdRef.current = messageId;
+    if (wasStreaming && messageId === null) {
+      void maybeNotifyTurnReady();
+    }
     setStreamMessageIdState(messageId);
   }, []);
   const renderKeyByMessageIdRef = useRef(new Map<string, string>());

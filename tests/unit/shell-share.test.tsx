@@ -139,7 +139,7 @@ describe("Shell sharing control", () => {
         fireEvent.click(screen.getByRole("button", { name: "Copy share link" }));
       });
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/share/share_public_token`);
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost/share/share_public_token");
       expect(screen.getByRole("button", { name: "Copied share link" })).toBeInTheDocument();
 
       await act(async () => {

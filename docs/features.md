@@ -96,6 +96,8 @@ Scheduled prompts that run on their own and leave a normal transcript behind.
 
 **Running and reviewing.** **Run now** triggers an automation outside its schedule and a failed run can be retried. Every run is recorded with its scheduled time, trigger source (`schedule`, `manual_run`, `manual_retry`), status, and error, and links to the full transcript of what the assistant actually did — the same message and timeline view as a normal chat.
 
+**Run-done notifications.** Each automation can push the result to an ntfy topic (self-hostable), a raw webhook POST (Slack/Discord/Matrix incoming webhooks), Pushover (using your Pushover account keys from **Settings → Notifications**), or web push on your subscribed browsers. Notifications are title-only (for example `Eidon: "Daily digest" failed: <error>`) unless a channel opts into the run summary; webhook URLs and header values are stored encrypted and are never shown again after saving. With `EIDON_BASE_URL` set, every payload carries a deep link straight to that run's transcript (ntfy `click`, Pushover `url`, web push `url`, webhook `runUrl`).
+
 **Assistant-proposed automations.** The model can call `create_automation` when a request is obviously recurring. Like memory writes, this creates a proposal card you approve or dismiss; nothing gets scheduled without your sign-off.
 
 ## Tools available to the model
