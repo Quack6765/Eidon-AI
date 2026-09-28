@@ -123,6 +123,7 @@ export function createRuntimeAppSettings(
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
     defaultView: "chat",
+    hasCompletedOnboarding: true,
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
     speechCleanupEnabled: false,

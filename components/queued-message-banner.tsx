@@ -12,6 +12,7 @@ type QueuedMessageBannerProps = {
   onEdit: (queuedMessageId: string, content: string) => void | Promise<void>;
   onDelete: (queuedMessageId: string) => void | Promise<void>;
   onSendNow: (queuedMessageId: string) => void | Promise<void>;
+  redirectingIds?: ReadonlySet<string>;
   className?: string;
 };
 
@@ -27,6 +28,7 @@ export function QueuedMessageBanner({
   onEdit,
   onDelete,
   onSendNow,
+  redirectingIds,
   className
 }: QueuedMessageBannerProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -120,12 +122,19 @@ export function QueuedMessageBanner({
         {sortedItems.map((item, index) => {
           const isPending = item.status === "pending";
           const isEditing = editingId === item.id;
+          const isRedirecting = isPending && Boolean(redirectingIds?.has(item.id));
 
           return (
             <div
               key={item.id}
               className={cn("px-3 py-3", index > 0 && "border-t border-white/6")}
             >
+              {isRedirecting ? (
+                <div className="mb-2 flex items-center gap-1 text-xs text-white/50">
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  Joins the current run at its next step
+                </div>
+              ) : null}
               {item.status !== "pending" ? (
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2 text-sm text-white/60">
@@ -237,15 +246,17 @@ export function QueuedMessageBanner({
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                        <button
-                          type="button"
-                          aria-label="Send now"
-                          title="Send now"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg p-1 text-white/25 transition-colors duration-200 hover:bg-white/5 hover:text-white"
-                          onClick={() => void onSendNow(item.id)}
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                        </button>
+                        {isRedirecting ? null : (
+                          <button
+                            type="button"
+                            aria-label="Send now"
+                            title="Send now"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg p-1 text-white/25 transition-colors duration-200 hover:bg-white/5 hover:text-white"
+                            onClick={() => void onSendNow(item.id)}
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

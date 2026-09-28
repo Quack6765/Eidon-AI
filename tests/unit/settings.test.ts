@@ -287,11 +287,32 @@ describe("settings domains", () => {
     const secondary = apiKeyProfile({
       id: "profile_secondary",
       name: "Secondary",
-      model: "glm-5.1"
+      model: "glm-5.1",
+      visionMode: "none"
     });
     expect(() => saveProfiles([primary, secondary])).toThrow(
       "does not support image input"
     );
+  });
+
+  it("accepts a vision provider reference to a profile that declares native vision", () => {
+    const primary = apiKeyProfile({
+      visionMode: "provider",
+      visionProviderProfileId: "profile_secondary"
+    });
+    const secondary = apiKeyProfile({
+      id: "profile_secondary",
+      name: "Secondary",
+      model: "deepseek-v4.1-flash",
+      visionMode: "native"
+    });
+
+    const saved = saveProfiles([primary, secondary]);
+
+    expect(
+      saved.providerProfiles.find((profile) => profile.id === "profile_primary")
+        ?.visionProviderProfileId
+    ).toBe("profile_secondary");
   });
 
   it("normalizes dangling vision provider references when a profile is deleted", () => {

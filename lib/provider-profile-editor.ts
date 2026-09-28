@@ -3,12 +3,15 @@ import {
   getMatchingProviderPresetId,
   getProviderPreset,
   PROVIDER_CATALOG,
+  resolveDefaultVisionMode,
   type ProviderKind,
   type ProviderPresetId,
   type ProviderPresetValues
 } from "@/lib/provider-catalog";
-import type {
-  ProviderProfileSummary
+import {
+  resolveProviderProfileCapabilities,
+  type ProviderProfile,
+  type ProviderProfileSummary
 } from "@/lib/provider-profile";
 import type { CredentialAction } from "@/lib/integration-types";
 
@@ -46,20 +49,26 @@ export function createProviderProfileEditorDraft(input?: {
     : flat.providerKind === "anthropic"
       ? { apiBaseUrl }
       : { apiBaseUrl, apiMode, processingMode, reasoningParameterMode };
-  return {
+  const profile = {
     ...core,
     providerConfig,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  } as ProviderProfile;
+  const { reasoningControl, reasoningEfforts } = resolveProviderProfileCapabilities(profile);
+  return {
+    ...profile,
     connection: {
       mode: PROVIDER_CATALOG[flat.providerKind].connectionMode,
       status: "disconnected",
       accountLabel: null,
       expiresAt: null
     },
+    reasoningControl,
+    reasoningEfforts,
     credential: "",
-    credentialAction: "clear",
-    createdAt: timestamp,
-    updatedAt: timestamp
-  } as ProviderProfileEditorDraft;
+    credentialAction: "clear"
+  };
 }
 
 export function switchProviderProfileKind(
@@ -112,6 +121,12 @@ export function applyPresetToProviderProfile(
   return {
     ...profile,
     ...behavior,
+    visionMode: values.visionMode ?? resolveDefaultVisionMode({
+      providerKind: profile.providerKind,
+      apiBaseUrl,
+      apiMode,
+      model: values.model
+    }),
     providerConfig,
     providerPresetId: presetId,
     credential: "",
@@ -145,6 +160,8 @@ export function getMatchingEditorPresetId(profile: ProviderProfileEditorDraft) {
 export function buildProviderProfileInput(profile: ProviderProfileEditorDraft) {
   const {
     connection: _connection,
+    reasoningControl: _reasoningControl,
+    reasoningEfforts: _reasoningEfforts,
     createdAt: _createdAt,
     updatedAt: _updatedAt,
     ...input

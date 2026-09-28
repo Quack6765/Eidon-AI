@@ -1464,7 +1464,8 @@ describe("provider integration", () => {
       expect.objectContaining({
         thinking: {
           type: "enabled"
-        }
+        },
+        reasoning_effort: "medium"
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal)
@@ -1480,6 +1481,68 @@ describe("provider integration", () => {
         outputTokens: undefined
       })
     ]);
+  });
+
+  it.each(["high", "xhigh", "max"] as const)(
+    "sends the %s glm reasoning effort alongside enabled thinking",
+    async (reasoningEffort) => {
+      chatCreate.mockResolvedValueOnce(
+        createAsyncStream([{ choices: [{ delta: { content: "Hi there" } }] }])
+      );
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      const stream = streamProviderResponse({
+        settings: createSettings({
+          model: "glm-5.1",
+          apiMode: "chat_completions",
+          reasoningEffort
+        }),
+        promptMessages: [{ role: "user", content: "Hi" }]
+      });
+
+      while (true) {
+        const next = await stream.next();
+        if (next.done) break;
+      }
+
+      expect(chatCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          thinking: {
+            type: "enabled"
+          },
+          reasoning_effort: reasoningEffort
+        }),
+        expect.objectContaining({
+          signal: expect.any(AbortSignal)
+        })
+      );
+    }
+  );
+
+  it("omits glm thinking parameters when reasoning effort is disabled", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([{ choices: [{ delta: { content: "Hi there" } }] }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        model: "glm-5.1",
+        apiMode: "chat_completions",
+        reasoningEffort: "none"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) break;
+    }
+
+    const request = chatCreate.mock.calls[chatCreate.mock.calls.length - 1]?.[0] as Record<string, unknown>;
+
+    expect(request.thinking).toBeUndefined();
+    expect(request.reasoning_effort).toBeUndefined();
   });
 
   it("replays assistant reasoning_content for DeepSeek chat-completions tool turns", async () => {

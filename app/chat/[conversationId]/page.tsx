@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
+import { getBotByConversationId } from "@/lib/bots";
 import { getConversation, listConversationsPage } from "@/lib/conversations";
 import { buildConversationViewPayload } from "@/lib/conversation-view";
 import { isPasswordLoginEnabled } from "@/lib/env";
@@ -51,6 +52,12 @@ export default async function ConversationPage({
     conversation.automationRunId
   ) {
     redirect(`/automations/${conversation.automationId}/runs/${conversation.automationRunId}`);
+  }
+
+  const bot = getBotByConversationId(conversation.id);
+
+  if (bot) {
+    redirect(`/agents/${bot.id}`);
   }
 
   return (

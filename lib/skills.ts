@@ -27,7 +27,7 @@ function rowToSkill(row: {
   };
 }
 
-function deriveDescription(content: string) {
+export function deriveDescription(content: string) {
   const metadata = parseSkillContentMetadata(content);
 
   if (metadata.description?.trim()) {

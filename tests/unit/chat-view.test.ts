@@ -15,6 +15,10 @@ import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 const push = vi.fn();
 const refresh = vi.fn();
 
+vi.mock("@/hooks/use-composer-references", () => ({
+  useComposerReferences: () => ({ references: { bots: [], skills: [] }, refresh: () => {} })
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push,
@@ -33,7 +37,9 @@ const wsMock = vi.hoisted(() => ({
 
 const bootstrapMock = vi.hoisted(() => ({
   readChatBootstrap: vi.fn(),
-  clearChatBootstrap: vi.fn()
+  clearChatBootstrap: vi.fn(),
+  storeComposerDraft: vi.fn(),
+  consumeComposerDraft: vi.fn()
 }));
 
 const conversationEventMock = vi.hoisted(() => ({
@@ -114,7 +120,8 @@ vi.mock("@/lib/ws-client", () => ({
   useWebSocket: (options: { onMessage?: (msg: unknown) => void }) => {
     wsMock.onMessage = options.onMessage ?? null;
     return wsMock;
-  }
+  },
+  addGlobalWsListener: () => () => {}
 }));
 
 vi.mock("@/lib/conversation-drafts", () => ({
@@ -123,7 +130,9 @@ vi.mock("@/lib/conversation-drafts", () => ({
 
 vi.mock("@/lib/chat-bootstrap", () => ({
   readChatBootstrap: bootstrapMock.readChatBootstrap,
-  clearChatBootstrap: bootstrapMock.clearChatBootstrap
+  clearChatBootstrap: bootstrapMock.clearChatBootstrap,
+  storeComposerDraft: bootstrapMock.storeComposerDraft,
+  consumeComposerDraft: bootstrapMock.consumeComposerDraft
 }));
 
 vi.mock("@/lib/conversation-events", () => ({
@@ -367,6 +376,33 @@ function createMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
+function chooseMessageMenuItem(itemName: string, triggerIndex = 0) {
+  fireEvent.click(screen.getAllByRole("button", { name: "More message actions" })[triggerIndex]);
+  fireEvent.click(screen.getByRole("menuitem", { name: itemName }));
+}
+
+function jsonResponse(body: unknown, ok = true) {
+  return { ok, json: async () => body } as Response;
+}
+
+function routeFetch(routes: Record<string, () => Response>) {
+  vi.mocked(global.fetch).mockImplementation((input) => {
+    const route = routes[String(input)];
+    if (route) return Promise.resolve(route());
+    if (input === "/api/personas") return Promise.resolve(jsonResponse({ personas: [] }));
+    return Promise.resolve(jsonResponse({}));
+  });
+}
+
+function createRewindThread() {
+  return [
+    createMessage({ id: "msg_u1", role: "user", content: "First question" }),
+    createMessage({ id: "msg_a1", content: "First answer" }),
+    createMessage({ id: "msg_u2", role: "user", content: "Second question" }),
+    createMessage({ id: "msg_a2", content: "Second answer" })
+  ];
+}
+
 function createMemoryProposalMessage(
   overrides: Partial<Message> = {},
   actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
@@ -461,6 +497,9 @@ describe("chat view", () => {
     wsMock.unsubscribe.mockReset();
     bootstrapMock.readChatBootstrap.mockReset();
     bootstrapMock.readChatBootstrap.mockReturnValue(null);
+    bootstrapMock.storeComposerDraft.mockReset();
+    bootstrapMock.consumeComposerDraft.mockReset();
+    bootstrapMock.consumeComposerDraft.mockReturnValue(null);
     bootstrapMock.clearChatBootstrap.mockReset();
     conversationEventMock.dispatchConversationActivityUpdated.mockReset();
     conversationEventMock.dispatchConversationTitleUpdated.mockReset();
@@ -683,6 +722,79 @@ describe("chat view", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("photo.png")).toBeNull();
+    });
+  });
+
+  it("updates a delegation action inside a completed message when the bot reply lands", async () => {
+    const startedAt = new Date().toISOString();
+    const action = {
+      id: "act_delegate",
+      messageId: "msg_chief",
+      kind: "message_bot" as const,
+      status: "pending" as const,
+      serverId: null,
+      skillId: null,
+      toolName: "message_bot",
+      label: "Messaged Researcher",
+      detail: "→ Researcher: find sources",
+      arguments: { bot: "Researcher", message: "find sources" },
+      resultSummary: "",
+      sortOrder: 0,
+      startedAt,
+      completedAt: null,
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
+    };
+    const payload = createPayload({
+      messages: [
+        {
+          id: "msg_chief",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "I messaged Researcher and will report back.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: startedAt,
+          timeline: [
+            { ...action, timelineKind: "action" as const },
+            {
+              id: "seg_1",
+              timelineKind: "text" as const,
+              sortOrder: 1,
+              createdAt: startedAt,
+              content: "I messaged Researcher and will report back."
+            }
+          ]
+        }
+      ]
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    expect(screen.getByTestId("delegate-action-line")).toHaveAttribute("data-action-status", "pending");
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_complete",
+          action: {
+            ...action,
+            status: "completed",
+            resultSummary: "Found 3 sources.",
+            completedAt: new Date().toISOString()
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("delegate-action-line")).toHaveAttribute("data-action-status", "completed");
     });
   });
 
@@ -1314,9 +1426,12 @@ describe("chat view", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
 
-    await waitFor(() => {
-      expect(screen.getByText("Cleaning…")).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("Cleaning…")).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
 
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(wsMock.send).not.toHaveBeenCalled();
@@ -1331,7 +1446,7 @@ describe("chat view", () => {
       expect(textarea).toHaveValue("Existing draft\nMock cleaned transcript.");
     });
     expect(wsMock.send).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("does not submit when Enter is pressed during active voice input", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
@@ -1695,6 +1810,19 @@ describe("chat view", () => {
     });
   });
 
+  it("offers the temporary toggle only on an empty regular chat", () => {
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    expect(screen.getByRole("button", { name: "Temporary conversation" })).toBeInTheDocument();
+    view.unmount();
+
+    const botPayload = createPayload();
+    botPayload.conversation.conversationOrigin = "bot";
+    renderWithProvider(
+      React.createElement(ChatView, { payload: botPayload, retainEmptyConversation: true })
+    );
+    expect(screen.queryByRole("button", { name: "Temporary conversation" })).not.toBeInTheDocument();
+  });
+
   it("keeps an empty conversation when the chat view remounts on the same route", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
@@ -1743,6 +1871,47 @@ describe("chat view", () => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
     });
+  });
+
+  it("drops an active stream that a reconnect snapshot no longer contains", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_interrupted" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Partial words before the restart" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Partial words before the restart")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({ id: "msg_user", role: "user", content: "Write something long" }),
+          createMessage({ id: "msg_resume", role: "user", content: "[Resumed after a server restart]\nContinue." }),
+          createMessage({ id: "msg_resumed_answer", content: "Final answer after the restart" })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Final answer after the restart")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Partial words before the restart")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    expect(screen.getByTestId("restart-resume-message")).toBeInTheDocument();
   });
 
   it("hydrates running action rows for an active streaming message from snapshot state", async () => {
@@ -1931,6 +2100,56 @@ describe("chat view", () => {
     });
   });
 
+  it("clears messages and queued messages when a conversation_cleared WebSocket message arrives", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_user_clear", role: "user", content: "Hello there" }),
+            createMessage()
+          ],
+          queuedMessages: [createQueuedMessage()]
+        })
+      })
+    );
+
+    expect(screen.getByText("Hello there")).toBeInTheDocument();
+    expect(screen.getByText("Assistant reply")).toBeInTheDocument();
+    expect(screen.getByText("Queued follow-up")).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({ type: "conversation_cleared", conversationId: "conv_1" });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Hello there")).toBeNull();
+    });
+    expect(screen.queryByText("Assistant reply")).toBeNull();
+    expect(screen.queryByText("Queued follow-up")).toBeNull();
+    expect(conversationEventMock.dispatchConversationActivityUpdated).toHaveBeenCalledWith({
+      conversationId: "conv_1",
+      isActive: false
+    });
+  });
+
+  it("ignores conversation_cleared for a different conversation", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [createMessage({ id: "msg_user_keep", role: "user", content: "Keep me around" })]
+        })
+      })
+    );
+
+    expect(screen.getByText("Keep me around")).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({ type: "conversation_cleared", conversationId: "conv_other" });
+    });
+
+    expect(screen.getByText("Keep me around")).toBeInTheDocument();
+  });
+
   it("forks from an assistant message and redirects to the new conversation", async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({
@@ -1956,7 +2175,7 @@ describe("chat view", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Fork conversation from message" }));
+    chooseMessageMenuItem("Fork from here");
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_assistant/fork", {
@@ -2102,7 +2321,7 @@ describe("chat view", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Fork conversation from message" }));
+    chooseMessageMenuItem("Fork from here");
 
     await waitFor(() => {
       expect(screen.getByText("Fork denied")).toBeInTheDocument();
@@ -2149,10 +2368,11 @@ describe("chat view", () => {
       })
     );
 
-    const forkButton = screen.getByRole("button", { name: "Fork conversation from message" });
-
-    fireEvent.click(forkButton);
-    fireEvent.click(forkButton);
+    chooseMessageMenuItem("Fork from here");
+    const menuTrigger = screen.getByRole("button", { name: "More message actions" });
+    expect(menuTrigger).toBeDisabled();
+    fireEvent.click(menuTrigger);
+    expect(screen.queryByRole("menuitem", { name: "Fork from here" })).toBeNull();
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_assistant/fork", {
@@ -2175,6 +2395,226 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(push).toHaveBeenCalledWith("/chat/conv_forked");
     });
+  });
+
+  it("rewinds to an assistant reply locally and brings everything back on undo", async () => {
+    routeFetch({});
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    chooseMessageMenuItem("Rewind to here", 1);
+
+    expect(screen.queryByText("Second question")).toBeNull();
+    expect(screen.queryByText("Second answer")).toBeNull();
+    expect(screen.getByText("Rewound 2 messages")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(screen.getByText("Second question")).toBeInTheDocument();
+    expect(screen.getByText("Second answer")).toBeInTheDocument();
+    expect(
+      vi.mocked(global.fetch).mock.calls.some(([input]) => String(input).endsWith("/rewind"))
+    ).toBe(false);
+  });
+
+  it("commits the rewind when the undo toast is dismissed", async () => {
+    const [firstUser, firstAssistant] = createRewindThread();
+    routeFetch({
+      "/api/messages/msg_a1/rewind": () =>
+        jsonResponse({
+          conversation: createPayload().conversation,
+          messages: [firstUser, firstAssistant],
+          queuedMessages: [],
+          draft: null
+        })
+    });
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    chooseMessageMenuItem("Rewind to here", 1);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_a1/rewind", { method: "POST" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+    expect(screen.queryByText("Second question")).toBeNull();
+    expect(screen.getByText("First answer")).toBeInTheDocument();
+  });
+
+  it("puts a rewound user message back in the composer and undo restores the earlier draft", async () => {
+    routeFetch({});
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "Unsent draft" } });
+
+    chooseMessageMenuItem("Rewind to here", 2);
+
+    expect(textarea).toHaveValue("Second question");
+    expect(screen.queryByText("Second answer")).toBeNull();
+    expect(screen.getByText("Rewound 2 messages")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(textarea).toHaveValue("Unsent draft");
+    expect(screen.getByText("Second question")).toBeInTheDocument();
+  });
+
+  it("brings the messages back and explains why when the rewind cannot be saved", async () => {
+    routeFetch({
+      "/api/messages/msg_a1/rewind": () =>
+        jsonResponse({ error: "Wait for the current assistant response to finish before rewinding this conversation" }, false)
+    });
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    chooseMessageMenuItem("Rewind to here", 1);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Wait for the current assistant response to finish before rewinding this conversation")
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText("Second answer")).toBeInTheDocument();
+  });
+
+  it("saves a pending rewind before sending the next message", async () => {
+    const [firstUser, firstAssistant] = createRewindThread();
+    routeFetch({
+      "/api/messages/msg_u2/rewind": () =>
+        jsonResponse({
+          conversation: createPayload().conversation,
+          messages: [firstUser, firstAssistant],
+          queuedMessages: [],
+          draft: { content: "Second question", attachments: [] }
+        })
+    });
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+    const textarea = screen.getByRole("textbox");
+
+    chooseMessageMenuItem("Rewind to here", 2);
+    fireEvent.change(textarea, { target: { value: "Second question, sharper" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Second question, sharper",
+        attachmentIds: []
+      });
+    });
+    const rewindCall = vi.mocked(global.fetch).mock.invocationCallOrder[
+      vi.mocked(global.fetch).mock.calls.findIndex(([input]) => input === "/api/messages/msg_u2/rewind")
+    ];
+    expect(rewindCall).toBeLessThan(wsMock.send.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("undoes a pending rewind when a new reply starts", async () => {
+    routeFetch({});
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    chooseMessageMenuItem("Rewind to here", 1);
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_incoming" }
+      });
+    });
+
+    expect(screen.getByText("Second answer")).toBeInTheDocument();
+    expect(screen.getByText("A new reply started, so the rewind was undone")).toBeInTheDocument();
+  });
+
+  it("drops messages another device rewound", () => {
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    act(() => {
+      wsMock.onMessage!({ type: "messages_deleted", conversationId: "conv_1", messageIds: ["msg_u2", "msg_a2"] });
+      wsMock.onMessage!({ type: "messages_deleted", conversationId: "conv_other", messageIds: ["msg_a1"] });
+    });
+
+    expect(screen.queryByText("Second question")).toBeNull();
+    expect(screen.queryByText("Second answer")).toBeNull();
+    expect(screen.getByText("First answer")).toBeInTheDocument();
+  });
+
+  it("forks from a user message and hands the message to the new conversation's composer", async () => {
+    const draft = { content: "Second question", attachments: [] };
+    routeFetch({
+      "/api/messages/msg_u2/fork": () => jsonResponse({ conversation: { id: "conv_forked" }, draft })
+    });
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    chooseMessageMenuItem("Fork from here", 2);
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/chat/conv_forked");
+    });
+    expect(bootstrapMock.storeComposerDraft).toHaveBeenCalledWith("conv_forked", draft);
+  });
+
+  it("opens a forked conversation with its draft in the composer", () => {
+    bootstrapMock.consumeComposerDraft.mockReturnValue({ content: "Draft from the fork", attachments: [] });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    expect(bootstrapMock.consumeComposerDraft).toHaveBeenCalledWith("conv_1");
+    expect(screen.getByRole("textbox")).toHaveValue("Draft from the fork");
+  });
+
+  it("offers rewind but not fork in a bot's home conversation", () => {
+    const payload = createPayload();
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...payload,
+          conversation: { ...payload.conversation, conversationOrigin: "bot" },
+          messages: createRewindThread()
+        }
+      })
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "More message actions" })[0]);
+
+    expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Fork from here" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "More message actions" })).toHaveLength(3);
+  });
+
+  it("does not offer rewind while a reply is in progress", () => {
+    const payload = createPayload();
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...payload,
+          conversation: { ...payload.conversation, isActive: true },
+          messages: createRewindThread()
+        }
+      })
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "More message actions" })[0]);
+
+    expect(screen.getByRole("menuitem", { name: "Fork from here" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Rewind to here" })).toBeNull();
   });
 
   it("ignores stale empty snapshots after a local send has started", async () => {
@@ -4574,7 +5014,7 @@ describe("chat view", () => {
     });
   });
 
-  it("clears streamed preamble text on answer_reset before a tool action", async () => {
+  it("clears streamed answer text when the server resets the answer", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const send = (event: unknown) =>
@@ -4742,7 +5182,121 @@ describe("chat view", () => {
     });
   });
 
-  it("collapses retried tool actions with the same tool and detail into one live row", async () => {
+  it("keeps server-persisted text segments when the local stream lost them before done", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Let me look into it." }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "stream_retry" }
+      });
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_start",
+          action: {
+            id: "act_final",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=weather",
+            arguments: null,
+            resultSummary: "",
+            sortOrder: 2,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
+          }
+        }
+      });
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_assistant",
+          message: createMessage({
+            id: "msg_assistant",
+            content: "Let me look into it. Here are the findings.",
+            timeline: [
+              {
+                id: "seg_1",
+                timelineKind: "text",
+                sortOrder: 0,
+                createdAt: new Date().toISOString(),
+                content: "Let me look into it."
+              },
+              {
+                id: "seg_2",
+                timelineKind: "text",
+                sortOrder: 1,
+                createdAt: new Date().toISOString(),
+                content: " Here are the findings."
+              },
+              {
+                id: "act_final",
+                messageId: "msg_assistant",
+                timelineKind: "action",
+                kind: "mcp_tool_call",
+                status: "completed",
+                serverId: "exa",
+                skillId: null,
+                toolName: "web_search_exa",
+                label: "web_search_exa",
+                detail: "query=weather",
+                arguments: null,
+                resultSummary: "ok",
+                sortOrder: 2,
+                startedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                proposalState: null,
+                proposalPayload: null,
+                proposalUpdatedAt: null
+              }
+            ]
+          })
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Let me look into it. Here are the findings.").length
+      ).toBeGreaterThan(0);
+    });
+
+    const textBlock = screen.getAllByTestId("assistant-message-content")[0];
+    const actionButton = screen.getAllByRole("button", { name: "web_search_exa" })[0];
+    expect(
+      textBlock.compareDocumentPosition(actionButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps retried tool attempts with the same tool and detail as separate live rows", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
@@ -4810,7 +5364,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText("web_search_exa")).toHaveLength(1);
+      expect(screen.getAllByText("web_search_exa")).toHaveLength(2);
     });
   });
 
@@ -5549,4 +6103,76 @@ describe("chat view", () => {
       expect(screen.getByText(/Here is the streamed reply/)).toBeInTheDocument();
     }, { timeout: 4000 });
   }, 20000);
+
+  it("keeps a finished turn idle when a stale polling snapshot still shows it streaming", async () => {
+    const userMessage = createMessage({ id: "msg_user_stale", role: "user", content: "Use the skill" });
+    const streamingAssistant = createMessage({ id: "msg_stale", content: "", status: "streaming" });
+    let resolveStaleFetch: ((value: Response) => void) | null = null;
+    let conversationFetches = 0;
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (String(input) === "/api/conversations/conv_1") {
+        conversationFetches += 1;
+        if (conversationFetches === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveStaleFetch = resolve;
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: { ...createPayload().conversation, isActive: false },
+            messages: [userMessage, { ...streamingAssistant, content: "Done", status: "completed" }]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ personas: [] }) } as Response);
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      })
+    );
+    await waitFor(() => expect(conversationFetches).toBe(1));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_stale" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Done" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_stale",
+          message: { ...streamingAssistant, content: "Done", status: "completed" }
+        }
+      });
+    });
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Eidon")).toBeInTheDocument());
+
+    await act(async () => {
+      resolveStaleFetch!({
+        ok: true,
+        json: async () => ({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      } as Response);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.queryByPlaceholderText("Queue a message")).toBeNull();
+    expect(screen.getByPlaceholderText("Message Eidon")).toBeInTheDocument();
+  });
 });

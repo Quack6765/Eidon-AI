@@ -1,3 +1,4 @@
+import { getAppVersion } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import {
   normalizeDefaultView,
@@ -22,6 +23,8 @@ export type UserPreferences = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  hasCompletedOnboarding: boolean;
+  lastSeenRelease: string;
   updatedAt: string;
 };
 
@@ -35,6 +38,8 @@ type UserPreferencesRow = {
   confirm_external_links: number;
   tool_call_display: ToolCallDisplayMode;
   default_view: DefaultView;
+  has_completed_onboarding: number;
+  last_seen_release: string;
   updated_at: string;
 };
 
@@ -44,8 +49,8 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     INSERT OR IGNORE INTO user_preferences (
       user_id, conversation_retention, memories_enabled, memories_max_count,
       memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
-      tool_call_display, default_view, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tool_call_display, default_view, last_seen_release, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     defaults.conversationRetention,
@@ -57,9 +62,35 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     defaults.confirmExternalLinks ? 1 : 0,
     normalizeToolCallDisplayMode(defaults.toolCallDisplay),
     normalizeDefaultView(defaults.defaultView),
+    getAppVersion(),
     timestamp,
     timestamp
   );
+}
+
+export function getUserAllowAllTools(userId: string | null | undefined) {
+  if (!userId) {
+    return false;
+  }
+
+  const row = getDb()
+    .prepare("SELECT allow_all_tools FROM user_preferences WHERE user_id = ?")
+    .get(userId) as { allow_all_tools: number } | undefined;
+
+  return Boolean(row?.allow_all_tools);
+}
+
+export function setUserAllowAllTools(userId: string, allowAll: boolean) {
+  const timestamp = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO user_preferences (user_id, allow_all_tools, created_at, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         allow_all_tools = excluded.allow_all_tools,
+         updated_at = excluded.updated_at`
+    )
+    .run(userId, allowAll ? 1 : 0, timestamp, timestamp);
 }
 
 export function getUserPreferences(userId: string, defaults: GlobalPreferences) {
@@ -67,7 +98,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
   const row = getDb().prepare(`
     SELECT conversation_retention, memories_enabled, memories_max_count,
       memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
-      tool_call_display, default_view, updated_at
+      tool_call_display, default_view, has_completed_onboarding, last_seen_release, updated_at
     FROM user_preferences
     WHERE user_id = ?
   `).get(userId) as UserPreferencesRow;
@@ -81,6 +112,8 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
     confirmExternalLinks: Boolean(row.confirm_external_links),
     toolCallDisplay: normalizeToolCallDisplayMode(row.tool_call_display),
     defaultView: normalizeDefaultView(row.default_view),
+    hasCompletedOnboarding: Boolean(row.has_completed_onboarding),
+    lastSeenRelease: row.last_seen_release,
     updatedAt: row.updated_at
   } satisfies UserPreferences;
 }
@@ -96,7 +129,8 @@ export function updateUserPreferences(
     UPDATE user_preferences
     SET conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      confirm_external_links = ?, tool_call_display = ?, default_view = ?, updated_at = ?
+      confirm_external_links = ?, tool_call_display = ?, default_view = ?,
+      has_completed_onboarding = ?, last_seen_release = ?, updated_at = ?
     WHERE user_id = ?
   `).run(
     next.conversationRetention,
@@ -108,6 +142,8 @@ export function updateUserPreferences(
     next.confirmExternalLinks ? 1 : 0,
     normalizeToolCallDisplayMode(next.toolCallDisplay),
     normalizeDefaultView(next.defaultView),
+    next.hasCompletedOnboarding ? 1 : 0,
+    next.lastSeenRelease,
     next.updatedAt,
     userId
   );

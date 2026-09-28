@@ -19,7 +19,7 @@ export function claimWebSocketUpgradeRouting(app: NextUpgradeOwner) {
 
 export function resolveWebSocketAuthMode(request: IncomingMessage) {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-  return pathname === "/api/v1/ws" ? "mobile" as const : "browser" as const;
+  return pathname === "/api/v1/ws" || pathname.startsWith("/api/v1/ws/") ? "mobile" as const : "browser" as const;
 }
 
 export function routeWebSocketUpgrade(

@@ -9,6 +9,7 @@ export type ParsedMarkdownTarget = {
   end: number;
   target: string;
   isImage: boolean;
+  label?: string;
   definitionUsage?: {
     link: boolean;
     image: boolean;
@@ -109,6 +110,13 @@ function collectDefinitionNodes(node: MarkdownNode, definitions: Map<string, Mar
   }
 }
 
+function getLinkLabel(node: MarkdownNode, content: string) {
+  const children = node.children ?? [];
+  const first = children[0] ? getNodeOffsets(children[0]) : null;
+  const last = children.length ? getNodeOffsets(children[children.length - 1]!) : null;
+  return first && last ? content.slice(first.start, last.end) : "";
+}
+
 function shouldIgnoreEscapedNode(content: string, node: MarkdownNode, start: number) {
   if (node.type !== "link" || start === 0) {
     return false;
@@ -132,7 +140,8 @@ function collectMarkdownTargets(
         start: offsets.start,
         end: offsets.end,
         target: node.url,
-        isImage: node.type === "image"
+        isImage: node.type === "image",
+        ...(node.type === "link" ? { label: getLinkLabel(node, content) } : {})
       });
     }
   }
@@ -145,7 +154,8 @@ function collectMarkdownTargets(
         start: offsets.start,
         end: offsets.end,
         target: definition.target,
-        isImage: node.type === "imageReference"
+        isImage: node.type === "imageReference",
+        ...(node.type === "linkReference" ? { label: getLinkLabel(node, content) } : {})
       });
 
       const usage = usedDefinitions.get(node.identifier) ?? { link: false, image: false };
@@ -195,19 +205,21 @@ export function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
   return matches;
 }
 
-export function normalizeProtectedMarkdownContent(content: string) {
-  return content
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^(?:[ \t]*\n)+/, "")
-    .replace(/(?:\n[ \t]*)+$/, "")
-    .replace(/[ \t]+$/, "");
+export function normalizeProtectedMarkdownContent(
+  content: string,
+  trimEdges: { start: boolean; end: boolean } = { start: true, end: true }
+) {
+  const collapsed = content.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  const trimmedStart = trimEdges.start ? collapsed.replace(/^(?:[ \t]*\n)+/, "") : collapsed;
+  return trimEdges.end ? trimmedStart.replace(/(?:\n[ \t]*)+$/, "").replace(/[ \t]+$/, "") : trimmedStart;
 }
 
 export function normalizeProtectedMarkdownContentOutsideCodeBlocks(content: string) {
   const parts = splitAroundCodeBlocks(content);
-  return parts.map((part) =>
-    part.insideCode ? part.text : normalizeProtectedMarkdownContent(part.text)
+  return parts.map((part, index) =>
+    part.insideCode
+      ? part.text
+      : normalizeProtectedMarkdownContent(part.text, { start: index === 0, end: index === parts.length - 1 })
   ).join("");
 }
 

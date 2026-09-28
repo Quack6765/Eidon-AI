@@ -8,13 +8,23 @@ import * as automationsRoute from "@/app/api/automations/route";
 import * as attachmentRoute from "@/app/api/attachments/[attachmentId]/route";
 import * as attachmentsRoute from "@/app/api/attachments/route";
 import * as avatarRoute from "@/app/api/avatars/[seed]/route";
+import * as botApprovalsRoute from "@/app/api/bots/approvals/route";
 import * as botRoute from "@/app/api/bots/[botId]/route";
+import * as botClearContextRoute from "@/app/api/bots/[botId]/clear-context/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
+import * as botReadRoute from "@/app/api/bots/[botId]/read/route";
 import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-session/route";
+import * as botRunStopRoute from "@/app/api/bots/[botId]/runs/[runId]/stop/route";
+import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
+import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
+import * as botStopRoute from "@/app/api/bots/[botId]/stop/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
+import * as botWorkspaceFileRoute from "@/app/api/bots/[botId]/workspace/file/route";
 import * as botsRoute from "@/app/api/bots/route";
 import * as conversationRoute from "@/app/api/conversations/[conversationId]/route";
 import * as conversationChatRoute from "@/app/api/conversations/[conversationId]/chat/route";
+import * as conversationComputerRoute from "@/app/api/conversations/[conversationId]/computer/route";
+import * as conversationComputerControlRoute from "@/app/api/conversations/[conversationId]/computer/control/route";
 import * as conversationShareRoute from "@/app/api/conversations/[conversationId]/share/route";
 import * as conversationsRoute from "@/app/api/conversations/route";
 import * as conversationSearchRoute from "@/app/api/conversations/search/route";
@@ -27,11 +37,16 @@ import * as memoryRoute from "@/app/api/memories/[memoryId]/route";
 import * as memoriesRoute from "@/app/api/memories/route";
 import * as messageActionApproveRoute from "@/app/api/message-actions/[actionId]/approve/route";
 import * as messageActionDismissRoute from "@/app/api/message-actions/[actionId]/dismiss/route";
+import * as messageActionSecretRoute from "@/app/api/message-actions/[actionId]/secret/route";
+import * as savedLoginRoute from "@/app/api/saved-logins/[loginId]/route";
+import * as savedLoginsRoute from "@/app/api/saved-logins/route";
 import * as messageRoute from "@/app/api/messages/[messageId]/route";
 import * as messageEditRestartRoute from "@/app/api/messages/[messageId]/edit-restart/route";
 import * as messageForkRoute from "@/app/api/messages/[messageId]/fork/route";
+import * as messageRewindRoute from "@/app/api/messages/[messageId]/rewind/route";
 import * as messageRegenerateRoute from "@/app/api/messages/[messageId]/regenerate/route";
 import * as messageRetryRoute from "@/app/api/messages/[messageId]/retry/route";
+import * as onboardingRoute from "@/app/api/onboarding/route";
 import * as personaRoute from "@/app/api/personas/[personaId]/route";
 import * as personasRoute from "@/app/api/personas/route";
 import * as pushSubscribeRoute from "@/app/api/push/subscribe/route";
@@ -51,22 +66,24 @@ import * as skillsRoute from "@/app/api/skills/route";
 import * as speechCleanupRoute from "@/app/api/speech/transcription/cleanup/route";
 import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/route";
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
+import * as toolApprovalRoute from "@/app/api/tool-approvals/[ruleId]/route";
+import * as toolApprovalsRoute from "@/app/api/tool-approvals/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
+import * as whatsNewRoute from "@/app/api/whats-new/route";
 import {
   authenticateMobileRequest,
   runWithMobileUser
 } from "@/lib/auth";
 import {
-  createQueuedMessage,
   deleteQueuedMessage,
   getConversationSnapshot,
   listQueuedMessages,
-  moveQueuedMessageToFront,
   reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
-import { requestStop } from "@/lib/chat-turn-control";
+import { stopConversationWork } from "@/lib/bot-runs";
+import { queueFollowUpMessage, sendQueuedMessageNow } from "@/lib/queued-chat-dispatcher";
 import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
 import { MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
 import {
@@ -85,6 +102,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["conversations", "search"], module: conversationSearchRoute },
   { pattern: ["conversations"], module: conversationsRoute },
   { pattern: ["conversations", ":conversationId", "chat"], module: conversationChatRoute },
+  { pattern: ["conversations", ":conversationId", "computer", "control"], module: conversationComputerControlRoute },
+  { pattern: ["conversations", ":conversationId", "computer"], module: conversationComputerRoute },
   { pattern: ["conversations", ":conversationId", "share"], module: conversationShareRoute },
   { pattern: ["conversations", ":conversationId"], module: conversationRoute },
   { pattern: ["folders"], module: foldersRoute },
@@ -92,8 +111,16 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["attachments"], module: attachmentsRoute },
   { pattern: ["attachments", ":attachmentId"], module: attachmentRoute },
   { pattern: ["avatars", ":seed"], module: avatarRoute },
+  { pattern: ["bots", "approvals"], module: botApprovalsRoute },
+  { pattern: ["bots", ":botId", "clear-context"], module: botClearContextRoute },
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
+  { pattern: ["bots", ":botId", "read"], module: botReadRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
+  { pattern: ["bots", ":botId", "runs", ":runId", "stop"], module: botRunStopRoute },
+  { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
+  { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
+  { pattern: ["bots", ":botId", "stop"], module: botStopRoute },
+  { pattern: ["bots", ":botId", "workspace", "file"], module: botWorkspaceFileRoute },
   { pattern: ["bots", ":botId", "workspace"], module: botWorkspaceRoute },
   { pattern: ["bots", ":botId"], module: botRoute },
   { pattern: ["bots"], module: botsRoute },
@@ -107,9 +134,12 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["messages", ":messageId", "regenerate"], module: messageRegenerateRoute },
   { pattern: ["messages", ":messageId", "retry"], module: messageRetryRoute },
   { pattern: ["messages", ":messageId", "fork"], module: messageForkRoute },
+  { pattern: ["messages", ":messageId", "rewind"], module: messageRewindRoute },
   { pattern: ["messages", ":messageId"], module: messageRoute },
   { pattern: ["message-actions", ":actionId", "approve"], module: messageActionApproveRoute },
   { pattern: ["message-actions", ":actionId", "dismiss"], module: messageActionDismissRoute },
+  { pattern: ["message-actions", ":actionId", "secret"], module: messageActionSecretRoute },
+  { pattern: ["onboarding"], module: onboardingRoute },
   { pattern: ["settings", "general"], module: generalSettingsRoute },
   { pattern: ["settings", "title-generation"], module: titleGenerationSettingsRoute },
   { pattern: ["settings", "providers", "duplicate"], module: providerDuplicateRoute },
@@ -122,6 +152,10 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["push", "vapid"], module: pushVapidRoute },
   { pattern: ["memories"], module: memoriesRoute },
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
+  { pattern: ["tool-approvals"], module: toolApprovalsRoute },
+  { pattern: ["tool-approvals", ":ruleId"], module: toolApprovalRoute },
+  { pattern: ["saved-logins"], module: savedLoginsRoute },
+  { pattern: ["saved-logins", ":loginId"], module: savedLoginRoute },
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },
   { pattern: ["mcp-servers"], module: mcpServersRoute },
   { pattern: ["mcp-servers", ":serverId"], module: mcpServerRoute },
@@ -135,7 +169,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
   { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
   { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute },
-  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute }
+  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute },
+  { pattern: ["whats-new"], module: whatsNewRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {
@@ -186,7 +221,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
   }
 
   if (path.length === 3 && path[2] === "stop" && request.method === "POST") {
-    requestStop(conversationId);
+    stopConversationWork(conversationId);
     return Response.json({ success: true });
   }
 
@@ -206,7 +241,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
       ) {
         return Response.json({ error: "Invalid queued message payload" }, { status: 400 });
       }
-      const queuedMessage = createQueuedMessage({
+      const queuedMessage = queueFollowUpMessage({
         conversationId,
         content: body.content,
         mode: body.mode
@@ -260,10 +295,9 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
     path[4] === "send-now" &&
     request.method === "POST"
   ) {
-    if (!moveQueuedMessageToFront({ conversationId, queuedMessageId })) {
+    if (!sendQueuedMessageNow({ conversationId, queuedMessageId })) {
       return Response.json({ error: "Queued message not found" }, { status: 404 });
     }
-    requestStop(conversationId);
     broadcastQueue(conversationId);
     return Response.json({ success: true });
   }

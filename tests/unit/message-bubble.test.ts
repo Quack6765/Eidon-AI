@@ -132,6 +132,46 @@ function createMemoryProposalMessage(
   };
 }
 
+function createToolApprovalMessage(
+  overrides: Partial<Message> = {},
+  actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
+): Message {
+  return {
+    ...createAssistantMessage(),
+    content: "I want to run a command.",
+    timeline: [
+      {
+        id: "act_tool_approval",
+        messageId: "msg_assistant",
+        timelineKind: "action" as const,
+        kind: "tool_approval" as const,
+        status: "pending" as const,
+        serverId: null,
+        skillId: null,
+        toolName: null,
+        label: 'Allow "curl" commands?',
+        detail: "curl https://example.com",
+        arguments: null,
+        resultSummary: "",
+        sortOrder: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        proposalState: "pending" as const,
+        proposalPayload: {
+          operation: "tool_approval" as const,
+          scope: "shell" as const,
+          families: ["curl"],
+          classified: true,
+          command: "curl https://example.com"
+        },
+        proposalUpdatedAt: null,
+        ...actionOverrides
+      }
+    ],
+    ...overrides
+  };
+}
+
 function installMockImage({ fail = false }: { fail?: boolean } = {}) {
   class MockImage {
     onload: null | (() => void) = null;
@@ -231,12 +271,108 @@ describe("message bubble", () => {
       })
     );
 
+    fireEvent.click(screen.getByRole("button", { name: /1 step/ }));
     fireEvent.click(screen.getByRole("button", { name: "Web browser" }));
 
     expect(screen.getByText("✓")).toBeInTheDocument();
     expect(screen.getByText("/tmp/example.png")).toBeInTheDocument();
     expect(container.textContent).not.toContain("[32m");
     expect(container.querySelector(".text-emerald-300")).not.toBeNull();
+  });
+
+  it("gathers every browser step of a reply into one live browser card", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          actions: [
+            createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com", sortOrder: 0 }),
+            createToolAction({ id: "act_ls", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Local command", detail: "ls", sortOrder: 1 }),
+            createToolAction({ id: "act_click", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser click @e2", sortOrder: 2 })
+          ]
+        }
+      })
+    );
+
+    expect(screen.getAllByTestId("computer-session-card")).toHaveLength(1);
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Local command" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Web browser" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /2 steps/ }));
+    expect(screen.getAllByRole("button", { name: "Web browser" })).toHaveLength(2);
+    expect(screen.queryByTestId("computer-live-badge")).not.toBeInTheDocument();
+
+    class IdleSocket {
+      binaryType = "blob";
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", IdleSocket);
+    try {
+      rerender(
+        React.createElement(MessageBubble, {
+          message: { ...createAssistantMessage(), actions: [createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com" })] },
+          toolCallDisplay: "status_line",
+          computerConversationId: "conv_1",
+          computerLive: true
+        })
+      );
+      expect(screen.getByTestId("computer-live-badge")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows the bot's browser hand-off in place, in every tool display mode", () => {
+    const handoff = createToolAction({
+      id: "act_handoff",
+      messageId: "msg_assistant",
+      resultSummary: "",
+      kind: "computer_handoff",
+      status: "pending",
+      label: "Your turn in the browser",
+      detail: "Sign in",
+      sortOrder: 1,
+      proposalState: "pending",
+      proposalPayload: { operation: "computer_handoff", reason: "Sign in with your code" }
+    });
+    const message = {
+      ...createAssistantMessage(),
+      actions: [
+        createToolAction({ id: "act_open", messageId: "msg_assistant", resultSummary: "", kind: "shell_command", label: "Web browser", detail: "agent-browser open https://example.com", sortOrder: 0 }),
+        handoff
+      ]
+    };
+
+    const { rerender } = render(React.createElement(MessageBubble, { message, computerConversationId: "conv_1" }));
+    expect(screen.getByTestId("computer-handoff-card")).toHaveTextContent("Sign in with your code");
+    expect(screen.getByRole("button", { name: "Take over" })).toBeInTheDocument();
+
+    rerender(React.createElement(MessageBubble, { message, toolCallDisplay: "status_line", computerConversationId: "conv_1" }));
+    expect(screen.getByTestId("computer-handoff-card")).toBeInTheDocument();
+  });
+
+  it("shows the bot's secret request in place with its masked field", () => {
+    const message = {
+      ...createAssistantMessage(),
+      actions: [
+        createToolAction({
+          id: "act_secret",
+          messageId: "msg_assistant",
+          resultSummary: "",
+          kind: "secret_request",
+          status: "pending",
+          label: "Enter your password",
+          detail: "https://example.com",
+          proposalState: "pending",
+          proposalPayload: { operation: "secret_request", label: "password", origin: "https://example.com", target: "@e5", save: false }
+        })
+      ]
+    };
+
+    render(React.createElement(MessageBubble, { message, toolCallDisplay: "status_line" }));
+
+    expect(screen.getByTestId("secret-request-card")).toHaveTextContent("Enter your password for example.com");
+    expect(screen.getByLabelText("password")).toHaveAttribute("type", "password");
   });
 
   it("renders pending create proposals with operation-specific copy", () => {
@@ -444,6 +580,96 @@ describe("message bubble", () => {
     expect(screen.getByText("Memory updated")).toBeInTheDocument();
     expect(screen.getByText("Prefers strict TypeScript")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update memory proposal" })).toBeNull();
+  });
+
+  it("keeps revealed timeline text visible when the stream display buffer resets", () => {
+    const streamTextItem = {
+      id: "stream_text_0",
+      timelineKind: "text" as const,
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+      content: "Here is what I found for you."
+    };
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage(),
+        streamingTimeline: [streamTextItem],
+        streamingAnswer: "Here is what I found for you."
+      })
+    );
+
+    expect(screen.getByText("Here is what I found for you.")).toBeInTheDocument();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage(),
+        streamingTimeline: [streamTextItem],
+        streamingAnswer: ""
+      })
+    );
+
+    expect(screen.getByText("Here is what I found for you.")).toBeInTheDocument();
+  });
+
+  it("renders a pending tool approval prompt and removes it once a decision is recorded", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage()
+      })
+    );
+
+    expect(screen.getByText('Allow "curl" commands?')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage(
+          {},
+          {
+            status: "completed",
+            proposalState: "approved",
+            resultSummary: "Allowed always",
+            proposalPayload: {
+              operation: "tool_approval",
+              scope: "shell",
+              families: ["curl"],
+              classified: true,
+              command: "curl https://example.com",
+              resolution: "always"
+            }
+          }
+        )
+      })
+    );
+
+    expect(screen.queryByText('Allow "curl" commands?')).toBeNull();
+    expect(screen.queryByText("Always allowed")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage(
+          {},
+          {
+            status: "completed",
+            proposalState: "dismissed",
+            resultSummary: "Denied",
+            proposalPayload: {
+              operation: "tool_approval",
+              scope: "shell",
+              families: ["curl"],
+              classified: true,
+              command: "curl https://example.com",
+              resolution: "denied"
+            }
+          }
+        )
+      })
+    );
+
+    expect(screen.queryByText('Allow "curl" commands?')).toBeNull();
+    expect(screen.queryByText("Denied")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
   });
 
   it("renders specialized error cards for failed proposal approvals", () => {
@@ -819,7 +1045,7 @@ describe("message bubble", () => {
     expect(blocks[1]?.textContent).toContain("Save memory");
   });
 
-  it("collapses consecutive retries of the same tool into a single visible action row", () => {
+  it("keeps consecutive retries of the same tool as separate action rows", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -859,7 +1085,7 @@ describe("message bubble", () => {
 
     const toolButtons = screen.getAllByRole("button", { name: "web_search_exa" });
 
-    expect(toolButtons).toHaveLength(1);
+    expect(toolButtons).toHaveLength(2);
   });
 
   it("shows the web search query in the collapsed title without repeating it in expanded results", () => {
@@ -1547,21 +1773,117 @@ describe("message bubble", () => {
     });
   });
 
-  it("renders a fork action for completed assistant messages", () => {
+  it("moves between menu items with the arrow, Home, and End keys", () => {
     render(
-      React.createElement(MessageBubble as React.ComponentType<any>, {
-        message: {
-          ...createAssistantMessage(),
-          content: "Ready to fork"
-        },
-        onForkAssistantMessage: vi.fn()
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), content: "Keyboard target" },
+        onForkMessage: vi.fn(),
+        onRewindMessage: vi.fn()
       })
     );
 
+    fireEvent.keyDown(screen.getByRole("button", { name: "More message actions" }), { key: "ArrowDown" });
+    const menu = screen.getByRole("menu");
+    const fork = screen.getByRole("menuitem", { name: "Fork from here" });
+    const rewind = screen.getByRole("menuitem", { name: "Rewind to here" });
+
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(fork).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(rewind).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Tab" });
+    expect(rewind).toHaveFocus();
+  });
+
+  it("offers fork and rewind from the overflow menu of a completed assistant message", () => {
+    const onForkMessage = vi.fn();
+    const onRewindMessage = vi.fn();
+    const message = { ...createAssistantMessage(), content: "Ready to fork" };
+    render(
+      React.createElement(MessageBubble, { message, onForkMessage, onRewindMessage })
+    );
+
     expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Fork conversation from message" })
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    expect(screen.getByRole("menu", { name: "Message actions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Fork from here" }));
+
+    expect(onForkMessage).toHaveBeenCalledWith(message.id);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rewind to here" }));
+    expect(onRewindMessage).toHaveBeenCalledWith(message.id);
+  });
+
+  it("opens the message menu by mouse or keyboard and closes it on Escape, outside click, or a second click", () => {
+    const originalResizeObserver = window.ResizeObserver;
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      render(
+        React.createElement(MessageBubble, {
+          message: { ...createAssistantMessage(), content: "Menu target" },
+          onRewindMessage: vi.fn()
+        })
+      );
+
+      const trigger = screen.getByRole("button", { name: "More message actions" });
+      fireEvent.click(trigger, { detail: 1 });
+      expect(screen.queryByRole("menuitem", { name: "Fork from here" })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).not.toHaveFocus();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("menu")).toBeNull();
+
+      const keyDown = fireEvent.keyDown(trigger, { key: "Enter" });
+      expect(keyDown).toBe(false);
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+      expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toHaveFocus();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(trigger).toHaveFocus();
+
+      fireEvent.click(trigger, { detail: 1 });
+      fireEvent.click(trigger, { detail: 1 });
+      expect(screen.queryByRole("menu")).toBeNull();
+    } finally {
+      window.ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  it("does not offer fork on an assistant message that is not completed", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "stopped", content: "Cut short" },
+        onForkMessage: vi.fn()
+      })
+    );
+
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
+  });
+
+  it("shows a busy trigger while a fork is being created", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), content: "Forking" },
+        onForkMessage: vi.fn(),
+        isForking: true
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "More message actions" })).toBeDisabled();
   });
 
   it("hides copy and fork actions for streaming assistant messages", () => {
@@ -1572,7 +1894,8 @@ describe("message bubble", () => {
           status: "streaming",
           content: "Still composing"
         },
-        onForkAssistantMessage: vi.fn()
+        onForkMessage: vi.fn(),
+        onRewindMessage: vi.fn()
       })
     );
 
@@ -1580,7 +1903,7 @@ describe("message bubble", () => {
       screen.queryByRole("button", { name: "Copy message" })
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Fork conversation from message" })
+      screen.queryByRole("button", { name: "More message actions" })
     ).toBeNull();
   });
 
@@ -1795,7 +2118,7 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
   });
 
-  it("shows a working status line between steps in status line mode", () => {
+  it("rests on the turn summary between steps in status line mode", () => {
     render(
       React.createElement(MessageBubble, {
         message: { ...createAssistantMessage(), status: "streaming", content: "" },
@@ -1817,8 +2140,21 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
     expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
+  });
+
+  it("keeps the working label between steps while no call has been made yet", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [createThinkingItem()]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
   });
 
   it("hides the status line while answer text is streaming in status line mode", () => {
@@ -1836,7 +2172,104 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-status-line")).toBeNull();
   });
 
-  it("renders a clean transcript for completed turns in status line mode", () => {
+  it("keeps the turn summary on screen while answer text streams", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "So far" },
+        streamingAnswer: "So far",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "Found results"
+            }),
+            timelineKind: "action"
+          },
+          { id: "txt_1", timelineKind: "text", sortOrder: 1, createdAt: new Date().toISOString(), content: "So far" }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 web search");
+  });
+
+  it("opens the turn record from the status line in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: ""
+            }),
+            timelineKind: "action"
+          },
+          {
+            ...createToolAction({
+              id: "act_page",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/report",
+              resultSummary: "Report (1,024 chars)",
+              status: "error"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const toggle = screen.getByTestId("assistant-status-line-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("assistant-status-line-rows")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const rows = screen.getAllByTestId("assistant-status-line-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Web search: Eidon docs");
+    expect(rows[1]).toHaveTextContent("Read page: https://example.com/report");
+    expect(screen.getByTestId("assistant-status-line-toggle")).toHaveTextContent(
+      "1 web search, 1 page read"
+    );
+
+    fireEvent.click(toggle);
+
+    expect(screen.queryByTestId("assistant-status-line-rows")).toBeNull();
+  });
+
+  it("renders a static status line when a turn only thought", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          timeline: [createThinkingItem()]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.queryByTestId("assistant-status-line-toggle")).toBeNull();
+  });
+
+  it("keeps a summary line for completed turns in status line mode", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -1861,7 +2294,12 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Final answer");
-    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    const statusLine = screen.getByTestId("assistant-status-line");
+    expect(statusLine).toHaveTextContent("1 tool");
+    expect(
+      statusLine.compareDocumentPosition(screen.getByTestId("assistant-message-content")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
     expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
   });
@@ -1876,6 +2314,313 @@ describe("message bubble", () => {
 
     expect(screen.getByText("Save memory")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("keeps the turn record on an errored turn in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Something went wrong",
+          status: "error",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_page",
+                messageId: "msg_assistant",
+                toolName: "read_page",
+                label: "Read page",
+                detail: "https://example.com/report",
+                status: "error",
+                resultSummary: "Request failed"
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-error-bubble")).toHaveTextContent("Something went wrong");
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 page read");
+  });
+
+  it("keeps the turn record on a stopped turn in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Partial",
+          status: "stopped",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_shell",
+                messageId: "msg_assistant",
+                kind: "shell_command",
+                toolName: "execute_shell_command",
+                label: "Local command",
+                detail: "npm test",
+                status: "stopped",
+                resultSummary: ""
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
+    expect(screen.getByText("Stopped")).toBeInTheDocument();
+  });
+
+  it("leaves delegated bots out of the status line record", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_delegate",
+                messageId: "msg_assistant",
+                kind: "delegate_task",
+                toolName: "message_bot",
+                label: "Messaged Researcher",
+                detail: "Summarize the report",
+                resultSummary: "Sent"
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Messaged");
+    expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Researcher");
+  });
+
+  it("keeps the status line below the intermediate message that a running action follows", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [intermediateText] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("Read page");
+    expect(
+      intermediateText.compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line between the intermediate message and the answer that streams after it", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file. The final answer is 42.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "File (204 chars)"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("1 page read");
+    expect(textBlocks).toHaveLength(2);
+    expect(
+      textBlocks[0].compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      statusLine.compareDocumentPosition(textBlocks[1]) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line above the answer when no intermediate message precedes the tools", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "The final answer is 42.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "Found results"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [answer] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("1 web search");
+    expect(
+      statusLine.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line at the top of the column while the turn has no activity", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file.",
+        streamingThinking: "Reasoning about the request",
+        thinkingInProgress: true,
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [textBlock] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("Thinking");
+    expect(
+      statusLine.compareDocumentPosition(textBlock) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("anchors the status line after a delegate line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Handing this to Researcher.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_handoff",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Handing this to Researcher."
+          },
+          {
+            ...createToolAction({
+              id: "act_delegate",
+              messageId: "msg_assistant",
+              kind: "delegate_task",
+              toolName: "message_bot",
+              label: "Messaged Researcher",
+              detail: "Summarize the report",
+              resultSummary: "Sent"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const delegateLine = screen.getByTestId("delegate-action-line");
+
+    expect(screen.getAllByTestId("assistant-message-content")).toHaveLength(1);
+    expect(
+      delegateLine.compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line above a deferred proposal card", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "I can remember that.",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_search",
+                messageId: "msg_assistant",
+                toolName: "web_search",
+                label: "Web search",
+                detail: "",
+                arguments: { query: "Eidon docs" },
+                resultSummary: "Found results"
+              }),
+              timelineKind: "action"
+            },
+            createMemoryProposalAction()
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const proposalShell = screen.getByTestId("assistant-actions-shell");
+
+    expect(statusLine).toHaveTextContent("1 web search");
+    expect(
+      statusLine.compareDocumentPosition(proposalShell) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("renders running action pills in the default pills mode", () => {
@@ -1905,17 +2650,34 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-status-line")).toBeNull();
   });
 
-  it("does not render a fork action for user messages", () => {
+  it("offers fork and rewind on user messages", () => {
+    const onForkMessage = vi.fn();
+    const onRewindMessage = vi.fn();
+    const message = createUserMessage();
     render(
-      React.createElement(MessageBubble as React.ComponentType<any>, {
+      React.createElement(MessageBubble, { message, onForkMessage, onRewindMessage })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More message actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rewind to here" }));
+
+    expect(onRewindMessage).toHaveBeenCalledWith(message.id);
+    expect(onForkMessage).not.toHaveBeenCalled();
+  });
+
+  it("hides the message menu on read-only user messages and when no action applies", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
         message: createUserMessage(),
-        onForkAssistantMessage: vi.fn()
+        onForkMessage: vi.fn(),
+        readOnly: true
       })
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Fork conversation from message" })
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
+
+    rerender(React.createElement(MessageBubble, { message: createUserMessage() }));
+    expect(screen.queryByRole("button", { name: "More message actions" })).toBeNull();
   });
 
   it("renders GFM tables inside user message bubbles", () => {

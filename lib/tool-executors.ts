@@ -11,7 +11,7 @@ import {
 import { assertValidSchedule } from "@/lib/automations";
 import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
-import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
+import { executeLocalShellCommand, getShellCommandLabel, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
@@ -29,11 +29,30 @@ import {
 } from "@/lib/screenshot-artifact-capabilities";
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
+import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
-import { executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import {
+  classifyShellCommand,
+  mcpToolApprovalFamily,
+  requestToolExecutionApproval
+} from "@/lib/tool-approvals";
+import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
+import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
+import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
-import { resolveBotSandbox } from "./bot-sandbox";
+import {
+  prepareBrowserEnv,
+  resolveBrowserExecutable,
+  sandboxScratchDirs,
+  type BrowserSessionTarget
+} from "@/lib/agent-computer";
+import { conversationBrowserTarget, getComputerControl, setComputerCaption } from "@/lib/agent-computer-relay";
+import { requestComputerHandoff } from "@/lib/computer-handoff";
+import { requestComputerSecret } from "@/lib/computer-secrets";
+import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
+import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
+import { redactSecrets } from "@/lib/secret-redaction";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -42,7 +61,11 @@ import type {
   MessageActionStatus,
   MemoryProposalState,
   MessageActionKind,
+  MessageDraftProposalPayload,
   ProposalPayload,
+  DelegationChain,
+  ToolApprovalContext,
+  ToolApprovalProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -83,7 +106,8 @@ export function isProposalToolCall(name: string) {
     name === "create_memory" ||
     name === "update_memory" ||
     name === "delete_memory" ||
-    name === "create_automation"
+    name === "create_automation" ||
+    name === "draft_message"
   );
 }
 
@@ -399,6 +423,32 @@ export async function executeImageGeneration(
   }
 }
 
+function resolveMcpToolFunction(
+  functionName: string,
+  toolSets: ToolSet[]
+): { server: McpServer; tool: McpTool } | null {
+  if (!functionName.startsWith("mcp_")) {
+    return null;
+  }
+
+  const withoutPrefix = functionName.slice(4);
+  const toolSetsBySpecificity = [...toolSets].sort(
+    (left, right) => right.server.slug.length - left.server.slug.length
+  );
+
+  for (const { server, tools } of toolSetsBySpecificity) {
+    if (withoutPrefix.startsWith(server.slug + "_")) {
+      const toolName = withoutPrefix.slice(server.slug.length + 1);
+      const tool = tools.find((t) => t.name === toolName);
+      if (tool) {
+        return { server, tool };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -407,7 +457,9 @@ export async function executeMcpToolCall(
     input: {
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
+      conversationId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -419,26 +471,8 @@ export async function executeMcpToolCall(
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
-  const withoutPrefix = functionName.slice(4);
-  const toolSets = context.input.mcpToolSets;
-  let resolvedServer: McpServer | null = null;
-  let resolvedTool: McpTool | null = null;
-
-  const toolSetsBySpecificity = [...toolSets].sort(
-    (left, right) => right.server.slug.length - left.server.slug.length
-  );
-
-  for (const { server, tools } of toolSetsBySpecificity) {
-    if (withoutPrefix.startsWith(server.slug + "_")) {
-      const toolName = withoutPrefix.slice(server.slug.length + 1);
-      const tool = tools.find((t) => t.name === toolName);
-      if (tool) {
-        resolvedServer = server;
-        resolvedTool = tool;
-        break;
-      }
-    }
-  }
+  const { server: resolvedServer, tool: resolvedTool } =
+    resolveMcpToolFunction(functionName, context.input.mcpToolSets) ?? {};
 
   if (!resolvedServer || !resolvedTool) {
     const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
@@ -470,6 +504,48 @@ export async function executeMcpToolCall(
 
   const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
 
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "mcp",
+    families: [mcpToolApprovalFamily(resolvedServer.slug, resolvedTool.name)],
+    classified: true,
+    mcpServerId: resolvedServer.id,
+    mcpServerName: resolvedServer.name,
+    mcpToolName: resolvedTool.name,
+    arguments: correctedArgs
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: getToolLabel(resolvedTool),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "mcp_tool_call",
+        label: getToolLabel(resolvedTool),
+        detail: buildArgumentsSummary(correctedArgs),
+        serverId: resolvedServer.id,
+        toolName: resolvedTool.name,
+        arguments: correctedArgs
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildArgumentsSummary(correctedArgs),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
     label: getToolLabel(resolvedTool),
@@ -490,7 +566,7 @@ export async function executeMcpToolCall(
       )
     : await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   throwIfAborted(context.input.abortSignal);
-  const resultText = getToolResultText(result);
+  const resultText = redactSecrets(context.input.conversationId, getToolResultText(result));
 
   sortOrder += 1;
 
@@ -521,6 +597,7 @@ export async function executeLoadSkill(
     input: {
       abortSignal?: AbortSignal;
       skills: Skill[];
+      conversationId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
@@ -533,53 +610,183 @@ export async function executeLoadSkill(
   let sortOrder = context.timelineSortOrder;
   const skillName = String(args.skill_name ?? "").trim().toLowerCase();
 
-  const skill = context.input.skills.find(
+  let skill = context.input.skills.find(
     (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
   );
 
+  let workspaceSkills: Skill[] = [];
+  if (!skill) {
+    const bot = context.input.conversationId
+      ? getBotByConversationId(context.input.conversationId)
+      : null;
+    workspaceSkills = bot ? listBotWorkspaceSkills(bot) : [];
+    skill = workspaceSkills.find(
+      (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
+    );
+  }
+
   if (!skill || context.loadedSkillIds.has(skill.id)) {
+    const availableNames = [
+      ...new Set(
+        [...context.input.skills, ...workspaceSkills]
+          .map((s) => getSkillResolvedName(s))
+          .filter(Boolean)
+      )
+    ].join(", ");
     const resultMsg = buildToolResultMessage(
       toolCallId,
-      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${context.input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`
+      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${availableNames}`
     );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  context.loadedSkillIds.add(skill.id);
-  try {
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: getSkillResolvedName(skill),
-      resultSummary: "Skill instructions loaded."
-    });
-    throwIfAborted(context.input.abortSignal);
-  } catch (error) {
-    context.loadedSkillIds.delete(skill.id);
-    throw error;
-  }
-
+  const skillContent = await loadSkillIntoTurn(skill, context.input, context.loadedSkillIds);
   sortOrder += 1;
-
-  const skillContent = truncateText([
-    `Skill loaded: ${getSkillResolvedName(skill)}`,
-    `Description: ${getSkillResolvedDescription(skill)}`,
-    "",
-    skill.content
-  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, resultMsg]
+  };
+}
+
+export async function loadSkillIntoTurn(
+  skill: Skill,
+  input: {
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  },
+  loadedSkillIds: Set<string>
+) {
+  throwIfAborted(input.abortSignal);
+  const handle = await input.onActionStart?.({
+    kind: "skill_load",
+    label: "Load skill",
+    detail: getSkillResolvedName(skill),
+    skillId: skill.id
+  });
+  throwIfAborted(input.abortSignal);
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  loadedSkillIds.add(skill.id);
+  try {
+    await input.onActionComplete?.(actionHandle, {
+      detail: getSkillResolvedName(skill),
+      resultSummary: "Skill instructions loaded."
+    });
+    throwIfAborted(input.abortSignal);
+  } catch (error) {
+    loadedSkillIds.delete(skill.id);
+    throw error;
+  }
+
+  return truncateText([
+    `Skill loaded: ${getSkillResolvedName(skill)}`,
+    `Description: ${getSkillResolvedDescription(skill)}`,
+    "",
+    skill.content
+  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
+}
+
+export async function executeSaveSkill(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      abortSignal?: AbortSignal;
+      conversationId?: string;
+      skills?: Skill[];
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (
+        handle: string | undefined,
+        patch: { detail?: string; resultSummary?: string }
+      ) => Promise<void> | void;
+      onActionError?: (
+        handle: string | undefined,
+        patch: { detail?: string; resultSummary?: string }
+      ) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+): Promise<{
+  nextSortOrder: number;
+  promptMessages: PromptMessage[];
+  toolSucceeded?: boolean;
+}> {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const errorResult = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
+    toolSucceeded: false
+  });
+
+  const bot = context.input.conversationId
+    ? getBotByConversationId(context.input.conversationId)
+    : null;
+
+  if (!bot) {
+    return errorResult("save_skill is only available in agent conversations that have a workspace.");
+  }
+
+  let result: ReturnType<typeof upsertBotWorkspaceSkill>;
+  try {
+    result = upsertBotWorkspaceSkill(bot, {
+      name: String(args.name ?? ""),
+      description: String(args.description ?? ""),
+      instructions: String(args.instructions ?? "")
+    });
+  } catch (error) {
+    result = { error: error instanceof Error ? error.message : "Failed to write the skill file" };
+  }
+
+  throwIfAborted(context.input.abortSignal);
+  const detail = "skill" in result ? result.skill.name : String(args.name ?? "").trim();
+  const handle = await context.input.onActionStart?.({
+    kind: "save_skill",
+    label: "Save skill",
+    detail
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  if ("error" in result) {
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: result.error });
+    return errorResult(`Cannot save skill — ${result.error}`);
+  }
+
+  const savedSkill = result.skill;
+  await context.input.onActionComplete?.(actionHandle, {
+    detail,
+    resultSummary: "Skill saved to the workspace skills folder."
+  });
+
+  const turnSkills = context.input.skills;
+  if (turnSkills) {
+    const resolvedNameLower = savedSkill.name.toLowerCase();
+    for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
+      const existing = turnSkills[index];
+      if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
+        turnSkills.splice(index, 1);
+      }
+    }
+    const existingIndex = turnSkills.findIndex((skill) => skill.id === savedSkill.id);
+    if (existingIndex >= 0) {
+      turnSkills[existingIndex] = savedSkill;
+    } else {
+      turnSkills.push(savedSkill);
+    }
+  }
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Skill saved: ${savedSkill.name} (skills/${slugifySkillFolderName(savedSkill.name)}/SKILL.md). It is available via load_skill, including right away in this turn.`
+  );
+  return {
+    nextSortOrder: sortOrder + 1,
+    promptMessages: [...context.promptMessages, resultMsg],
+    toolSucceeded: true
   };
 }
 
@@ -590,6 +797,7 @@ export async function executeShellCommand(
     input: {
       conversationId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -608,6 +816,55 @@ export async function executeShellCommand(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  if (
+    getShellCommandLabel(command) === "Web browser" &&
+    getComputerControl(conversationBrowserTarget(context.input.conversationId)) === "user"
+  ) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: The user has control of the browser right now. Wait until they return it, then try again. Use request_takeover if you need them to do a step for you."
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const classification = classifyShellCommand(command);
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "shell",
+    families: classification.families,
+    classified: classification.classified,
+    command
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: buildShellDetail(command),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "shell_command",
+        label: getShellCommandLabel(command),
+        detail: buildShellDetail(command),
+        arguments: { command, timeoutMs }
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const handle = await context.input.onActionStart?.({
     kind: "shell_command",
     label: getShellCommandLabel(command),
@@ -621,14 +878,28 @@ export async function executeShellCommand(
     ? getBotByConversationId(context.input.conversationId)
     : null;
   const sandbox = bot ? resolveBotSandbox(bot) : null;
+  const browserTarget = conversationBrowserTarget(context.input.conversationId);
+  const usesBrowser = getShellCommandLabel(command) === "Web browser";
 
   try {
-    const result = await executeLocalShellCommand({
+    const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
+    const browserEnv = await prepareBrowserEnv(browserTarget, usesBrowser);
+    const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
+    throwIfAborted(context.input.abortSignal);
+    if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
+    const shellResult = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
-      ...(sandbox ? { cwd: sandbox.cwd, env: { ...process.env, ...sandbox.env } } : {})
+      cwd,
+      env: { ...browserEnv, ...botShell?.env },
+      isolation: botShell?.rules
     });
+    const result = {
+      ...shellResult,
+      stdout: redactSecrets(context.input.conversationId, shellResult.stdout),
+      stderr: redactSecrets(context.input.conversationId, shellResult.stderr)
+    };
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
     const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
@@ -662,7 +933,85 @@ export async function executeShellCommand(
     await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } finally {
+    if (usesBrowser) setComputerCaption(browserTarget, null);
   }
+}
+
+async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget) {
+  const proxyPort = await ensureEgressProxy();
+  return {
+    env: { HOME: sandbox.homeDir, ...egressProxyEnv(proxyPort) },
+    rules: {
+      readWrite: [sandbox.workspaceDir, sandbox.sharedDir, sandbox.homeDir, browserTarget.socketDir, ...sandboxScratchDirs()],
+      connectPorts: resolveBrowserExecutable() ? [proxyPort] : undefined
+    }
+  };
+}
+
+async function executeRequestTakeover(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const reason = String(args.reason ?? "").trim().slice(0, 500) || "Finish a step in the browser";
+  const resultText = await requestComputerHandoff({
+    conversationId: context.input.conversationId,
+    reason,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
+}
+
+async function executeRequestSecret(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const replaceSaved = args.replace_saved === true;
+  const resultText = await requestComputerSecret({
+    conversationId: context.input.conversationId,
+    userId: context.input.toolApproval?.userId,
+    label: String(args.label ?? ""),
+    origin: String(args.origin ?? ""),
+    target: String(args.target ?? ""),
+    save: args.save === true || replaceSaved,
+    replaceSaved,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
 }
 
 function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
@@ -914,6 +1263,7 @@ export async function executeCreateAutomationProposal(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
   const proposalPayload = {
     name,
     prompt,
@@ -924,7 +1274,8 @@ export async function executeCreateAutomationProposal(
     daysOfWeek: schedule.daysOfWeek,
     providerProfileId,
     personaId: null,
-    continuePreviousConversation
+    botId: bot?.id ?? null,
+    continuePreviousConversation: bot ? false : continuePreviousConversation
   };
   const scheduleSummary = describeSchedule(proposalPayload);
 
@@ -943,6 +1294,106 @@ export async function executeCreateAutomationProposal(
   const resultMsg = buildToolResultMessage(
     toolCallId,
     `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+export async function executeDraftMessage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      mcpToolSets: ToolSet[];
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const fail = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  const functionName = typeof args.tool === "string" ? args.tool.trim() : "";
+  const rawArguments = args.arguments;
+
+  if (!functionName) {
+    return fail("tool is required: pass the exact name of the connected tool that sends the message");
+  }
+
+  if (!rawArguments || typeof rawArguments !== "object" || Array.isArray(rawArguments)) {
+    return fail("arguments must be an object with the arguments for the sending tool");
+  }
+
+  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets);
+  if (!resolved) {
+    return fail(`${functionName} is not a connected tool. Use the exact name of a tool from your tool list, such as mcp_<server>_<tool>.`);
+  }
+
+  const { server, tool } = resolved;
+  if (tool.annotations?.readOnlyHint === true) {
+    return fail(`${functionName} is read-only and does not send anything. Call it directly instead.`);
+  }
+
+  const toolArguments = coerceEnumValues(tool.inputSchema ?? {}, rawArguments as Record<string, unknown>);
+  const missing = (tool.inputSchema?.required ?? []).filter((key) => toolArguments[key] === undefined);
+  if (missing.length) {
+    return fail(`missing required arguments for ${functionName}: ${missing.join(", ")}`);
+  }
+
+  const fields = buildMessageDraftFields(tool, toolArguments);
+  if (!fields.length) {
+    return fail(`${functionName} has no text for the user to review. Call it directly instead.`);
+  }
+
+  const replacesDraftId = typeof args.replaces_draft_id === "string" ? args.replaces_draft_id.trim() : "";
+  const replaced =
+    replacesDraftId && context.input.conversationId
+      ? supersedeMessageDraft(replacesDraftId, context.input.conversationId)
+      : false;
+
+  const proposalPayload: MessageDraftProposalPayload = {
+    operation: "message_draft",
+    mcpServerId: server.id,
+    mcpServerName: server.name,
+    mcpToolName: tool.name,
+    toolLabel: getToolLabel(tool),
+    arguments: toolArguments,
+    fields
+  };
+
+  throwIfAborted(context.input.abortSignal);
+  const handle = await context.input.onActionStart?.({
+    kind: "draft_message",
+    status: "pending",
+    label: `Message draft for ${server.name}`,
+    detail: buildArgumentsSummary(toolArguments),
+    serverId: server.id,
+    toolName: "draft_message",
+    arguments: { tool: functionName, arguments: toolArguments },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+  const draftId = typeof handle === "string" && handle ? handle : null;
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    [
+      `Draft${draftId ? ` ${draftId}` : ""} is ready for the user to review, edit, and send with ${server.name}. Nothing has been sent.`,
+      replacesDraftId
+        ? replaced
+          ? `Draft ${replacesDraftId} was withdrawn and replaced by this one.`
+          : `Draft ${replacesDraftId} was not replaced because it is no longer waiting; the user may already have sent or discarded it.`
+        : "",
+      "Tell the user the draft is ready below without repeating its full text, and never claim it was sent."
+    ]
+      .filter(Boolean)
+      .join(" ")
   );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
@@ -1090,6 +1541,7 @@ export async function executeSearchWorkspace(
   context: {
     input: {
       memoryUserId?: string | null;
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -1128,7 +1580,12 @@ export async function executeSearchWorkspace(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const results = await searchWorkspace({ userId, query, limit });
+    const results = await searchWorkspace({
+      userId,
+      query,
+      limit,
+      memoryBotId: resolveMemoryScope(context.input.conversationId)?.botId ?? null
+    });
     throwIfAborted(context.input.abortSignal);
     if (!results) {
       throw new Error("Semantic index is unavailable");
@@ -1185,7 +1642,9 @@ export async function executeToolCall(
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
+      delegationChain?: DelegationChain;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
@@ -1212,12 +1671,28 @@ export async function executeToolCall(
     return executeLoadSkill(toolCallId, args, context);
   }
 
+  if (name === "save_skill") {
+    return executeSaveSkill(toolCallId, args, context);
+  }
+
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
   }
 
+  if (name === "request_takeover") {
+    return executeRequestTakeover(toolCallId, args, context);
+  }
+
+  if (name === "request_secret") {
+    return executeRequestSecret(toolCallId, args, context);
+  }
+
   if (name === "message_bot") {
     return executeMessageBot(toolCallId, args, context);
+  }
+
+  if (name === "check_bot") {
+    return executeCheckBot(toolCallId, args, context);
   }
 
   if (name === "create_bot") {
@@ -1226,6 +1701,10 @@ export async function executeToolCall(
 
   if (name === "update_bot") {
     return executeUpdateBotTool(toolCallId, args, context);
+  }
+
+  if (name === "update_own_instructions") {
+    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
   }
 
   if (name === "create_memory") {
@@ -1242,6 +1721,10 @@ export async function executeToolCall(
 
   if (name === "create_automation") {
     return executeCreateAutomationProposal(toolCallId, args, context);
+  }
+
+  if (name === "draft_message") {
+    return executeDraftMessage(toolCallId, args, context);
   }
 
   if (name === "web_search") {

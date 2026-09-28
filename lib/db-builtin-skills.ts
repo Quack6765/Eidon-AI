@@ -41,12 +41,17 @@ Use agent-browser for ALL web browsing tasks including:
 - Taking screenshots
 - Scraping data
 - Testing web applications
+- Verifying your own work — after you build, change, or deploy something on a website, open it yourself and confirm it works instead of asking the user to check
 
 Always use \`snapshot\` after \`open\` or any interaction to understand the page state. Use refs (@e1, @e2) from snapshots for clicking and filling.
 
 ## Important
 
-- Always close the browser when done: \`agent-browser close\`
+- The browser stays open between tasks and keeps its sign-ins, so you do not need to close it
+- Never ask the user to paste a password or one-time code into the chat
+- When a page needs a password or a one-time code, call \`request_secret\` with the page's origin and the field (a snapshot ref or selector) if you have it: Eidon types the user's answer into the field without showing it to you, and fills a saved login by itself
+- For a CAPTCHA, a payment confirmation or any other step only the user can do, open that step and call \`request_takeover\` if you have it: the user completes the step in your browser and returns control
+- Without those tools, tell the user what to do there
 - Use snapshot + refs for reliable element interaction
 - For screenshots, save to /tmp/ and use the path`
 };

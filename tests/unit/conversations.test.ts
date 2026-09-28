@@ -164,7 +164,7 @@ describe("conversation helpers", () => {
     expect(messages.map((message) => message.content)).toEqual(["First", "Second"]);
   });
 
-  it("deletes only error-status assistant messages and their children", () => {
+  it("deletes only empty error shells and keeps failed messages that produced output", () => {
     const conversation = createConversation();
 
     const userMessage = createMessage({
@@ -172,10 +172,16 @@ describe("conversation helpers", () => {
       role: "user",
       content: "Run it"
     });
-    const errorMessage = createMessage({
+    const shellErrorMessage = createMessage({
       conversationId: conversation.id,
       role: "assistant",
       content: "Assistant exceeded the maximum number of tool steps",
+      status: "error"
+    });
+    const outputErrorMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Chat stream failed",
       status: "error"
     });
     const okMessage = createMessage({
@@ -186,26 +192,26 @@ describe("conversation helpers", () => {
     });
 
     createMessageAction({
-      messageId: errorMessage.id,
+      messageId: outputErrorMessage.id,
       kind: "mcp_tool_call",
       label: "web_search_exa"
     });
 
     const deletedIds = deleteFailedAssistantMessages(conversation.id);
 
-    expect(deletedIds).toEqual([errorMessage.id]);
+    expect(deletedIds).toEqual([shellErrorMessage.id]);
 
     const remaining = listMessages(conversation.id);
     expect(remaining.map((message) => message.id)).toEqual(
-      expect.arrayContaining([userMessage.id, okMessage.id])
+      expect.arrayContaining([userMessage.id, okMessage.id, outputErrorMessage.id])
     );
-    expect(remaining.find((message) => message.id === errorMessage.id)).toBeUndefined();
+    expect(remaining.find((message) => message.id === shellErrorMessage.id)).toBeUndefined();
 
     const db = getDb();
     const remainingActions = db
       .prepare("SELECT id FROM message_actions WHERE message_id = ?")
-      .all(errorMessage.id);
-    expect(remainingActions).toHaveLength(0);
+      .all(outputErrorMessage.id);
+    expect(remainingActions).toHaveLength(1);
   });
 
   it("hides background system prompts from visible message lists",  async () => {
@@ -323,7 +329,7 @@ describe("conversation helpers", () => {
       sourceConversation.id
     );
 
-    const forkConversation = forkConversationFromMessage(branchAssistantMessage.id);
+    const { conversation: forkConversation } = forkConversationFromMessage(branchAssistantMessage.id);
     const conversationIds = listConversationsPage().conversations.map((conversation) => conversation.id);
 
     expect(conversationIds.slice(0, 2)).toEqual([forkConversation.id, sourceConversation.id]);
@@ -783,7 +789,8 @@ describe("conversation helpers", () => {
       {
         filename: "notes.txt",
         mimeType: "text/plain",
-        bytes: Buffer.from("source attachment", "utf8")
+        bytes: Buffer.from("source attachment", "utf8"),
+        sourcePath: "/work/bot/notes.txt"
       }
     ]);
     bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
@@ -1069,7 +1076,7 @@ describe("conversation helpers", () => {
       "2026-04-11T10:02:30.000Z"
     );
 
-    const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+    const { conversation: forkConversation } = forkConversationFromMessage(assistantMessage.id, user.id);
 
     expect(forkConversation.id).not.toBe(sourceConversation.id);
     expect(forkConversation.folderId).toBe(sourceConversation.folderId);
@@ -1105,7 +1112,8 @@ describe("conversation helpers", () => {
       conversationId: forkConversation.id,
       messageId: forkAssistantMessage?.id,
       filename: "notes.txt",
-      extractedText: "source attachment"
+      extractedText: "source attachment",
+      sourcePath: "/work/bot/notes.txt"
     }));
     expect(forkUserMessage?.id).not.toBe(userMessage.id);
     expect(forkAssistantMessage?.id).not.toBe(assistantMessage.id);
@@ -1225,10 +1233,10 @@ describe("conversation helpers", () => {
     fs.unlinkSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath));
 
     const publication = observeArtifactPublication();
-    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>["conversation"];
 
     try {
-      forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+      forkConversation = forkConversationFromMessage(assistantMessage.id, user.id).conversation;
       publication.expectOneDurableArtifact();
     } finally {
       publication.restore();
@@ -1287,10 +1295,10 @@ describe("conversation helpers", () => {
     }) as typeof db.prepare);
 
     const publication = observeArtifactPublication();
-    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>["conversation"];
 
     try {
-      forkConversation = forkConversationFromMessage(assistantMessage.id);
+      forkConversation = forkConversationFromMessage(assistantMessage.id).conversation;
       publication.expectOneDurableArtifact();
     } finally {
       publication.restore();
@@ -1771,16 +1779,17 @@ describe("conversation helpers", () => {
     expect(() => forkConversationFromMessage("msg_missing")).toThrow("Message not found");
   });
 
-  it("rejects forking a non-assistant message", async () => {
+  it("rejects forking a system message", async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
-      role: "user",
-      content: "Nope"
+      role: "system",
+      content: "Compacted",
+      systemKind: "compaction_notice"
     });
 
     expect(() => forkConversationFromMessage(message.id)).toThrow(
-      "Only assistant messages can be forked"
+      "Only user and assistant messages can be forked"
     );
   });
 
@@ -2106,16 +2115,17 @@ describe("message fork routes", () => {
 
     expect(response.status).toBe(201);
 
-    const body = (await response.json()) as { conversation: { id: string; title: string } };
+    const body = (await response.json()) as { conversation: { id: string; title: string }; draft: unknown };
     expect(body.conversation.id).toBeTruthy();
     expect(body.conversation.title).toBe("Fork Forkable thread");
+    expect(body.draft).toBeNull();
     expect(listVisibleMessages(body.conversation.id).map((message) => message.content)).toEqual([
       "Start here",
       "Selected answer"
     ]);
   });
 
-  it("rejects forks for user messages", async () => {
+  it("rejects forks for system messages", async () => {
     const user = await createLocalUser({
       username: "fork-route-rejector",
       password: "Password123!",
@@ -2124,23 +2134,24 @@ describe("message fork routes", () => {
     requireUserMock.mockResolvedValueOnce(user);
 
     const conversation = createConversation("Forkable thread", null, undefined, user.id);
-    const userMessage = createMessage({
+    const systemMessage = createMessage({
       conversationId: conversation.id,
-      role: "user",
-      content: "Do not fork me"
+      role: "system",
+      content: "Compacted",
+      systemKind: "compaction_notice"
     });
 
     const { POST } = await import("@/app/api/messages/[messageId]/fork/route");
     const response = await POST(
-      new Request(`http://localhost/api/messages/${userMessage.id}/fork`, {
+      new Request(`http://localhost/api/messages/${systemMessage.id}/fork`, {
         method: "POST"
       }),
-      { params: Promise.resolve({ messageId: userMessage.id }) }
+      { params: Promise.resolve({ messageId: systemMessage.id }) }
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Only assistant messages can be forked"
+      error: "Only user and assistant messages can be forked"
     });
   });
 

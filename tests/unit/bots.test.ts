@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createLocalUser } from "@/lib/users";
-import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots } from "@/lib/bots";
-import { getConversation, createMessage } from "@/lib/conversations";
+import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots, toBotSummary } from "@/lib/bots";
+import {
+  getConversation,
+  createConversation,
+  createMessage,
+  createMessageAction,
+  deleteConversation,
+  deleteConversationIfEmpty
+} from "@/lib/conversations";
 
 describe("bots", () => {
   it("creates a bot with a home conversation and generated identity", async () => {
@@ -65,6 +72,22 @@ describe("bots", () => {
     expect(() => deleteBot(chief.id, user.id)).toThrow(/cannot be deleted/i);
   });
 
+  it("keeps a bot when its home thread is deleted like a regular conversation", async () => {
+    const user = await createLocalUser({ username: "threadkeeper", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Keeper" }, user.id);
+    createMessage({ conversationId: worker.homeConversationId, role: "user", content: "hello" });
+
+    expect(deleteConversationIfEmpty(chief.homeConversationId, user.id)).toBe(false);
+    expect(deleteConversation(chief.homeConversationId, user.id)).toBe(false);
+    expect(deleteConversation(worker.homeConversationId, user.id)).toBe(false);
+
+    for (const bot of [chief, worker]) {
+      expect(getBot(bot.id, user.id)).not.toBeNull();
+      expect(getConversation(bot.homeConversationId, user.id)).not.toBeNull();
+    }
+  });
+
   it("builds the chief prompt with the current roster", async () => {
     const user = await createLocalUser({ username: "chiefprompt", password: "password-123", role: "user" as const });
     const { buildBotSystemPrompt } = await import("@/lib/bots");
@@ -78,6 +101,26 @@ describe("bots", () => {
     expect(rosterPrompt).toContain("Researcher");
     expect(rosterPrompt).toContain("Web research");
     expect(rosterPrompt).toContain("Finds sources.");
+    expect(rosterPrompt).toContain("write the new bot's specific instructions in the same create_bot call");
+    expect(rosterPrompt).toContain("title, description, or instructions");
+  });
+
+  it("builds the chief prompt from its current name and its own instructions", async () => {
+    const user = await createLocalUser({ username: "chiefidentity", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt, updateBot } = await import("@/lib/bots");
+    const chief = ensureChiefBot(user.id);
+
+    const defaultPrompt = buildBotSystemPrompt(chief);
+    expect(defaultPrompt).toContain("You are Chief of Staff, the user's primary assistant");
+    expect(defaultPrompt).toContain("the user's primary assistant coordinating a team of specialist bots.\n\nHow you work:");
+
+    const customized = updateBot(chief.id, { name: "Jarvis", systemPrompt: "Always answer in English." }, user.id)!;
+    const prompt = buildBotSystemPrompt(customized);
+    expect(prompt).toContain("You are Jarvis, the user's primary assistant");
+    expect(prompt).not.toContain("Chief of Staff");
+    expect(prompt).toContain("Always answer in English.");
+    expect(prompt.indexOf("Always answer in English.")).toBeLessThan(prompt.indexOf("How you work:"));
+    expect(prompt).toContain("wait for their explicit confirmation");
   });
 
   it("composes worker prompts from the base, identity, and communication context", async () => {
@@ -106,7 +149,29 @@ describe("bots", () => {
     expect(curated.startsWith(DEFAULT_BOT_BASE_SYSTEM_PROMPT)).toBe(true);
     expect(curated).toContain("You curate art.");
     expect(curated).toContain("message_bot");
-    expect(curated).toContain("Only the chief of staff can create or edit bots");
+    expect(curated).toContain("Only the chief of staff can create bots");
+    expect(curated).toContain("update your own instructions with update_own_instructions");
+    expect(curated).toContain("always tell the user what you changed");
+  });
+
+  it("tells every bot where its workspace and the shared workspace are and how to deliver files", async () => {
+    const user = await createLocalUser({ username: "botfiles", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    const { getBotWorkspaceDir, getSharedBotWorkspaceDir } = await import("@/lib/bot-sandbox");
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Analyst" }, user.id);
+
+    for (const bot of [chief, worker]) {
+      const prompt = buildBotSystemPrompt(bot);
+      expect(prompt).toContain(`Your workspace is ${getBotWorkspaceDir(bot)}`);
+      expect(prompt).toContain(`The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}`);
+      expect(prompt).toMatch(/\[report\.csv\]\(<?\S*report\.csv>?\)/);
+      expect(prompt).toContain("inside a sentence of your reply");
+      expect(prompt).toContain("edit that same file in place and link it again");
+      expect(prompt).toContain("Do not paste its absolute path into the text unless the user asks for it");
+      expect(prompt).toContain("link them again in your answer to pass them on");
+    }
+    expect(getSharedBotWorkspaceDir(chief)).toBe(getSharedBotWorkspaceDir(worker));
   });
 
   it("builds the chief prompt with a cautious creation policy requiring confirmation", async () => {
@@ -127,6 +192,37 @@ describe("bots", () => {
     const workerPrompt = buildBotSystemPrompt(worker);
     expect(workerPrompt).not.toContain("wait for their explicit confirmation");
     expect(workerPrompt).not.toContain("update_bot");
+  });
+
+  it("bot home conversations follow the default provider until one is chosen", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
+    const { updateBot } = await import("@/lib/bots");
+
+    const user = await createLocalUser({ username: "botprovider", password: "password-123", role: "user" as const });
+    const primary = createProviderProfileInput({ id: "profile_bot_primary", name: "Primary", model: "gpt-primary" });
+    const secondary = createProviderProfileInput({ id: "profile_bot_secondary", name: "Secondary", model: "gpt-secondary" });
+    updateProviderCatalog({
+      defaultProviderProfileId: primary.id,
+      skillsEnabled: false,
+      providerProfiles: [primary, secondary]
+    });
+
+    const bot = createBot({ name: "Provider Bot" }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBeNull();
+    expect(toBotSummary(bot).providerProfileId).toBeNull();
+
+    updateBot(bot.id, { providerProfileId: secondary.id }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBe(secondary.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).providerProfileId).toBe(secondary.id);
+
+    expect(() => updateBot(bot.id, { providerProfileId: "profile_missing" }, user.id)).toThrow(
+      "Provider profile not found"
+    );
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBe(secondary.id);
+
+    updateBot(bot.id, { providerProfileId: null }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBeNull();
   });
 
   it("deleting a bot disables its automations and removes its thread", async () => {
@@ -173,7 +269,8 @@ describe("bots", () => {
     );
 
     const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
-    const { getBotBrowserSocketDir, getBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const { getBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const { getBotBrowserSocketDir } = await import("@/lib/agent-computer");
     const workspaceDir = getBotWorkspaceDir(bot);
     mkdirSync(`${workspaceDir}/nested`, { recursive: true });
     writeFileSync(`${workspaceDir}/nested/keep.txt`, "data");
@@ -245,5 +342,89 @@ describe("bots", () => {
     expect(resolveBotByNameOrId("scout", user.id)?.id).toBe(bot.id);
     expect(resolveBotByNameOrId(" SCOUT ", user.id)?.id).toBe(bot.id);
     expect(resolveBotByNameOrId("missing", user.id)).toBeNull();
+  });
+});
+
+describe("bot pending input summary", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function createPendingProposal(botId: string, conversationId: string, content: string) {
+    const { buildCreateMemoryProposal } = await import("@/lib/memory-proposals");
+    const message = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 0
+    });
+    return createMessageAction({
+      messageId: message.id,
+      kind: "create_memory",
+      status: "pending",
+      label: "Create memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildCreateMemoryProposal({
+        content,
+        category: "preference"
+      })
+    });
+  }
+
+  it("keeps waitingForInput on while a proposal is pending, even after the bot is read", async () => {
+    const { markBotRead } = await import("@/lib/bots");
+    const user = await createLocalUser({ username: "botpending", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Pending Bot" }, user.id);
+
+    expect(toBotSummary(bot).waitingForInput).toBe(false);
+
+    await createPendingProposal(bot.id, bot.homeConversationId, "Likes tea");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    const read = markBotRead(bot.id, user.id);
+    expect(read?.lastReadAt).toBeTruthy();
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    expect(markBotRead("bot-missing", user.id)).toBeNull();
+  });
+
+  it("flags a new result as unread until the bot is read, and re-lights for a later result", async () => {
+    const { markBotRead, recordBotResult } = await import("@/lib/bots");
+    const user = await createLocalUser({ username: "botunread", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Unread Bot" }, user.id);
+
+    expect(toBotSummary(bot).unread).toBe(false);
+
+    recordBotResult(bot.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(true);
+
+    await sleep(5);
+    markBotRead(bot.id, user.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(false);
+
+    await sleep(5);
+    recordBotResult(bot.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).unread).toBe(true);
+  });
+
+  it("clears waitingForInput when the pending proposal is resolved", async () => {
+    const { dismissMemoryProposal } = await import("@/lib/memory-proposals");
+    const user = await createLocalUser({ username: "botresolved", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Resolved Bot" }, user.id);
+
+    const action = await createPendingProposal(bot.id, bot.homeConversationId, "Likes tea");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    dismissMemoryProposal(action.id, user.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
+  });
+
+  it("does not flag pending input from another conversation", async () => {
+    const user = await createLocalUser({ username: "botforeign", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Foreign Bot" }, user.id);
+    const other = createConversation(undefined, undefined, undefined, user.id);
+
+    await createPendingProposal(bot.id, other.id, "Unrelated proposal");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
   });
 });

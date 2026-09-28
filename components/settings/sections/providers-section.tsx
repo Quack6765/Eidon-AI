@@ -28,7 +28,8 @@ import {
   DEFAULT_PROFILE_BEHAVIOR,
   getProviderPreset,
   PROVIDER_CATALOG,
-  PROVIDER_PRESETS
+  PROVIDER_PRESETS,
+  resolveDefaultVisionMode
 } from "@/lib/provider-catalog";
 import {
   applyPresetToProviderProfile,
@@ -45,9 +46,9 @@ import {
   getProviderApiBaseUrl,
   getProviderApiMode,
   getProviderProcessingMode,
+  profileSupportsImageInput,
   resolveProviderProfileCapabilities
 } from "@/lib/provider-profile";
-import { supportsImageInput } from "@/lib/model-capabilities";
 import type { AppSettings, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -156,10 +157,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const activeProviderCapabilities = activeProviderProfile
     ? resolveProviderProfileCapabilities(activeProviderProfile)
     : null;
-  const usesThinkingToggle =
-    activeProviderEditor?.apiMode &&
-    activeProviderProfile &&
-    getProviderApiMode(activeProviderProfile) === "chat_completions";
+  const usesThinkingToggle = activeProviderCapabilities?.reasoningControl === "toggle";
+  const supportedReasoningEfforts = activeProviderCapabilities?.reasoningEfforts ?? [];
+  const activeReasoningEffortOptions = activeProviderProfile?.reasoningEffort &&
+    !supportedReasoningEfforts.includes(activeProviderProfile.reasoningEffort)
+      ? [...supportedReasoningEfforts, activeProviderProfile.reasoningEffort]
+      : supportedReasoningEfforts;
   const isDuplicateName = activeProviderProfile
     ? providerProfiles.some(
         (p) =>
@@ -172,7 +175,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       ? providerProfiles.filter(
           (profile) =>
             profile.id !== activeProviderProfile.id &&
-            supportsImageInput(profile.model, getProviderApiMode(profile))
+            profileSupportsImageInput(profile)
         )
       : [],
     [providerProfiles, activeProviderProfile]
@@ -296,7 +299,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit,
       compactionThreshold: DEFAULT_PROFILE_BEHAVIOR.compactionThreshold,
       freshTailCount: DEFAULT_PROFILE_BEHAVIOR.freshTailCount,
-      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode,
+      visionMode: resolveDefaultVisionMode({
+        providerKind: activeProviderProfile.providerKind,
+        apiBaseUrl: getProviderApiBaseUrl(activeProviderProfile),
+        apiMode: getProviderApiMode(activeProviderProfile),
+        model: activeProviderProfile.model
+      }),
       visionProviderProfileId: null
     };
 
@@ -857,8 +865,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 </SettingsAccordion>
 
                 <SettingsAccordion
+                  key={activeProviderProfile.id}
                   title="Configuration"
                   description="Reasoning, context, compaction, and vision"
+                  defaultOpen
                 >
                   <div className="flex items-center justify-end">
                     <Button
@@ -936,7 +946,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           }
                           className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
                         >
-                          {(activeProviderCapabilities?.reasoningEfforts ?? []).map((effort) => (
+                          {activeReasoningEffortOptions.map((effort) => (
                             <option key={effort} value={effort}>
                               {effort === "none" ? "disabled" : effort}
                             </option>
@@ -1129,7 +1139,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={fieldLabel}>Vision mode</label>
                        <select
-                         value={activeProviderProfile.visionMode ?? "native"}
+                         value={activeProviderProfile.visionMode ?? "none"}
                          onChange={(event) =>
                            updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
                          }

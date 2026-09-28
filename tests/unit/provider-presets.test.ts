@@ -1,8 +1,10 @@
 import {
   applyProviderPreset,
+  createProviderProfileDraft,
   DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset,
+  resolveDefaultVisionMode,
   resolveProviderRequestApiMode
 } from "@/lib/provider-catalog";
 
@@ -322,5 +324,125 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("xiaomi_mimo");
+  });
+
+  it("applies the Command Code preset values without overwriting the name", () => {
+    const profile = applyProviderPreset(createProfile(), "command_code");
+
+    expect(profile.name).toBe("Original profile");
+    expect(profile.apiBaseUrl).toBe("https://api.commandcode.ai/provider/v1");
+    expect(profile.model).toBe("deepseek/deepseek-v4-flash");
+    expect(profile.apiMode).toBe("chat_completions");
+    expect(profile.reasoningEffort).toBe("medium");
+    expect(profile.reasoningSummaryEnabled).toBe(true);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1.3);
+    expect(profile.maxOutputTokens).toBe(8192);
+  });
+
+  it("matches a profile back to the Command Code preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("command_code").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("command_code");
+  });
+
+  it("uses responses for Command Code GPT-5 models", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "gpt-5.6-luna"
+    })).toBe("responses");
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1/",
+      apiMode: "chat_completions",
+      model: "gpt-5.4-mini"
+    })).toBe("responses");
+  });
+
+  it("keeps Command Code non-GPT models on chat completions", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "deepseek/deepseek-v4-flash"
+    })).toBe("chat_completions");
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "zai-org/GLM-5.3"
+    })).toBe("chat_completions");
+  });
+
+  it("applies the Command Code Anthropic preset to an anthropic profile", () => {
+    const profile = applyProviderPreset(
+      { ...createProfile(), providerKind: "anthropic" },
+      "command_code_anthropic"
+    );
+
+    expect(profile.apiBaseUrl).toBe("https://api.commandcode.ai/provider");
+    expect(profile.model).toBe("claude-sonnet-5");
+    expect(profile.modelContextLimit).toBe(1_000_000);
+  });
+
+  it("keeps the two Command Code presets apart when matching", () => {
+    const openAiCompatible = {
+      ...createProfile(),
+      providerKind: "openai_compatible" as const,
+      ...getProviderPreset("command_code").values
+    };
+    const anthropic = {
+      ...createProfile(),
+      providerKind: "anthropic" as const,
+      ...getProviderPreset("command_code_anthropic").values
+    };
+
+    expect(getMatchingProviderPresetId(openAiCompatible)).toBe("command_code");
+    expect(getMatchingProviderPresetId(anthropic)).toBe("command_code_anthropic");
+  });
+});
+
+describe("provider vision defaults", () => {
+  it("defaults to native vision for models the registry knows accept image input", () => {
+    expect(resolveDefaultVisionMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.anthropic.com",
+      apiMode: "chat_completions",
+      model: "claude-opus-4-8"
+    })).toBe("native");
+  });
+
+  it("defaults to no vision for models without image input data", () => {
+    expect(resolveDefaultVisionMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.deepseek.com",
+      apiMode: "chat_completions",
+      model: "deepseek-v4.1-flash"
+    })).toBe("none");
+  });
+
+  it("follows the request api mode when the model only accepts images there", () => {
+    const profile = {
+      providerKind: "openai_compatible" as const,
+      apiBaseUrl: "https://gateway.example.com/v1",
+      model: "gpt-oss-120b"
+    };
+
+    expect(resolveDefaultVisionMode({ ...profile, apiMode: "responses" })).toBe("native");
+    expect(resolveDefaultVisionMode({ ...profile, apiMode: "chat_completions" })).toBe("none");
+  });
+
+  it("seeds new profiles from their model instead of always enabling native", () => {
+    const openAi = createProviderProfileDraft({ providerKind: "openai_compatible" });
+    const copilot = createProviderProfileDraft({ providerKind: "github_copilot" });
+
+    expect(openAi.model).toBe("gpt-5.6-luna");
+    expect(openAi.visionMode).toBe("native");
+    expect(copilot.visionMode).toBe("none");
   });
 });

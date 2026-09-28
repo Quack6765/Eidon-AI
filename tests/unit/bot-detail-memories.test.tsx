@@ -74,7 +74,10 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     avatarSeed: "seed_research",
     isChief: false,
     homeConversationId: "conv_1",
+    providerProfileId: null,
     status: "idle",
+    waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -95,14 +98,18 @@ function buildMemory(overrides: Partial<UserMemory> = {}): UserMemory {
 }
 
 function renderView(bot: BotSummary) {
-  return renderWithPanelOpen(
+  const toggle = renderWithPanelOpen(
     React.createElement(BotDetailView, {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
+  fireEvent.click(screen.getByRole("button", { name: "Memories" }));
+  return toggle;
 }
 
 function mockMemoryEndpoints(memories: UserMemory[]) {
@@ -134,8 +141,16 @@ function mockMemoryEndpoints(memories: UserMemory[]) {
       return {
         ok: true,
         json: async () => ({
-          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
+          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
+      } as Response;
+    }
+
+    if (url === "/api/bots/bot_1/read" && method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({ deleted: true })
       } as Response;
     }
 
@@ -225,5 +240,48 @@ describe("bot detail memories", () => {
       expect(screen.queryByText("Prefers concise summaries")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Works at Acme on the platform team")).toBeInTheDocument();
+  });
+
+  it("marks an unread bot read on mount", async () => {
+    const fetchMock = mockMemoryEndpoints([]);
+
+    renderView(buildBot({ unread: true }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/bots/bot_1/read",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
+  it("does not mark the bot read while the page is hidden, then marks it once visible", async () => {
+    const fetchMock = mockMemoryEndpoints([]);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+
+    try {
+      renderView(buildBot({ unread: true }));
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/bots/bot_1/read", expect.anything());
+
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith("/api/bots/bot_1/read", expect.objectContaining({ method: "POST" }));
+      });
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("does not mark the bot read when there is nothing unread, even with pending input", () => {
+    const fetchMock = mockMemoryEndpoints([]);
+
+    renderView(buildBot({ waitingForInput: true }));
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/bots/bot_1/read",
+      expect.anything()
+    );
   });
 });

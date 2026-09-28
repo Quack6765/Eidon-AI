@@ -9,6 +9,7 @@ import { useComposerSpeech } from "@/hooks/use-composer-speech";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { usePendingAttachments } from "@/hooks/use-pending-attachments";
 import { usePersonas } from "@/hooks/use-personas";
+import { useComposerReferences } from "@/hooks/use-composer-references";
 import { markHomeSubmitSidebarAutoHide, storeChatBootstrap } from "@/lib/chat-bootstrap";
 import type { ChatResearchOptions } from "@/lib/types";
 import { cn, shouldAutofocusTextInput } from "@/lib/utils";
@@ -38,6 +39,7 @@ export function HomeView({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const personas = usePersonas();
+  const { references: composerReferences, refresh: refreshComposerReferences } = useComposerReferences(null);
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
@@ -272,6 +274,8 @@ export function HomeView({
             personaId={personaId}
             onPersonaChange={setPersonaId}
             textareaRef={textareaRef}
+            references={composerReferences}
+            onReferencesOpen={refreshComposerReferences}
             usedTokens={null}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             compactionLimit={0}

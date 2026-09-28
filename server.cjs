@@ -16,6 +16,7 @@ const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;
 const PORT_MAX = 4000;
 const MAX_ATTEMPTS = 10;
+const BROWSER_BLOCKED_PORTS = new Set([3659]);
 
 function isProcessRunning(pid) {
   try {
@@ -72,6 +73,7 @@ async function findAvailablePort(server, preferredPort) {
 async function findRandomPort(server) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const port = Math.floor(Math.random() * (PORT_MAX - PORT_MIN + 1)) + PORT_MIN;
+    if (BROWSER_BLOCKED_PORTS.has(port)) continue;
     try {
       await findAvailablePort(server, port);
       return port;
@@ -109,16 +111,23 @@ app.prepare().then(async () => {
     maxPayload: 1024 * 1024,
     perMessageDeflate: false
   });
+  const computerWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 64 * 1024,
+    perMessageDeflate: false
+  });
   const {
     bootstrapRuntimeState,
     claimWebSocketUpgradeRouting,
     createAutomationScheduler,
     resolveWebSocketAuthMode,
     routeWebSocketUpgrade,
+    setupComputerWebSocketHandler,
     setupWebSocketHandler
   } = require("./ws-handler-compiled.cjs");
   bootstrapRuntimeState();
   setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
+  setupComputerWebSocketHandler(computerWss, { authModeForRequest: resolveWebSocketAuthMode });
   claimWebSocketUpgradeRouting(app);
   const upgradeHandler = app.getUpgradeHandler();
   server.on("upgrade", (request, socket, head) => {
@@ -126,7 +135,7 @@ app.prepare().then(async () => {
       request,
       socket,
       head,
-      { "/ws": wss, "/api/v1/ws": wss },
+      { "/ws": wss, "/api/v1/ws": wss, "/ws/computer": computerWss, "/api/v1/ws/computer": computerWss },
       upgradeHandler
     );
   });
@@ -151,23 +160,22 @@ app.prepare().then(async () => {
     writeDevServerFile(port);
 
     process.on("exit", cleanupDevServerFile);
-    process.on("SIGINT", async () => {
-      automationScheduler?.stop?.();
-      cleanupDevServerFile();
-      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
-      process.exit(0);
-    });
-    process.on("SIGTERM", async () => {
-      automationScheduler?.stop?.();
-      cleanupDevServerFile();
-      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
-      process.exit(0);
-    });
   } else {
     // Production: use PORT or default to 3000, no .dev-server file
     port = preferredPort ?? 3000;
     await findAvailablePort(server, port);
   }
+
+  const shutdown = async () => {
+    automationScheduler?.stop?.();
+    if (isDev) cleanupDevServerFile();
+    const handler = require("./ws-handler-compiled.cjs");
+    await handler.shutdownAgentComputer?.();
+    await handler.shutdownAllProcesses?.();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   console.log(`> Ready on http://localhost:${port}`);
 
@@ -209,6 +217,11 @@ app.prepare().then(async () => {
   }
 
   automationScheduler?.start?.();
+
+  const { resumeRuntimeWork } = require("./ws-handler-compiled.cjs");
+  resumeRuntimeWork?.().catch((err) => {
+    console.error("[resume] Failed to resume interrupted work:", err.message);
+  });
 }).catch((err) => {
   console.error("[server] Next.js prepare failed:", err);
   process.exit(1);

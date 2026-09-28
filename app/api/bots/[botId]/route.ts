@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { deleteBot, getBot, toBotSummary, updateBot } from "@/lib/bots";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import { broadcastBotDeleted, broadcastBotUpsert, listRecentBotRuns } from "@/lib/bot-runs";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
@@ -14,7 +15,8 @@ const updateSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   title: z.string().trim().max(120).optional(),
   description: z.string().trim().max(1000).optional(),
-  systemPrompt: z.string().trim().max(8000).optional()
+  systemPrompt: z.string().trim().max(MAX_INSTRUCTION_CHARS).optional(),
+  providerProfileId: z.string().min(1).nullable().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid bot update"
@@ -33,9 +35,7 @@ export async function GET(
     return badRequest("Bot not found", 404);
   }
 
-  const runs = listRecentBotRuns({ userId: user.id, limit: 20 }).filter(
-    (run) => run.botId === bot.id
-  );
+  const runs = listRecentBotRuns({ userId: user.id, botId: bot.id, limit: 30 });
 
   return ok({ bot: toBotSummary(bot), runs });
 }

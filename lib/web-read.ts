@@ -43,12 +43,34 @@ const blockedAddresses = new BlockList();
 for (const [address, prefix] of BLOCKED_IPV4_SUBNETS) blockedAddresses.addSubnet(address, prefix, "ipv4");
 for (const [address, prefix] of BLOCKED_IPV6_SUBNETS) blockedAddresses.addSubnet(address, prefix, "ipv6");
 
+export class BlockedUrlError extends Error {}
+
 export type WebReadInput = {
   url: string;
   maxChars?: number;
   settings?: RuntimeAppSettings;
   abortSignal?: AbortSignal;
 };
+
+export function parsePageUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new BlockedUrlError("url must be an absolute http(s) URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new BlockedUrlError("url must be an absolute http(s) URL");
+  }
+  if (url.username || url.password) {
+    throw new BlockedUrlError("url must not contain credentials");
+  }
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (BLOCKED_HOSTNAME_PATTERN.test(hostname) || (isIP(hostname) && !isPublicAddress(hostname))) {
+    throw new BlockedUrlError("url points to a private or local network address");
+  }
+  return url;
+}
 
 function unwrapMappedAddress(address: string) {
   const mapped = IPV4_MAPPED_PATTERN.exec(address);
@@ -68,26 +90,6 @@ export function isPublicAddress(address: string) {
   return false;
 }
 
-function parsePageUrl(value: string) {
-  let url: URL;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    throw new Error("url must be an absolute http(s) URL");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("url must be an absolute http(s) URL");
-  }
-  if (url.username || url.password) {
-    throw new Error("url must not contain credentials");
-  }
-  const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  if (BLOCKED_HOSTNAME_PATTERN.test(hostname) || (isIP(hostname) && !isPublicAddress(hostname))) {
-    throw new Error("url points to a private or local network address");
-  }
-  return url;
-}
-
 type LookupCallback = (
   error: Error | null,
   result: Array<{ address: string; family: number }> | string,
@@ -98,7 +100,7 @@ async function guardedLookup(hostname: string, options: { all?: boolean } | numb
   try {
     const addresses = await lookup(hostname, { all: true });
     if (!addresses.length || addresses.some((entry) => !isPublicAddress(entry.address))) {
-      throw new Error("url points to a private or local network address");
+      throw new BlockedUrlError("url points to a private or local network address");
     }
     if (typeof options === "object" && options.all) {
       callback(null, addresses);
@@ -135,18 +137,14 @@ function decodeBody(bytes: ArrayBuffer, charset: string | undefined) {
   }
 }
 
-async function fetchPublicPage(initialUrl: URL, signal: AbortSignal) {
-  let url = initialUrl;
+export async function fetchGuardedHttp(initialUrl: URL | string, init: RequestInit = {}) {
+  let url = parsePageUrl(initialUrl.toString());
   for (let hop = 0; hop <= MAX_WEB_READ_REDIRECTS; hop += 1) {
     const response = await pinnedFetch(url, {
+      ...init,
       dispatcher: getDispatcher(),
-      redirect: "manual",
-      signal,
-      headers: {
-        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,text/markdown;q=0.9",
-        "user-agent": "Mozilla/5.0 (compatible; Eidon/1.0; read_page)"
-      }
-    });
+      redirect: "manual"
+    } as unknown as Parameters<typeof pinnedFetch>[1]);
 
     if (REDIRECT_STATUSES.has(response.status)) {
       await response.body?.cancel();
@@ -154,39 +152,51 @@ async function fetchPublicPage(initialUrl: URL, signal: AbortSignal) {
       if (!location) throw new Error(`Page request failed with status ${response.status}`);
       const next = parsePageUrl(new URL(location, url).toString());
       if (url.protocol === "https:" && next.protocol === "http:") {
-        throw new Error("Redirect downgraded the connection to http");
+        throw new BlockedUrlError("Redirect downgraded the connection to http");
       }
       url = next;
       continue;
     }
 
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`Page request failed with status ${response.status}`);
-    }
-
-    const { mediaType, charset } = contentTypeOf(response.headers.get("content-type"));
-    if (!ALLOWED_CONTENT_TYPES.includes(mediaType)) {
-      await response.body?.cancel();
-      throw new Error(`Unsupported content type: ${mediaType || "unknown"}`);
-    }
-
-    let bytes: ArrayBuffer;
-    try {
-      bytes = await readRequestBodyWithLimit(
-        response as unknown as { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
-        MAX_WEB_READ_RESPONSE_BYTES
-      );
-    } catch (error) {
-      if (error instanceof RequestBodyTooLargeError) {
-        throw new Error(`Page exceeded the ${MAX_WEB_READ_RESPONSE_BYTES / (1024 * 1024)} MB limit`);
-      }
-      throw error;
-    }
-
-    return { finalUrl: url.toString(), mediaType, text: decodeBody(bytes, charset) };
+    return { response, finalUrl: url.toString() };
   }
   throw new Error("Too many redirects");
+}
+
+async function fetchPublicPage(initialUrl: URL, signal: AbortSignal) {
+  const { response, finalUrl } = await fetchGuardedHttp(initialUrl, {
+    signal,
+    headers: {
+      accept: "text/html,application/xhtml+xml,text/plain;q=0.9,text/markdown;q=0.9",
+      "user-agent": "Mozilla/5.0 (compatible; Eidon/1.0; read_page)"
+    }
+  });
+
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`Page request failed with status ${response.status}`);
+  }
+
+  const { mediaType, charset } = contentTypeOf(response.headers.get("content-type"));
+  if (!ALLOWED_CONTENT_TYPES.includes(mediaType)) {
+    await response.body?.cancel();
+    throw new Error(`Unsupported content type: ${mediaType || "unknown"}`);
+  }
+
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await readRequestBodyWithLimit(
+      response as unknown as { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
+      MAX_WEB_READ_RESPONSE_BYTES
+    );
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      throw new Error(`Page exceeded the ${MAX_WEB_READ_RESPONSE_BYTES / (1024 * 1024)} MB limit`);
+    }
+    throw error;
+  }
+
+  return { finalUrl, mediaType, text: decodeBody(bytes, charset) };
 }
 
 async function readBuiltIn(url: URL, signal: AbortSignal) {

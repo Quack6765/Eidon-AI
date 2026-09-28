@@ -14,6 +14,7 @@ import { ShareConversationProvider } from "@/components/share-conversation-conte
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Wordmark } from "@/components/ui/wordmark";
+import { WhatsNewAutoDialog } from "@/components/whats-new-dialog";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { AuthUser, Automation, BotSummary, Conversation, ConversationListPage, Folder } from "@/lib/types";
@@ -611,6 +612,7 @@ export function Shell({
         ) : null}
       </AnimatePresence>
       {settingsDetailUnsavedDialog}
+      <WhatsNewAutoDialog />
     </div>
   );
 }

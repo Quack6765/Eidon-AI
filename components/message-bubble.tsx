@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
-import { Streamdown } from "streamdown";
+import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
+import { Streamdown, defaultRemarkPlugins } from "streamdown";
+import type { Pluggable } from "unified";
 import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
@@ -10,9 +11,21 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
+import { ReferenceTokenMark } from "@/components/composer-references";
+import {
+  InProgressIndicator,
+  StatusLine,
+  ToolPill
+} from "@/components/tool-activity";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import {
+  isMessageBotActionKind,
+  summarizeToolActivity
+} from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
+import { REFERENCE_TAG, remarkReferenceTokens, type ReferenceCandidate } from "@/lib/reference-tokens";
+import { openMermaidFullscreenFromCard } from "@/lib/mermaid-fullscreen";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import {
@@ -25,38 +38,51 @@ import {
   isAutomationProposalAction
 } from "@/components/automation-proposal-card";
 import {
+  isToolApprovalAction,
+  ToolApprovalCard
+} from "@/components/tool-approval-card";
+import {
+  isMessageDraftAction,
+  MessageDraftCard
+} from "@/components/message-draft-card";
+import { ComputerHandoffCard, isComputerHandoffAction } from "@/components/computer-handoff-card";
+import { ComputerSessionCard, isBrowserAction } from "@/components/computer-session-card";
+import { isSecretRequestAction, SecretRequestCard } from "@/components/secret-request-card";
+import {
   AttachmentTile,
   MessageAttachments,
   AssistantInlineImageAttachments
 } from "@/components/message-attachments";
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { useBotAvatarSeed } from "@/hooks/use-bot-avatar-seeds";
+import { describeDelegationStatus, useDelegationStatus, useTicker } from "@/hooks/use-delegation-status";
 import type {
   AutomationProposalOverrides
 } from "@/lib/automation-proposals";
 import type {
   MemoryCategory,
   MessageAction as MessageActionType,
+  MessageActionStatus,
   MessageTimelineItem,
   PublicMessage,
   PublicMessageAttachment,
   ToolCallDisplayMode
 } from "@/lib/types";
 import { normalizeRealLineBreaks } from "@/lib/text-utils";
+import { RESTART_RESUME_NOTICE_HEADER } from "@/lib/constants";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Message,
   MessageContent,
   MessageAction
 } from "@/components/ai-elements/message";
+import { MessageActionsMenu } from "@/components/message-actions-menu";
 
 const COPY_RESET_DELAY_MS = 1600;
+const REFERENCE_ALLOWED_TAGS = { [REFERENCE_TAG]: ["kind"] };
+const REFERENCE_COMPONENTS = { [REFERENCE_TAG]: ReferenceTokenMark };
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
-
-function isMessageBotActionKind(kind: MessageActionType["kind"]) {
-  return kind === "delegate_task" || kind === "message_bot";
-}
 
 export function parseDelegationWakeMessage(content: string): { botName: string; content: string } | null {
   if (!content.startsWith("[Message from ")) {
@@ -171,39 +197,25 @@ const AssistantMarkdown = React.memo(
     previous.linkSafety === next.linkSafety
 );
 
-export function InProgressIndicator() {
+function AutomatedMessageMarker({
+  messageId,
+  testId,
+  children
+}: {
+  messageId: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div
-      className="w-fit rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 animate-fade-in"
-      data-testid="assistant-in-progress"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="flex items-center gap-1.5">
-        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-          <LoaderCircle className="h-3 w-3 animate-spin text-white/45" aria-hidden="true" />
-        </span>
-        <span className="flex items-center gap-1 text-[11px] leading-[16.5px] text-white/50">
-          <span className="font-medium">Working</span>
-          <span className="text-white/30" aria-hidden="true">...</span>
-        </span>
-      </span>
-    </div>
-  );
-}
-
-export function StatusLine({ label }: { label: string }) {
-  return (
-    <div
-      className="status-line"
-      data-testid="assistant-status-line"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="status-line__label" data-testid="assistant-status-line-label">
-        {label}
-      </span>
-    </div>
+    <Message from="user" data-message-id={messageId}>
+      <div className="flex w-full min-w-0 flex-col items-stretch gap-2" data-testid={testId}>
+        <div className="flex w-full min-w-0 justify-center">
+          <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
+            <span className="min-w-0 truncate">{children}</span>
+          </span>
+        </div>
+      </div>
+    </Message>
   );
 }
 
@@ -211,10 +223,10 @@ function DelegateBotGlyph({ botName }: { botName: string }) {
   const seed = useBotAvatarSeed(botName);
 
   if (!seed) {
-    return <BotIcon className="ml-2 mr-2.5 h-3 w-3 shrink-0 text-white/40" aria-hidden="true" />;
+    return <BotIcon className="ml-1.5 mr-1.5 h-3 w-3 shrink-0 text-white/40" aria-hidden="true" />;
   }
 
-  return <BotAvatar inline seed={seed} size={14} className="ml-2 mr-2.5" />;
+  return <BotAvatar inline seed={seed} size={14} className="ml-1.5 mr-1.5" />;
 }
 
 function DelegateActionLine({
@@ -227,10 +239,14 @@ function DelegateActionLine({
   onToggle: () => void;
 }) {
   const isFailed = action.status === "error" || action.status === "stopped";
-  const canExpand = action.status === "completed" && Boolean(action.resultSummary);
+  const canExpand = (action.status === "completed" || action.status === "error") && Boolean(action.resultSummary);
   const botName =
     DELEGATE_LABEL_PATTERN.exec(action.label)?.[1] ??
     (typeof action.arguments?.bot === "string" ? action.arguments.bot.trim() : "");
+  const isInFlight = action.status === "pending" || action.status === "running";
+  const delegationStatus = useDelegationStatus(action.messageId, botName, isInFlight && Boolean(botName));
+  const now = useTicker(15_000, isInFlight && delegationStatus !== null);
+  const progress = isInFlight ? describeDelegationStatus(delegationStatus, now) : null;
   const line = (
     <span
       className={`flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 ${
@@ -281,9 +297,20 @@ function DelegateActionLine({
       ) : (
         line
       )}
+      {progress ? (
+        <span
+          className={`max-w-full truncate text-[11px] leading-4 ${progress.stalled ? "text-amber-300/80" : "text-white/30"}`}
+          data-testid="delegate-action-status"
+        >
+          {progress.text}
+        </span>
+      ) : null}
       {canExpand && isOpen && action.resultSummary ? (
         <div className="max-w-full px-6 text-center text-[11px] break-words whitespace-pre-wrap font-mono">
-          <AnsiText text={action.resultSummary} defaultTextClassName="text-white/35" />
+          <AnsiText
+            text={action.resultSummary}
+            defaultTextClassName={action.status === "error" ? "text-red-300/60" : "text-white/35"}
+          />
         </div>
       ) : null}
     </div>
@@ -314,65 +341,21 @@ function CollapsibleActionRow({
     ? argumentQuery || action.detail.trim()
     : "";
   const expandedDetail = webSearchQuery ? "" : action.detail;
-  const actionTitle = (
-    <span
-      className={`min-w-0 break-words text-xs font-medium leading-4 ${
-        action.status === "running" ? "text-white/55" : "text-white/85"
-      }`}
-    >
-      {kindIcon ? (
-        <span className="mr-1 inline-flex translate-y-px align-middle">{kindIcon}</span>
-      ) : null}
-      {action.label}
-      {webSearchQuery ? (
-        <>
-          {": "}
-          <span className={action.status === "running" ? "font-normal text-white/45" : "font-normal text-white/55"}>
-            {webSearchQuery}
-          </span>
-        </>
-      ) : null}
-    </span>
-  );
-
-  const statusIcon = action.status === "running"
-    ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
-    : action.status === "completed"
-      ? <Check className="h-2.5 w-2.5 text-emerald-400" />
-      : action.status === "stopped"
-        ? <Square className="h-2.5 w-2.5 text-red-400 fill-current" />
-        : <X className="h-2.5 w-2.5 text-red-400" />;
-
-  if (action.status === "running") {
-    return (
-      <div className="inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {isMemoryAction ? <Brain className="h-2.5 w-2.5 text-violet-400" /> : statusIcon}
-        </span>
-        {actionTitle}
-      </div>
-    );
-  }
+  const isRunning = action.status === "running";
+  const memoryIcon = isMemoryAction ? (
+    <Brain className={isRunning ? "h-2.5 w-2.5 text-violet-400" : "h-3 w-3 text-violet-400"} />
+  ) : undefined;
 
   return (
-    <div
-      className={`inline-flex w-fit max-w-full flex-col rounded-lg border border-white/5 bg-white/[0.015] transition-all duration-300 ${
-        isOpen ? "w-full" : ""
-      }`}
+    <ToolPill
+      label={action.label}
+      query={webSearchQuery || undefined}
+      status={action.status}
+      kindIcon={kindIcon}
+      statusIcon={memoryIcon}
+      isOpen={isOpen}
+      onToggle={isRunning ? undefined : onToggle}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`flex max-w-full items-start gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
-      >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {isMemoryAction ? <Brain className="h-3 w-3 text-violet-400" /> : statusIcon}
-        </span>
-        {actionTitle}
-        <span className="ml-auto flex items-center pt-px">
-          {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-white/30" /> : <ChevronRight className="h-3.5 w-3.5 text-white/30" />}
-        </span>
-      </button>
       {isOpen && (expandedDetail || action.resultSummary) ? (
         <div
           className="px-2.5 pb-2"
@@ -394,7 +377,7 @@ function CollapsibleActionRow({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </ToolPill>
   );
 }
 
@@ -408,10 +391,6 @@ type AssistantBlock =
   | Extract<MessageTimelineItem, { timelineKind: "action" }>
   | RenderedThinkingTimelineItem;
 
-function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "detail" | "toolName">) {
-  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
-}
-
 function isRunningActionBlock(
   item: AssistantBlock
 ): item is Extract<MessageTimelineItem, { timelineKind: "action" }> {
@@ -420,9 +399,11 @@ function isRunningActionBlock(
 
 function clampStreamingTimeline(
   timeline: MessageTimelineItem[],
-  display: string
+  display: string,
+  revealedFloor: number
 ): MessageTimelineItem[] {
   const clamped: MessageTimelineItem[] = [];
+  const budget = Math.max(display.length, revealedFloor);
   let offset = 0;
 
   for (const item of timeline) {
@@ -432,7 +413,7 @@ function clampStreamingTimeline(
     }
 
     const visibleLength = Math.min(
-      Math.max(display.length - offset, 0),
+      Math.max(budget - offset, 0),
       item.content.length
     );
 
@@ -480,8 +461,9 @@ function MessageBubbleImpl({
   toolCallDisplay = "pills",
   onUpdateUserMessage,
   isUpdating = false,
-  onForkAssistantMessage,
+  onForkMessage,
   isForking = false,
+  onRewindMessage,
   onRetryAssistantMessage,
   isRetrying = false,
   onRegenerateUserMessage,
@@ -490,8 +472,15 @@ function MessageBubbleImpl({
   onDismissMemoryProposal,
   onApproveAutomationProposal,
   onDismissAutomationProposal,
+  onApproveToolApproval,
+  onDismissToolApproval,
+  onSendMessageDraft,
+  onDiscardMessageDraft,
   onPreviewAttachment,
-  readOnly = false
+  readOnly = false,
+  referenceCandidates,
+  computerConversationId,
+  computerLive = false
 }: {
   message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
@@ -512,18 +501,30 @@ function MessageBubbleImpl({
   onDismissMemoryProposal?: (actionId: string) => Promise<void>;
   onApproveAutomationProposal?: (actionId: string, overrides?: AutomationProposalOverrides) => Promise<void>;
   onDismissAutomationProposal?: (actionId: string) => Promise<void>;
+  onApproveToolApproval?: (
+    actionId: string,
+    options?: { allowAlways?: boolean }
+  ) => Promise<void>;
+  onDismissToolApproval?: (actionId: string) => Promise<void>;
+  onSendMessageDraft?: (actionId: string, fields?: Record<string, string>) => Promise<void>;
+  onDiscardMessageDraft?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onForkMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   isRetrying?: boolean;
   onRegenerateUserMessage?: (messageId: string) => void;
   isRegenerating?: boolean;
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
+  computerConversationId?: string;
+  computerLive?: boolean;
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
+  const [statusLineOpen, setStatusLineOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -537,12 +538,28 @@ function MessageBubbleImpl({
   const previewController = useAttachmentPreviewController();
   const linkSafety = useLinkSafety(confirmExternalLinks);
   const useStatusLine = toolCallDisplay === "status_line";
+  const revealedAnswerCharsRef = useRef(0);
+  const streamingAnswerLength = streamingAnswer?.length ?? 0;
+  if (streamingAnswerLength > revealedAnswerCharsRef.current) {
+    revealedAnswerCharsRef.current = streamingAnswerLength;
+  }
   const sharedUserPlugins = useStreamdownPlugins(
     message.role === "user" ? streamingAnswer ?? message.content : ""
   );
   const userPlugins = useMemo(
     () => ({ math, ...sharedUserPlugins }),
     [sharedUserPlugins]
+  );
+  const referenceRenderKey = useMemo(
+    () => (referenceCandidates ?? []).map((candidate) => `${candidate.trigger}${candidate.name}`).join("\n"),
+    [referenceCandidates]
+  );
+  const userRemarkPlugins = useMemo(
+    () =>
+      referenceCandidates?.length
+        ? [...Object.values(defaultRemarkPlugins), [remarkReferenceTokens, referenceCandidates] as Pluggable]
+        : undefined,
+    [referenceCandidates]
   );
 
   useEffect(() => {
@@ -573,7 +590,7 @@ function MessageBubbleImpl({
     const actions = message.actions ?? [];
     const liveTimeline =
       streamingTimeline !== undefined && streamingAnswer !== undefined
-        ? clampStreamingTimeline(streamingTimeline, streamingAnswer)
+        ? clampStreamingTimeline(streamingTimeline, streamingAnswer, revealedAnswerCharsRef.current)
         : streamingTimeline ?? message.timeline;
     const contentForComparison = normalizeRealLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
@@ -618,22 +635,21 @@ function MessageBubbleImpl({
       }
 
       if (item.timelineKind === "action") {
-        if (isMemoryProposalAction(item) || isAutomationProposalAction(item)) {
+        if (isToolApprovalAction(item) && (item.status !== "pending" || item.proposalState !== "pending")) {
+          return;
+        }
+
+        if (
+          isMemoryProposalAction(item) ||
+          isAutomationProposalAction(item) ||
+          isToolApprovalAction(item) ||
+          isMessageDraftAction(item)
+        ) {
           deferredProposalBlocks.push(item);
           return;
         }
 
         appendBufferedText();
-        const previousBlock = assistantBlocks[assistantBlocks.length - 1];
-
-        if (
-          previousBlock?.timelineKind === "action" &&
-          getActionSignature(previousBlock) === getActionSignature(item)
-        ) {
-          assistantBlocks[assistantBlocks.length - 1] = item;
-          return;
-        }
-
         assistantBlocks.push(item);
         return;
       }
@@ -653,6 +669,7 @@ function MessageBubbleImpl({
     const normalizedConsumedText = normalizeRealLineBreaks(consumedText);
 
     if (
+      message.status !== "error" &&
       contentForComparison &&
       contentForComparison.length > normalizedConsumedText.length &&
       contentForComparison.startsWith(normalizedConsumedText)
@@ -741,7 +758,32 @@ function MessageBubbleImpl({
     renderedAssistantBlockContentById,
     lastRenderableAssistantTextId
   } = derived;
+  const toolActivity = useMemo(
+    () =>
+      summarizeToolActivity(
+        assistantBlocks.filter(
+          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+            item.timelineKind === "action"
+        )
+      ),
+    [assistantBlocks]
+  );
+  const browserSession = useMemo(() => {
+    const actions = assistantBlocks.filter(
+      (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+        item.timelineKind === "action" && isBrowserAction(item)
+    );
+    const handoffPending = assistantBlocks.some(
+      (item) =>
+        item.timelineKind === "action" &&
+        isComputerHandoffAction(item) &&
+        item.status === "pending" &&
+        item.proposalState === "pending"
+    );
+    return { headId: actions[0]?.id ?? null, actions, handoffPending };
+  }, [assistantBlocks]);
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
+  const isRestartResume = message.role === "user" && content.startsWith(RESTART_RESUME_NOTICE_HEADER);
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -814,7 +856,8 @@ function MessageBubbleImpl({
         {isOpen && thinkingShellContent ? (
           <div
             className="markdown-body thinking-markdown-body mt-1.5"
-            onClick={() => {
+            onClick={(event) => {
+              if (openMermaidFullscreenFromCard(event)) return;
               if (!window.getSelection()?.toString()) {
                 toggleThinkingItem(id);
               }
@@ -858,6 +901,80 @@ function MessageBubbleImpl({
             onDismiss={onDismissMemoryProposal}
             readOnly={readOnly}
           />
+        </div>
+      );
+    }
+
+    if (isMessageDraftAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <MessageDraftCard
+            action={item}
+            onSend={onSendMessageDraft}
+            onDiscard={onDiscardMessageDraft}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
+    if (isToolApprovalAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ToolApprovalCard
+            action={item}
+            onApprove={onApproveToolApproval}
+            onDismiss={onDismissToolApproval}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
+    if (isComputerHandoffAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ComputerHandoffCard action={item} conversationId={computerConversationId} readOnly={readOnly} />
+        </div>
+      );
+    }
+
+    if (isSecretRequestAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <SecretRequestCard action={item} readOnly={readOnly} />
+        </div>
+      );
+    }
+
+    if (isBrowserAction(item)) {
+      if (item.id !== browserSession.headId) {
+        return null;
+      }
+      const stepsKey = `browser_${item.id}`;
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ComputerSessionCard
+            actions={browserSession.actions}
+            liveConversationId={computerLive ? computerConversationId : undefined}
+            handoffPending={browserSession.handoffPending}
+            stepsOpen={toolOpenItems[stepsKey] ?? false}
+            onToggleSteps={() => toggleToolItem(stepsKey)}
+          >
+            {browserSession.actions.map((action) => (
+              <CollapsibleActionRow
+                key={action.id}
+                action={action}
+                isOpen={toolOpenItems[action.id] ?? false}
+                onToggle={() => toggleToolItem(action.id)}
+              />
+            ))}
+          </ComputerSessionCard>
         </div>
       );
     }
@@ -953,13 +1070,14 @@ function MessageBubbleImpl({
     !(showThinkingShell && thinkingInProgress);
   const showStatusLine =
     useStatusLine &&
-    isAssistantStreaming &&
-    message.status !== "error" &&
-    message.status !== "stopped" &&
     !compactionInProgress &&
-    !lastBlockIsStreamingText &&
-    !lastBlockIsRunningDelegate &&
-    (lastBlockIsRunningAction || lastBlockIsRunningThinking || thinkingInProgress || betweenSteps);
+    (awaitingFirstToken ||
+      toolActivity.total > 0 ||
+      (isAssistantStreaming &&
+        (lastBlockIsRunningAction ||
+          lastBlockIsRunningThinking ||
+          thinkingInProgress ||
+          betweenSteps)));
   const statusLineRunningAction = useStatusLine
     ? assistantBlocks
         .slice()
@@ -974,13 +1092,42 @@ function MessageBubbleImpl({
         ? statusLineRunningAction.arguments.query.trim()
         : "") || statusLineRunningAction.detail.trim()
     : "";
-  const statusLineLabel = statusLineRunningAction
+  const statusLineLive =
+    awaitingFirstToken ||
+    Boolean(statusLineRunningAction) ||
+    lastBlockIsRunningThinking ||
+    thinkingInProgress ||
+    (toolActivity.total === 0 && betweenSteps);
+  const statusLineLiveLabel = statusLineRunningAction
     ? statusLineWebSearchQuery
       ? `${statusLineRunningAction.label}: ${statusLineWebSearchQuery}`
       : statusLineRunningAction.label
     : lastBlockIsRunningThinking || thinkingInProgress
       ? "Thinking…"
       : "Working…";
+  const statusLineLabel = statusLineLive ? statusLineLiveLabel : toolActivity.text;
+  const statusLineRecord = showStatusLine ? (
+    <StatusLine
+      label={statusLineLabel}
+      live={statusLineLive}
+      rows={toolActivity.rows}
+      isOpen={statusLineOpen}
+      onToggle={() => setStatusLineOpen((open) => !open)}
+    />
+  ) : null;
+  const statusLineInsertionIndex = assistantBlocks.reduce((insertionIndex, item, index) => {
+    const isActivity =
+      item.timelineKind === "thinking" ||
+      (item.timelineKind === "action" &&
+        !isMemoryProposalAction(item) &&
+        !isAutomationProposalAction(item) &&
+        !isToolApprovalAction(item) &&
+        !isMessageDraftAction(item) &&
+        !isComputerHandoffAction(item) &&
+        !isSecretRequestAction(item));
+
+    return isActivity ? index + 1 : insertionIndex;
+  }, 0);
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -1050,24 +1197,22 @@ function MessageBubbleImpl({
   }
 
   if (message.role === "user") {
+    if (isRestartResume && !isEditing) {
+      return (
+        <AutomatedMessageMarker messageId={message.id} testId="restart-resume-message">
+          <RefreshCw className="mr-1.5 inline h-3 w-3 align-[-2px] text-white/40" aria-hidden="true" />
+          Resumed after a server restart
+        </AutomatedMessageMarker>
+      );
+    }
+
     if (delegationWake && !isEditing) {
       return (
-        <Message from="user" data-message-id={message.id}>
-          <div
-            className="flex w-full min-w-0 flex-col items-stretch gap-2"
-            data-testid="delegation-wake-message"
-          >
-            <div className="flex w-full min-w-0 justify-center">
-              <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
-                <span className="min-w-0 truncate">
-                  {"Message from "}
-                  <DelegateBotGlyph botName={delegationWake.botName} />
-                  <span className="text-white/60">{delegationWake.botName}</span>
-                </span>
-              </span>
-            </div>
-          </div>
-        </Message>
+        <AutomatedMessageMarker messageId={message.id} testId="delegation-wake-message">
+          {"Message from "}
+          <DelegateBotGlyph botName={delegationWake.botName} />
+          <span className="text-white/60">{delegationWake.botName}</span>
+        </AutomatedMessageMarker>
       );
     }
 
@@ -1095,8 +1240,18 @@ function MessageBubbleImpl({
                   }}
                 />
               ) : content ? (
-                <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>{content.replace(/\n/g, "  \n")}</Streamdown>
+                <div ref={contentRef} className="markdown-body" onClick={openMermaidFullscreenFromCard}>
+                  <Streamdown
+                    key={referenceRenderKey}
+                    mode="static"
+                    plugins={userPlugins}
+                    linkSafety={linkSafety}
+                    remarkPlugins={userRemarkPlugins}
+                    allowedTags={userRemarkPlugins ? REFERENCE_ALLOWED_TAGS : undefined}
+                    components={userRemarkPlugins ? REFERENCE_COMPONENTS : undefined}
+                  >
+                    {content.replace(/\n/g, "  \n")}
+                  </Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1160,9 +1315,18 @@ function MessageBubbleImpl({
                     </MessageAction>
                   </>
                 ) : !readOnly ? (
-                  <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </MessageAction>
+                  <>
+                    <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </MessageAction>
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="end"
+                      onFork={onForkMessage}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
+                  </>
                 ) : null}
               </div>
             ) : null}
@@ -1191,29 +1355,48 @@ function MessageBubbleImpl({
               compactionInProgress ? (
                 <CompactionIndicator />
               ) : useStatusLine ? (
-                <StatusLine label="Working…" />
+                <StatusLine label="Working…" live />
               ) : (
                 <InProgressIndicator />
               )
             ) : message.status === "error" ? (
-              <div className="group flex w-full min-w-0 flex-col items-start">
-                <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col gap-3`}>
-                  {assistantBlocks
-                    .filter((item) => item.timelineKind !== "text")
-                    .map((item) =>
-                      item.timelineKind === "thinking"
-                        ? renderThinkingShell({
-                            id: item.id,
-                            content: item.content,
-                            status: item.status,
-                            duration: item.completedAt
-                              ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
-                              : undefined
-                          })
-                        : renderAssistantActionItem(item)
+              <div className="group flex w-full min-w-0 flex-col items-center">
+                <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
+                  <div className="flex w-full flex-col items-start gap-3">
+                    {assistantBlocks.map((item) =>
+                    item.timelineKind === "thinking" ? (
+                      renderThinkingShell({
+                        id: item.id,
+                        content: item.content,
+                        status: item.status,
+                        duration: item.completedAt
+                          ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
+                          : undefined
+                      })
+                    ) : item.timelineKind === "action" ? (
+                      renderAssistantActionItem(item)
+                    ) : item.content ? (
+                      <div
+                        key={item.id}
+                        className={ASSISTANT_CONTENT}
+                        data-testid="assistant-message-content"
+                      >
+                        <div className="markdown-body">
+                          <AssistantMarkdown
+                            content={renderedAssistantBlockContentById.get(item.id) ?? item.content}
+                            isAnimating={false}
+                            showCaret={false}
+                            isStatic={false}
+                            linkSafety={linkSafety}
+                          />
+                        </div>
+                      </div>
+                    ) : null
                     )}
+                  </div>
+                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   <div
-                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
+                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
                   >
                     {content || "Something went wrong"}
@@ -1240,10 +1423,14 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
-                    {showStatusLine ? (
-                      <StatusLine label={statusLineLabel} />
-                    ) : null}
-                    {assistantBlocks.map((item) => {
+                    {assistantBlocks.map((item, index) => {
+                      const statusLineSlot =
+                        index === statusLineInsertionIndex && statusLineRecord ? (
+                          <div key="status-line" className="w-full">
+                            {statusLineRecord}
+                          </div>
+                        ) : null;
+
                       if (item.timelineKind === "thinking") {
                         return renderThinkingShell({
                           id: item.id,
@@ -1256,42 +1443,52 @@ function MessageBubbleImpl({
                       }
 
                       if (item.timelineKind === "action") {
-                        return renderAssistantActionItem(item);
+                        return (
+                          <Fragment key={item.id}>
+                            {statusLineSlot}
+                            {renderAssistantActionItem(item)}
+                          </Fragment>
+                        );
                       }
                       const renderedContent =
                         renderedAssistantBlockContentById.get(item.id) ?? item.content;
 
                       if (!renderedContent) {
-                        return null;
+                        return statusLineSlot;
                       }
                       const isStreamingTailBlock =
                         isAssistantStreaming && item.id === lastRenderableAssistantTextId;
                       return (
-                        <div
-                          key={item.id}
-                          className={ASSISTANT_CONTENT}
-                          data-testid="assistant-message-content"
-                        >
-                          <div className="markdown-body">
-                            <AssistantMarkdown
-                              content={renderedContent}
-                              isAnimating={isStreamingTailBlock}
-                              showCaret={isStreamingTailBlock}
-                              isStatic={!isStreamingTailBlock && message.status === "completed"}
-                              linkSafety={linkSafety}
-                            />
-                          </div>
-                          {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
-                            <div className="mt-3">
-                              <AssistantInlineImageAttachments
-                                attachments={assistantImageAttachments}
-                                onPreview={handleAttachmentPreview}
+                        <Fragment key={item.id}>
+                          {statusLineSlot}
+                          <div
+                            className={ASSISTANT_CONTENT}
+                            data-testid="assistant-message-content"
+                          >
+                            <div className="markdown-body" onClick={openMermaidFullscreenFromCard}>
+                              <AssistantMarkdown
+                                content={renderedContent}
+                                isAnimating={isStreamingTailBlock}
+                                showCaret={isStreamingTailBlock}
+                                isStatic={!isStreamingTailBlock && message.status === "completed"}
+                                linkSafety={linkSafety}
                               />
                             </div>
-                          ) : null}
-                        </div>
+                            {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                              <div className="mt-3">
+                                <AssistantInlineImageAttachments
+                                  attachments={assistantImageAttachments}
+                                  onPreview={handleAttachmentPreview}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        </Fragment>
                       );
                     })}
+                    {statusLineRecord && statusLineInsertionIndex >= assistantBlocks.length ? (
+                      <div className="w-full">{statusLineRecord}</div>
+                    ) : null}
                     {showStandaloneAssistantImageBubble ? (
                       <div
                         className={ASSISTANT_CONTENT}
@@ -1338,25 +1535,18 @@ function MessageBubbleImpl({
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </MessageAction>
-                    {onForkAssistantMessage && message.status === "completed" ? (
-                      <MessageAction
-                        label="Fork conversation from message"
-                        tooltip="Fork conversation from message"
-                        onClick={() => onForkAssistantMessage(message.id)}
-                        disabled={isForking}
-                      >
-                        {isForking ? (
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <GitFork className="h-3.5 w-3.5" />
-                        )}
-                      </MessageAction>
-                    ) : null}
+                    <MessageActionsMenu
+                      messageId={message.id}
+                      align="start"
+                      onFork={message.status === "completed" ? onForkMessage : undefined}
+                      onRewind={onRewindMessage}
+                      isForking={isForking}
+                    />
                   </div>
                 ) : null}
               </div>
-            ) : showStatusLine ? (
-              <StatusLine label={statusLineLabel} />
+            ) : statusLineRecord ? (
+              <div className="w-full">{statusLineRecord}</div>
             ) : null}
           </div>
         </div>

@@ -14,6 +14,7 @@ import type {
   McpServer,
   PromptMessage
 } from "@/lib/types";
+import { getBotByConversationId } from "@/lib/bots";
 
 function promptResult(messages: PromptMessage[]) {
   const content = messages.at(-1)?.content;
@@ -39,7 +40,8 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
     imageGenerationToolEnabled: context.imageGenerationToolEnabled,
     restrictToGenerateImage: context.restrictToGenerateImage,
-    effectiveVisionMode: context.effectiveVisionMode
+    effectiveVisionMode: context.effectiveVisionMode,
+    computerHandoffEnabled: Boolean(context.conversationId && getBotByConversationId(context.conversationId))
   });
   const mcpServers: McpServer[] = context.mcpToolSets.map(({ server }) => server);
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
@@ -52,7 +54,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     overridesBuiltInTool:
       definition.function.name === "load_skill" ||
       definition.function.name === "execute_shell_command",
-    skipPermission: true,
     handler: async (argumentsValue: unknown) => {
       throwIfChatTurnAborted(context.abortSignal);
       const toolCallId = `copilot_tool_${crypto.randomUUID()}`;
@@ -77,7 +78,8 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
             appSettings: context.appSettings,
             conversationId: context.conversationId,
             assistantMessageId: context.assistantMessageId,
-            abortSignal: context.abortSignal
+            abortSignal: context.abortSignal,
+            toolApproval: context.toolApproval
           },
           mcpServers,
           loadedSkillIds: context.loadedSkillIds,

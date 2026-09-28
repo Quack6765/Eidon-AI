@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, ShieldCheck, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -15,6 +15,10 @@ import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
+import { BotIsolationStatus } from "@/components/settings/bot-isolation-status";
+import { SavedLoginsSettings } from "@/components/settings/integration-settings/saved-logins-settings";
+import type { IsolationStatus } from "@/lib/shell-isolation";
+import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
@@ -59,6 +63,13 @@ const GENERAL_SECTIONS = [
     icon: Gauge
   },
   {
+    id: "tool-approvals",
+    label: "Tool approvals",
+    description: "Allowed commands and tools",
+    detail: "Review and revoke the commands and MCP tools that are always allowed to run.",
+    icon: ShieldCheck
+  },
+  {
     id: "speech",
     label: "Speech-to-text",
     description: "Dictation engine and language",
@@ -96,8 +107,8 @@ const GENERAL_SECTIONS = [
   {
     id: "bots",
     label: "Bots",
-    description: "Team base prompt",
-    detail: "Set the base system prompt shared by every bot on the team.",
+    description: "Base prompt, sandbox and logins",
+    detail: "Set the base system prompt shared by every bot on the team, check the sandbox bots run in, and manage the logins they may fill.",
     icon: Bot
   }
 ] as const;
@@ -106,10 +117,12 @@ type GeneralSectionId = (typeof GENERAL_SECTIONS)[number]["id"];
 
 export function GeneralSection({
   settings,
-  canManageGlobalIntegrations = false
+  canManageGlobalIntegrations = false,
+  botIsolation
 }: {
   settings: GeneralSectionSettings;
   canManageGlobalIntegrations?: boolean;
+  botIsolation?: IsolationStatus;
 }) {
   const router = useRouter();
   const toast = useToastState();
@@ -120,7 +133,24 @@ export function GeneralSection({
   const [isBotPromptOpen, setIsBotPromptOpen] = useState(false);
   const persistedDraft = useRef(initialDraft);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReplayingSetup, setIsReplayingSetup] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(draft);
+
+  async function replaySetup() {
+    setIsReplayingSetup(true);
+    try {
+      const response = await fetch("/api/onboarding", { method: "DELETE" });
+      if (!response.ok) {
+        toast.showToast("error", "Unable to restart setup");
+        setIsReplayingSetup(false);
+        return;
+      }
+      router.push("/onboarding");
+    } catch {
+      toast.showToast("error", "Unable to restart setup");
+      setIsReplayingSetup(false);
+    }
+  }
 
   useEffect(() => {
     const next = createGeneralSettingsDraft(settings);
@@ -279,7 +309,7 @@ export function GeneralSection({
         </div>
         <div className="space-y-1.5">
           <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
-          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or keep one quiet status line that summarizes the turn and opens on click.</p>
           <select
             id="tool-call-display"
             value={draft.preferences.toolCallDisplay}
@@ -292,6 +322,18 @@ export function GeneralSection({
             <option value="pills">Tool pills</option>
             <option value="status_line">Single status line</option>
           </select>
+        </div>
+        <div className="space-y-1.5 border-t border-white/[0.06] pt-6">
+          <p className={fieldLabel}>First-run setup</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Walk through the setup questions again, including the side-by-side tool activity demos.</p>
+          <button
+            type="button"
+            onClick={replaySetup}
+            disabled={isReplayingSetup}
+            className="mt-2 inline-flex min-h-9 items-center rounded-full border border-white/8 bg-white/[0.03] px-4 text-[13px] text-[var(--text)] transition hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            {isReplayingSetup ? "Opening…" : "Replay setup"}
+          </button>
         </div>
       </div>
     ),
@@ -366,6 +408,9 @@ export function GeneralSection({
           />
         </div>
       </div>
+    ),
+    "tool-approvals": (
+      <ToolApprovalRulesSettings active={activeSection === "tool-approvals"} />
     ),
     speech: (
       <SpeechTranscriptionSettings
@@ -506,6 +551,8 @@ export function GeneralSection({
             </div>
           ) : null}
         </div>
+        {botIsolation ? <BotIsolationStatus status={botIsolation} /> : null}
+        <SavedLoginsSettings active={activeSection === "bots"} />
       </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;

@@ -65,6 +65,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
     defaultView: "chat",
+    hasCompletedOnboarding: true,
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
       configuration: searchProvider === "searxng"
@@ -136,6 +137,19 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       "botSystemPrompt", "semanticRecallEnabled"
     ].includes(key)))
   };
+}
+
+function mockSettingsFetch(settings: GeneralSectionSettings) {
+  vi.mocked(global.fetch).mockImplementation(async (url) =>
+    ({
+      ok: true,
+      json: async () => (url === "/api/saved-logins" ? { savedLogins: [] } : { settings })
+    }) as Response
+  );
+}
+
+function settingsCalls() {
+  return vi.mocked(global.fetch).mock.calls.filter(([url]) => url !== "/api/saved-logins");
 }
 
 describe("general section", () => {
@@ -374,12 +388,30 @@ describe("general section", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows how well bots are sandboxed on this server in the Bots section", () => {
+    const { rerender } = render(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "active" }));
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    const status = () => screen.getByTestId("bot-isolation-status");
+    expect(status()).toHaveTextContent("Bot sandbox");
+    expect(status()).toHaveTextContent("Active");
+    expect(status()).toHaveTextContent("blocks this server and your local network");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "filesystem" }));
+    expect(status()).toHaveTextContent("Files only");
+    expect(status()).toHaveTextContent("older than 6.7");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "unavailable" }));
+    expect(status()).toHaveTextContent("Unavailable");
+    expect(status()).toHaveTextContent("could read Eidon's data");
+
+    rerender(React.createElement(GeneralSection, { settings: makeSettings() }));
+    expect(screen.queryByTestId("bot-isolation-status")).not.toBeInTheDocument();
+  });
+
   it("edits and resets the bot base system prompt from the Bots section", async () => {
     const settings = makeSettings({ botSystemPrompt: "Custom team base." });
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings })
-    } as Response);
+    mockSettingsFetch(settings);
 
     render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
@@ -392,20 +424,17 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(settingsCalls()).toHaveLength(1);
     });
 
-    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const putCall = settingsCalls()[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.botPrompt).toEqual({ prompt: "" });
   });
 
   it("locks the bot base prompt for non-admins", async () => {
     const settings = makeSettings({ botSystemPrompt: "Admin only." });
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings })
-    } as Response);
+    mockSettingsFetch(settings);
 
     render(React.createElement(GeneralSection, { settings }));
 
@@ -418,10 +447,10 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(settingsCalls()).toHaveLength(1);
     });
 
-    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const putCall = settingsCalls()[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body).not.toHaveProperty("botPrompt");
   });
@@ -1213,7 +1242,14 @@ describe("general section", () => {
     const select = screen.getByLabelText("Memory proactiveness") as HTMLSelectElement;
     expect(select.value).toBe("balanced");
     expect(Array.from(select.options).map((option) => option.value)).toEqual(["low", "balanced", "high"]);
-    expect(screen.getByRole("button", { name: "What each proactiveness level does" })).toBeInTheDocument();
+    expect(screen.getByText("Save durable facts about you and recall them in every conversation")).toBeInTheDocument();
+
+    const helpButton = screen.getByRole("button", { name: "What each proactiveness level does" });
+    expect(helpButton).toBeInTheDocument();
+    fireEvent.click(helpButton);
+    expect(
+      await screen.findByText(/Proactively offers durable facts about you that apply in any conversation/, { exact: false })
+    ).toBeInTheDocument();
   });
 
   it("saves the semantic recall bundle when an admin toggles it on", async () => {

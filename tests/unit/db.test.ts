@@ -354,6 +354,105 @@ describe("db", () => {
     expect(globalDefault.tool_call_display).toBe("pills");
   });
 
+  it("adds the onboarding completion column to user preferences only", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const globalColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userColumns).toEqual(expect.arrayContaining(["has_completed_onboarding"]));
+    // Purely per-user, so it deliberately has no workspace-wide twin.
+    expect(globalColumns).not.toEqual(expect.arrayContaining(["has_completed_onboarding"]));
+  });
+
+  it("defaults the last seen release to empty so an upgraded install still gets announced", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const db = getDb();
+
+    db.exec(
+      `INSERT INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
+       VALUES ('user_legacy', 'legacy', 'admin', 'local', '', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+    );
+    db.prepare(
+      `INSERT INTO user_preferences (user_id, created_at, updated_at) VALUES ('user_legacy', ?, ?)`
+    ).run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+
+    db.exec("ALTER TABLE user_preferences DROP COLUMN last_seen_release");
+    const before = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    expect(before).not.toContain("last_seen_release");
+
+    process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
+    try {
+      migrate(db);
+
+      const row = db
+        .prepare("SELECT last_seen_release FROM user_preferences WHERE user_id = 'user_legacy'")
+        .get() as { last_seen_release: string };
+      expect(row.last_seen_release).toBe("");
+    } finally {
+      delete process.env.NEXT_PUBLIC_APP_VERSION;
+    }
+  });
+
+  it("links existing routine runs to the answer they produced when adding the result column", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const automations = await import("@/lib/automations");
+    const conversations = await import("@/lib/conversations");
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO automations (id, name, prompt, provider_profile_id, schedule_kind, interval_minutes, enabled, created_at, updated_at)
+       VALUES ('auto_backfill', 'Digest', 'Digest', 'profile_backfill', 'interval', 60, 0, ?, ?)`
+    ).run("2026-04-10T07:00:00.000Z", "2026-04-10T07:00:00.000Z");
+    const conversation = conversations.createConversation("Shared thread");
+    const run = automations.createAutomationRun({
+      automationId: "auto_backfill",
+      scheduledFor: "2026-04-10T08:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    automations.attachConversationToRun(run.id, conversation.id);
+    automations.updateAutomationRunStatus(run.id, {
+      status: "completed",
+      startedAt: "2026-04-10T08:00:00.000Z",
+      finishedAt: "2026-04-10T08:05:00.000Z"
+    });
+
+    const createAnswerAt = (content: string, createdAt: string) => {
+      const message = conversations.createMessage({ conversationId: conversation.id, role: "assistant", content });
+      db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(createdAt, message.id);
+    };
+    createAnswerAt("Earlier chat reply", "2026-04-10T07:59:00.000Z");
+    createAnswerAt("Routine answer", "2026-04-10T08:01:00.000Z");
+    createAnswerAt("Later chat reply", "2026-04-10T08:30:00.000Z");
+
+    db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
+    migrate(db);
+
+    expect(automations.getPreviousAutomationRunResult("auto_backfill", "run_next")).toBe("Routine answer");
+  });
+
+  it("seeds new accounts with the running version so a fresh install is not announced", async () => {
+    process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
+    try {
+      const { createLocalUser } = await import("@/lib/users");
+      const { getGlobalPreferences } = await import("@/lib/global-preferences");
+      const { getUserPreferences } = await import("@/lib/user-preferences");
+
+      const created = await createLocalUser({ username: "fresh", password: "password123", role: "admin" });
+
+      expect(getUserPreferences(created.id, getGlobalPreferences()).lastSeenRelease).toBe("v4.9.0");
+    } finally {
+      delete process.env.NEXT_PUBLIC_APP_VERSION;
+    }
+  });
+
   it("adds memory proposal columns to message_actions", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
@@ -911,6 +1010,37 @@ describe("db", () => {
       content: "Pending during restart"
     });
     conversations.claimNextQueuedMessageForDispatch(conversation.id);
+    const users = await import("@/lib/users");
+    const bots = await import("@/lib/bots");
+    const botRuns = await import("@/lib/bot-runs");
+    const owner = await users.createLocalUser({ username: "restart-owner", password: "password-123", role: "user" });
+    const worker = bots.createBot({ name: "Interrupted worker" }, owner.id);
+    const botRun = botRuns.createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "delegated"
+    });
+    botRuns.updateBotRunStatus(botRun.id, { status: "running", startedAt: "2026-07-12T12:00:00.000Z" });
+    const pausedBotRun = botRuns.createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "routine"
+    });
+    botRuns.updateBotRunStatus(pausedBotRun.id, { status: "waiting_user", startedAt: "2026-07-12T12:00:00.000Z" });
+    const toolApprovalAction = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "tool_approval",
+      label: "Allow \"git\" commands?",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
+    const delegationAction = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "message_bot",
+      label: "Messaged Interrupted worker",
+      status: "pending"
+    });
     const automation = automations.createAutomation({
       name: "Interrupted automation",
       prompt: "Run",
@@ -976,15 +1106,39 @@ describe("db", () => {
     const recoveredRun = reopened
       .prepare("SELECT status, finished_at FROM automation_runs WHERE id = ?")
       .get(automationRun.id) as { status: string; finished_at: string | null };
+    const recoveredBotRun = reopened
+      .prepare("SELECT status, finished_at, error_message FROM bot_runs WHERE id = ?")
+      .get(botRun.id) as { status: string; finished_at: string | null; error_message: string | null };
+    const recoveredDelegationAction = reopened
+      .prepare("SELECT status, result_summary, completed_at FROM message_actions WHERE id = ?")
+      .get(delegationAction.id) as { status: string; result_summary: string; completed_at: string | null };
 
     expect(recoveredConversation).toEqual({ is_active: 0, title_generation_status: "failed" });
-    expect(recoveredMessage.status).toBe("error");
+    expect(recoveredMessage.status).toBe("stopped");
     expect(recoveredAction.status).toBe("error");
     expect(recoveredAction.completed_at).not.toBeNull();
-    expect(recoveredQueue).toEqual({ status: "failed", processing_started_at: null });
+    expect(recoveredQueue).toEqual({ status: "pending", processing_started_at: null });
     expect(recoveredPendingQueue).toEqual({ status: "pending", processing_started_at: null });
-    expect(recoveredRun.status).toBe("failed");
-    expect(recoveredRun.finished_at).not.toBeNull();
+    expect(recoveredRun).toEqual({ status: "queued", finished_at: null });
+    expect(recoveredBotRun.status).toBe("stopped");
+    expect(recoveredBotRun.finished_at).not.toBeNull();
+    expect(recoveredBotRun.error_message).toBe("Interrupted by a server restart");
+    expect(recoveredDelegationAction.status).toBe("error");
+    expect(recoveredDelegationAction.result_summary).toContain("interrupted");
+    expect(recoveredDelegationAction.completed_at).not.toBeNull();
+    expect(reopened.prepare("SELECT status FROM bot_runs WHERE id = ?").get(pausedBotRun.id)).toEqual({ status: "stopped" });
+    const recoveredToolApproval = reopened
+      .prepare("SELECT status, proposal_state, proposal_payload_json, completed_at FROM message_actions WHERE id = ?")
+      .get(toolApprovalAction.id) as {
+      status: string;
+      proposal_state: string;
+      proposal_payload_json: string;
+      completed_at: string | null;
+    };
+    expect(recoveredToolApproval.status).toBe("completed");
+    expect(recoveredToolApproval.proposal_state).toBe("dismissed");
+    expect(JSON.parse(recoveredToolApproval.proposal_payload_json)).toMatchObject({ command: "git push", resolution: "stopped" });
+    expect(recoveredToolApproval.completed_at).not.toBeNull();
     expect(bootstrapResult).toMatchObject({
       recovered: {
         conversations: 1,
@@ -992,7 +1146,12 @@ describe("db", () => {
         actions: 1,
         titles: 1,
         queuedMessages: 1,
-        automationRuns: 1
+        automationRuns: 1,
+        delegatedRuns: 0,
+        botRuns: 2,
+        delegationActions: 1,
+        toolApprovals: 1,
+        conversationIds: [conversation.id]
       }
     });
 
@@ -1000,6 +1159,34 @@ describe("db", () => {
     conversations.setConversationActive(laterConversation.id, true);
     expect(runtimeBootstrap.bootstrapRuntimeState()).toBeNull();
     expect(conversations.getConversation(laterConversation.id)?.isActive).toBe(true);
+  });
+
+  it("clears provider pins on bot conversations exactly once so bots follow the default provider", async () => {
+    const dbModule = await import("@/lib/db");
+    const conversations = await import("@/lib/conversations");
+    const users = await import("@/lib/users");
+    const bots = await import("@/lib/bots");
+    const { migrate } = await import("@/lib/db-migrations");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
+
+    const profile = createProviderProfileInput({ id: "profile_pin", name: "Pinned", model: "gpt-pin" });
+    updateProviderCatalog({ defaultProviderProfileId: profile.id, skillsEnabled: false, providerProfiles: [profile] });
+    const owner = await users.createLocalUser({ username: "pin-owner", password: "password-123", role: "user" });
+    const bot = bots.createBot({ name: "Pinned bot" }, owner.id);
+    const plainConversation = conversations.createConversation("Plain", null, { providerProfileId: profile.id }, owner.id);
+    conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
+
+    const db = dbModule.getDb();
+    db.prepare("DELETE FROM migration_flags WHERE name = ?").run("bot_conversations_follow_default_provider");
+    migrate(db);
+
+    expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBeNull();
+    expect(conversations.getConversation(plainConversation.id)?.providerProfileId).toBe(profile.id);
+
+    conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
+    migrate(db);
+    expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBe(profile.id);
   });
 
   it("recovers exact partial compaction copies but rejects conflicting duplicate ids", async () => {

@@ -7,6 +7,7 @@ const vendorPattern = /github|copilot|google|assemblyai|elevenlabs|\bexa\b|tavil
 
 const allowedVendorPaths = new Set([
   "app/api/providers/github/callback/route.ts",
+  "components/onboarding/provider-logo.tsx",
   "components/settings/integration-settings/image-generation-settings.tsx",
   "components/settings/integration-settings/web-search-settings.tsx",
   "components/settings/provider-connection-fields.tsx",
@@ -43,7 +44,10 @@ const allowedVendorPathPrefixes = ["lib/provider-adapters/"];
 const allowedSharedLines: Record<string, RegExp[]> = {
   "app/layout.tsx": [/next\/font\/google/],
   "components/settings/sections/notifications-section.tsx": [/PUSH_SERVICE_HOST_SUFFIXES/],
+  "lib/agent-computer.ts": [/"\/usr\/bin\/google-chrome(?:-stable)?"/, /"\/Applications\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome"/],
   "components/shared-conversation-view.tsx": [/github\.com\/Quack6765\/Eidon-AI/],
+  "lib/constants.ts": [/github\.com\/Quack6765\/Eidon-AI\/releases/],
+  "lib/release-highlights.ts": [/GITHUB_RELEASES_URL/],
   "lib/markdown/formatting-rules-prompt.ts": [/GitHub (?:Flavored Markdown|pipe tables|alert\/admonition blocks)/],
   "lib/mobile-api.ts": [
     /"comfyuiBearerToken"/,

@@ -36,6 +36,7 @@ export function buildToolDefinitions(input: {
   mcpToolSets: ToolSet[];
   skills: Skill[];
   loadedSkillIds: Set<string>;
+  botWorkspaceSkillsEnabled?: boolean;
   memoriesEnabled: boolean;
   memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
@@ -50,6 +51,7 @@ export function buildToolDefinitions(input: {
     roster: BotRosterEntry[];
   };
   semanticRecallAvailable?: boolean;
+  computerHandoffEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -83,12 +85,16 @@ export function buildToolDefinitions(input: {
   }
 
   const tools: ToolDefinition[] = [];
+  let hasSendingMcpTool = false;
 
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
     if (server.isVisionMcp && input.effectiveVisionMode !== "mcp") {
       continue;
     }
     for (const tool of mcpTools) {
+      if (tool.annotations?.readOnlyHint !== true) {
+        hasSendingMcpTool = true;
+      }
       const enumHints = extractEnumHints(tool.inputSchema ?? {});
       tools.push({
         type: "function",
@@ -106,6 +112,36 @@ export function buildToolDefinitions(input: {
     }
   }
 
+  if (hasSendingMcpTool) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "draft_message",
+        description:
+          "Prepare an outgoing message — an email, a Slack or chat message, a reply, a post, or a comment — as a draft the user reviews, edits, and sends from a card in this conversation. Use it instead of calling a connected tool that sends, posts, or replies on the user's behalf; call that tool directly only when the user explicitly asks to skip the draft. Nothing is sent until the user presses Send, which calls the tool you name with the arguments you give (after any edits). You can leave several drafts at once. To revise a draft that is still waiting, pass its id as replaces_draft_id so the old version is withdrawn. Never claim a message was sent — say the draft is ready for them to review and send.",
+        parameters: {
+          type: "object",
+          properties: {
+            tool: {
+              type: "string",
+              description: "Exact name of the connected tool that sends the message, as it appears in your tool list (for example mcp_gmail_send_message)"
+            },
+            arguments: {
+              type: "object",
+              additionalProperties: true,
+              description: "Complete arguments for that tool, exactly as its schema expects, including recipients and the full message text"
+            },
+            replaces_draft_id: {
+              type: "string",
+              description: "Optional id of an earlier draft that is still waiting; it is withdrawn and replaced by this one"
+            }
+          },
+          required: ["tool", "arguments"]
+        }
+      }
+    });
+  }
+
   if (input.skills.length) {
     tools.push({
       type: "function",
@@ -118,6 +154,26 @@ export function buildToolDefinitions(input: {
             skill_name: { type: "string", description: "Name of the skill to load" }
           },
           required: ["skill_name"]
+        }
+      }
+    });
+  }
+
+  if (input.botWorkspaceSkillsEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "save_skill",
+        description:
+          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Saving under an existing skill's exact name updates it. Use it whenever you develop a workflow or set of instructions worth reusing later.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short skill name, e.g. \"Release Notes\". Use an existing skill's exact name to update it." },
+            description: { type: "string", description: "One-line description of when the skill applies" },
+            instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
+          },
+          required: ["name", "description", "instructions"]
         }
       }
     });
@@ -158,7 +214,7 @@ export function buildToolDefinitions(input: {
         type: "object",
         properties: {
           command: { type: "string", description: "The command to execute" },
-          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
+          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" }
         },
         required: ["command"]
       }
@@ -213,6 +269,61 @@ export function buildToolDefinitions(input: {
     }
   });
 
+  if (input.botTeam || input.computerHandoffEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "request_takeover",
+        description:
+          "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
+        parameters: {
+          type: "object",
+          properties: {
+            reason: {
+              type: "string",
+              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
+            }
+          },
+          required: ["reason"]
+        }
+      }
+    });
+    tools.push({
+      type: "function",
+      function: {
+        name: "request_secret",
+        description:
+          "Ask the user for a password, one-time code or other secret and have Eidon type it straight into a field of the page open in your browser. You never see the value, and it is hidden from your later tool results. Open the page first. If the user saved this secret for the site before, Eidon fills it without asking. Never ask for secrets in the chat.",
+        parameters: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string",
+              description: "What the secret is, in a few words, e.g. 'password' or 'one-time code'"
+            },
+            origin: {
+              type: "string",
+              description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+            },
+            target: {
+              type: "string",
+              description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
+            },
+            save: {
+              type: "boolean",
+              description: "Offer to save it for this site so it is filled without asking next time. Use for passwords, not one-time codes"
+            },
+            replace_saved: {
+              type: "boolean",
+              description: "Set when a saved value turned out to be wrong: ask the user for a new one and save it over the old one"
+            }
+          },
+          required: ["label", "origin", "target"]
+        }
+      }
+    });
+  }
+
   if (input.botTeam) {
     const rosterSummary = input.botTeam.roster.length
       ? input.botTeam.roster
@@ -244,6 +355,44 @@ export function buildToolDefinitions(input: {
       }
     });
 
+    tools.push({
+      type: "function",
+      function: {
+        name: "check_bot",
+        description:
+          "Check on a bot without interrupting it: returns whether it is idle, queued, running or stalled, how long it has been working, its current step, and its latest output so far. Use this when the user asks how a delegated task is going. Never use message_bot just to ask a bot for a status update.",
+        parameters: {
+          type: "object",
+          properties: {
+            bot: {
+              type: "string",
+              description: "Name or id of a bot on the team"
+            }
+          },
+          required: ["bot"]
+        }
+      }
+    });
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "update_own_instructions",
+        description:
+          "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
+        parameters: {
+          type: "object",
+          properties: {
+            instructions: {
+              type: "string",
+              description: "The complete new instructions that replace the current ones"
+            }
+          },
+          required: ["instructions"]
+        }
+      }
+    });
+
     if (input.botTeam.isChief) {
       tools.push(
         {
@@ -251,7 +400,7 @@ export function buildToolDefinitions(input: {
           function: {
             name: "create_bot",
             description:
-              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. After creation, send work to it with message_bot.",
+              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. Always write the bot's specific instructions in the same call — its identity, what it owns, how it should work, its quality bar, and what to avoid — never a generic placeholder. After creation, send work to it with message_bot.",
             parameters: {
               type: "object",
               properties: {
@@ -260,9 +409,14 @@ export function buildToolDefinitions(input: {
                 description: {
                   type: "string",
                   description: "What this bot owns and how it should work (optional)"
+                },
+                instructions: {
+                  type: "string",
+                  description:
+                    "The bot's specific instructions: its identity, what it owns, how it should work, its quality bar, and what to avoid"
                 }
               },
-              required: ["name"]
+              required: ["name", "instructions"]
             }
           }
         },
@@ -271,7 +425,7 @@ export function buildToolDefinitions(input: {
           function: {
             name: "update_bot",
             description:
-              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or system prompt. Prefer this over creating a duplicate bot.",
+              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or instructions. Prefer this over creating a duplicate bot.",
             parameters: {
               type: "object",
               properties: {
@@ -285,9 +439,9 @@ export function buildToolDefinitions(input: {
                   type: "string",
                   description: "New description of what this bot owns (optional)"
                 },
-                system_prompt: {
+                instructions: {
                   type: "string",
-                  description: "New base system prompt shaping how the bot works (optional)"
+                  description: "New instructions replacing how the bot works (optional)"
                 }
               },
               required: ["bot"]
@@ -393,7 +547,11 @@ export function buildToolDefinitions(input: {
           parameters: {
             type: "object",
             properties: {
-              content: { type: "string", description: "The fact to remember" },
+              content: {
+                type: "string",
+                description:
+                  "The fact to remember, written as a general statement about the user (for example \"Prefers concise answers without preamble\") rather than a note about this conversation"
+              },
               category: { type: "string", description: "One of: personal, preference, work, location, other" }
             },
             required: ["content", "category"]
@@ -404,13 +562,20 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "update_memory",
-          description: "Update an existing memory when a fact has changed.",
+          description:
+            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation.",
           parameters: {
             type: "object",
             properties: {
-              id: { type: "string", description: "The memory ID to update" },
-              content: { type: "string", description: "The updated fact" },
-              category: { type: "string", description: "New category (optional)" }
+              id: { type: "string", description: "The memory ID shown before the fact in the memory list" },
+              content: {
+                type: "string",
+                description: "The full replacement fact, written to stand on its own outside this conversation"
+              },
+              category: {
+                type: "string",
+                description: "New category (optional). One of: personal, preference, work, location, other"
+              }
             },
             required: ["id", "content"]
           }
@@ -420,7 +585,8 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "delete_memory",
-          description: "Delete a stored memory that is no longer relevant or accurate.",
+          description:
+            "Delete a stored memory that is no longer true or no longer useful; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
           parameters: {
             type: "object",
             properties: {

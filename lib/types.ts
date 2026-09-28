@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan";
+export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff" | "secret_request";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -126,6 +126,7 @@ type AppSettingsCore = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  hasCompletedOnboarding: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   speechCleanupEnabled: boolean;
@@ -158,7 +159,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
 
 export type BotRunTriggerSource = "dm" | "delegated" | "routine";
 
-export type BotRunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+export type BotRunStatus = "queued" | "running" | "waiting_user" | "completed" | "failed" | "stopped";
 
 export type Bot = {
   id: string;
@@ -170,6 +171,8 @@ export type Bot = {
   systemPrompt: string;
   isChief: boolean;
   homeConversationId: string;
+  lastReadAt: string | null;
+  lastResultAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -183,11 +186,26 @@ export type BotRun = {
   startedAt: string | null;
   finishedAt: string | null;
   parentMessageId: string | null;
+  requestedByBotId: string | null;
   errorMessage: string | null;
   createdAt: string;
 };
 
-export type BotStatus = "idle" | "queued" | "running";
+export type BotStatus = "idle" | "queued" | "running" | "waiting_user";
+
+export type PendingBotApproval = {
+  botId: string;
+  botName: string;
+  conversationId: string;
+  action: MessageAction;
+};
+
+export type TurnActivity = {
+  startedAt: string;
+  lastActivityAt: string;
+  currentAction: string | null;
+  stalled: boolean;
+};
 
 export type BotSummary = {
   id: string;
@@ -197,7 +215,10 @@ export type BotSummary = {
   avatarSeed: string;
   isChief: boolean;
   homeConversationId: string;
+  providerProfileId: string | null;
   status: BotStatus;
+  waitingForInput: boolean;
+  unread: boolean;
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -456,11 +477,95 @@ export type AutomationProposalPayload = {
   daysOfWeek: number[];
   providerProfileId: string;
   personaId: string | null;
-  continuePreviousConversation: boolean;
+  continuePreviousConversation?: boolean;
+  botId?: string | null;
   automationId?: string | null;
 };
 
-export type ProposalPayload = MemoryProposalPayload | AutomationProposalPayload;
+export type ToolApprovalScope = "shell" | "mcp";
+
+export type ToolApprovalResolution = "once" | "always" | "denied" | "expired" | "stopped";
+
+export type ToolApprovalRule = {
+  id: string;
+  userId: string | null;
+  scope: ToolApprovalScope;
+  family: string;
+  createdAt: string;
+};
+
+export type ToolApprovalProposalPayload = {
+  operation: "tool_approval";
+  scope: ToolApprovalScope;
+  families: string[];
+  classified: boolean;
+  command?: string;
+  mcpServerId?: string;
+  mcpServerName?: string;
+  mcpToolName?: string;
+  arguments?: Record<string, unknown> | null;
+  resolution?: ToolApprovalResolution;
+};
+
+export type DelegationChain = {
+  messagesSent: number;
+};
+
+export type ToolApprovalContext = {
+  userId: string | null;
+  unattended: boolean;
+  timeoutMs?: number;
+  onWaitChange?: (waiting: boolean) => Promise<void> | void;
+};
+
+export type MessageDraftFieldFormat = "text" | "multiline" | "list";
+
+export type MessageDraftField = {
+  key: string;
+  label: string;
+  format: MessageDraftFieldFormat;
+  required: boolean;
+};
+
+export type MessageDraftProposalPayload = {
+  operation: "message_draft";
+  mcpServerId: string;
+  mcpServerName: string;
+  mcpToolName: string;
+  toolLabel: string;
+  arguments: Record<string, unknown>;
+  fields: MessageDraftField[];
+  sendError?: string | null;
+};
+
+export type ComputerHandoffResolution = "returned" | "expired" | "stopped";
+
+export type ComputerHandoffProposalPayload = {
+  operation: "computer_handoff";
+  reason: string;
+  resolution?: ComputerHandoffResolution;
+  note?: string;
+};
+
+export type SecretRequestResolution = "filled" | "declined" | "expired" | "stopped";
+
+export type SecretRequestProposalPayload = {
+  operation: "secret_request";
+  label: string;
+  origin: string;
+  target: string;
+  save: boolean;
+  resolution?: SecretRequestResolution;
+  saved?: boolean;
+};
+
+export type ProposalPayload =
+  | MemoryProposalPayload
+  | AutomationProposalPayload
+  | ToolApprovalProposalPayload
+  | MessageDraftProposalPayload
+  | ComputerHandoffProposalPayload
+  | SecretRequestProposalPayload;
 
 export type UserMemory = {
   id: string;
@@ -494,6 +599,11 @@ export type ConversationSnapshot = {
   queuedMessages: QueuedMessage[];
 };
 
+export type ComposerDraft = {
+  content: string;
+  attachments: MessageAttachment[];
+};
+
 export type MessageAttachment = {
   id: string;
   conversationId: string;
@@ -505,7 +615,19 @@ export type MessageAttachment = {
   relativePath: string;
   kind: AttachmentKind;
   extractedText: string;
+  sourcePath?: string | null;
   createdAt: string;
+};
+
+export type ComputerControlOwner = "bot" | "user";
+
+export type ComputerState = {
+  type: "computer_state";
+  live: boolean;
+  controlOwner: ComputerControlOwner;
+  url: string | null;
+  caption: string | null;
+  viewport: { width: number; height: number } | null;
 };
 
 export type MessageAction = {

@@ -310,6 +310,58 @@ describe("queued-chat-dispatcher", () => {
     expect(listQueuedMessages(conversation.id)).toEqual([]);
   });
 
+  it("requeues a queued message instead of failing it when the conversation is busy", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage, listQueuedMessages } = await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const conversation = createConversation();
+    createQueuedMessage({ conversationId: conversation.id, content: "Queued follow-up" });
+
+    const startChatTurn = vi.fn(async () => ({
+      status: "failed" as const,
+      errorMessage: "Conversation already has an active assistant turn"
+    }));
+
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn
+    });
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    expect(listQueuedMessages(conversation.id)).toEqual([
+      expect.objectContaining({
+        content: "Queued follow-up",
+        status: "pending",
+        failureMessage: null
+      })
+    ]);
+
+    const queueUpdatedEvents = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event);
+
+    expect(queueUpdatedEvents).toEqual([
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({ content: "Queued follow-up", status: "processing" })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({ content: "Queued follow-up", status: "pending" })
+        ]
+      }
+    ]);
+  });
+
   it("dispatches queued messages from the queue", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { createConversation, createQueuedMessage } = await import("@/lib/conversations");

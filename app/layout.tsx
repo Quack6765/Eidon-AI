@@ -3,6 +3,9 @@ import { Inter, Instrument_Serif, Orbitron, Geist } from "next/font/google";
 
 import { APP_NAME } from "@/lib/constants";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
+import { PointerCaptureGuard } from "@/components/pointer-capture-guard";
+import { FullscreenGestureLock } from "@/components/fullscreen-gesture-lock";
+import { DiagramZoomAnchor } from "@/components/diagram-zoom-anchor";
 
 import "streamdown/styles.css";
 import "katex/dist/katex.min.css";
@@ -73,6 +76,9 @@ export default function RootLayout({
     <html lang="en" className={cn(bodyFont.variable, displayFont.variable, wordmarkFont.variable, "font-sans", geist.variable)} suppressHydrationWarning>
       <body>
         <ServiceWorkerRegistration />
+        <PointerCaptureGuard />
+        <FullscreenGestureLock />
+        <DiagramZoomAnchor />
         {children}
       </body>
     </html>

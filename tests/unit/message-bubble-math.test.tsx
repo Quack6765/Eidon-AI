@@ -14,7 +14,8 @@ vi.mock("streamdown", () => ({
 }));
 
 vi.mock("@streamdown/mermaid", () => ({
-  mermaid: { name: "mermaid", type: "diagram", language: "mermaid" }
+  mermaid: { name: "mermaid", type: "diagram", language: "mermaid" },
+  createMermaidPlugin: () => ({ name: "mermaid", type: "diagram", language: "mermaid" })
 }));
 
 import { MessageBubble } from "@/components/message-bubble";

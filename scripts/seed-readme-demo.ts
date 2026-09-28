@@ -37,6 +37,9 @@ async function main() {
           username: README_DEMO_FIXTURES.localAdmin.username,
           password: README_DEMO_FIXTURES.localAdmin.password
         },
+        fixtures: {
+          researchDraftQuestion: README_DEMO_FIXTURES.researchDraftQuestion
+        },
         seeded
       },
       null,

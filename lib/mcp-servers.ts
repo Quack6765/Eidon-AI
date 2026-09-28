@@ -91,6 +91,13 @@ export function listSanitizedMcpServers() {
 
 const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, is_vision_mcp, created_at, updated_at`;
 
+export function hasMcpServers() {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS count FROM mcp_servers")
+    .get() as { count: number };
+  return row.count > 0;
+}
+
 export function listMcpServers() {
   const rows = getDb()
     .prepare(

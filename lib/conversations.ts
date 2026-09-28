@@ -15,6 +15,7 @@ import {
   generateConversationTitle
 } from "@/lib/conversation-title-generator";
 import { copyCompactionStateForConversationFork } from "@/lib/compaction-fork";
+import { getHistoryCutIndex } from "@/lib/conversation-rewind";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import {
@@ -23,6 +24,8 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
+  AutomationProposalPayload,
+  ComposerDraft,
   Conversation,
   ConversationListPage,
   ConversationOrigin,
@@ -53,10 +56,12 @@ export {
   updateQueuedMessage,
   deleteQueuedMessage,
   failQueuedMessage,
+  requeueQueuedMessage,
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
   reorderQueuedMessages,
-  claimNextQueuedMessageForDispatch
+  claimNextQueuedMessageForDispatch,
+  claimQueuedRedirectMessage
 } from "@/lib/conversation-queued-messages";
 import { listQueuedMessages } from "@/lib/conversation-queued-messages";
 
@@ -193,6 +198,38 @@ function rowToMessage(row: {
   };
 }
 
+function normalizeAutomationProposalPayload(
+  parsed: Record<string, unknown>
+): AutomationProposalPayload | null {
+  const providerProfileId = typeof parsed.providerProfileId === "string" ? parsed.providerProfileId : "";
+  if (typeof parsed.name !== "string" || typeof parsed.prompt !== "string" || !providerProfileId) {
+    return null;
+  }
+  const payload: AutomationProposalPayload = {
+    name: parsed.name,
+    prompt: parsed.prompt,
+    scheduleKind: parsed.scheduleKind === "calendar" ? "calendar" : "interval",
+    intervalMinutes: typeof parsed.intervalMinutes === "number" ? parsed.intervalMinutes : null,
+    calendarFrequency:
+      parsed.calendarFrequency === "daily" || parsed.calendarFrequency === "weekly"
+        ? parsed.calendarFrequency
+        : null,
+    timeOfDay: typeof parsed.timeOfDay === "string" ? parsed.timeOfDay : null,
+    daysOfWeek: Array.isArray(parsed.daysOfWeek)
+      ? parsed.daysOfWeek.filter((day): day is number => Number.isInteger(day))
+      : [],
+    providerProfileId,
+    personaId: typeof parsed.personaId === "string" ? parsed.personaId : null,
+    continuePreviousConversation:
+      typeof parsed.continuePreviousConversation === "boolean"
+        ? parsed.continuePreviousConversation
+        : false,
+    ...(typeof parsed.automationId === "string" ? { automationId: parsed.automationId } : {}),
+    ...(typeof parsed.botId === "string" ? { botId: parsed.botId } : {})
+  };
+  return payload;
+}
+
 function parseProposalPayloadJson(
   rawPayload: string,
   kind: MessageActionKind
@@ -203,7 +240,7 @@ function parseProposalPayloadJson(
       return null;
     }
     if (kind === "create_automation") {
-      return parsed as ProposalPayload;
+      return normalizeAutomationProposalPayload(parsed as Record<string, unknown>);
     }
     return parsed as MemoryProposalPayload;
   } catch {
@@ -473,7 +510,8 @@ export function createConversation(
     title: trimmedTitle || DEFAULT_CONVERSATION_TITLE,
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
-    providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
+    providerProfileId:
+      options?.providerProfileId !== undefined ? options.providerProfileId : settings.defaultProviderProfileId,
     reasoningEffort: options?.reasoningEffort ?? null,
     automationId: options?.automationId ?? null,
     automationRunId: options?.automationRunId ?? null,
@@ -539,8 +577,10 @@ function deleteConversationRecord(conversationId: string) {
   const relativePaths = listAttachmentsForConversation(conversationId).map(
     (attachment) => attachment.relativePath
   );
-  const deleted = getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
-  return { deleted, relativePaths };
+  const deleted = getDb()
+    .prepare("DELETE FROM conversations WHERE id = ? AND id NOT IN (SELECT home_conversation_id FROM bots)")
+    .run(conversationId).changes > 0;
+  return { deleted, relativePaths: deleted ? relativePaths : [] };
 }
 
 export function deleteConversation(conversationId: string, userId?: string) {
@@ -589,6 +629,31 @@ export function deleteConversationIfEmpty(conversationId: string, userId?: strin
 
   deleteAttachmentFiles(result.relativePaths);
   return result.deleted;
+}
+
+export function clearConversationContent(conversationId: string) {
+  const relativePaths = listAttachmentsForConversation(conversationId).map(
+    (attachment) => attachment.relativePath
+  );
+
+  const transaction = getDb().transaction((id: string) => {
+    const deleted = getDb()
+      .prepare("DELETE FROM message_attachments WHERE conversation_id = ?")
+      .run(id).changes;
+    getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM memory_nodes WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM compaction_events WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM semantic_chunks WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM messages WHERE conversation_id = ?").run(id);
+    getDb()
+      .prepare("UPDATE conversations SET is_active = 0, updated_at = ? WHERE id = ?")
+      .run(nowIso(), id);
+    return deleted;
+  });
+
+  const deletedAttachments = transaction(conversationId);
+  deleteAttachmentFiles(relativePaths);
+  return { deletedAttachments };
 }
 
 export function renameConversation(conversationId: string, title: string) {
@@ -769,7 +834,7 @@ export function updateMessage(
   return updated;
 }
 
-function listMessageActionsForMessageIds(messageIds: string[]) {
+export function listMessageActionsForMessageIds(messageIds: string[]) {
   if (!messageIds.length) {
     return [];
   }
@@ -1141,14 +1206,18 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       throw new Error("Message not found");
     }
 
-    if (sourceMessage.role !== "assistant") {
-      throw new Error("Only assistant messages can be forked");
+    if (sourceMessage.role === "system") {
+      throw new Error("Only user and assistant messages can be forked");
     }
 
     const sourceConversation = getConversation(sourceMessage.conversationId, userId);
 
     if (!sourceConversation) {
       throw new Error("Conversation not found");
+    }
+
+    if (sourceConversation.conversationOrigin === "bot") {
+      throw new Error("Bot conversations cannot be forked");
     }
 
     const sourceConversationOwnerRow = db
@@ -1162,7 +1231,8 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       throw new Error("Message not found");
     }
 
-    const retainedMessages = sourceMessages.slice(0, selectedIndex + 1);
+    const forkFromUserMessage = sourceMessage.role === "user";
+    const retainedMessages = sourceMessages.slice(0, getHistoryCutIndex(sourceMessage.role, selectedIndex));
     const retainedMessageIds = new Set(retainedMessages.map((message) => message.id));
 
     const forkConversation = createConversation(
@@ -1270,10 +1340,13 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       });
     });
 
+    const attachmentTargetIdBySourceId = new Map<string, string | null>(clonedMessageIdBySourceId);
+    if (forkFromUserMessage) attachmentTargetIdBySourceId.set(sourceMessage.id, null);
+
     const attachmentPublication = copyAttachmentsForConversationFork({
-      sourceMessages: retainedMessages,
+      sourceMessages: forkFromUserMessage ? [...retainedMessages, sourceMessage] : retainedMessages,
       targetConversationId: forkConversation.id,
-      targetMessageIdBySourceId: clonedMessageIdBySourceId
+      targetMessageIdBySourceId: attachmentTargetIdBySourceId
     });
     if (attachmentPublication) attachmentPublications.push(attachmentPublication);
 
@@ -1290,7 +1363,16 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       throw new Error("Conversation not created");
     }
 
-    return hydratedForkConversation;
+    const draft: ComposerDraft | null = forkFromUserMessage
+      ? {
+          content: sourceMessage.content,
+          attachments: listAttachmentsForConversation(forkConversation.id).filter(
+            (attachment) => attachment.messageId === null
+          )
+        }
+      : null;
+
+    return { conversation: hydratedForkConversation, draft };
   });
 
   try {
@@ -1301,13 +1383,216 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
   }
 }
 
+function discardConversationMessages(input: {
+  conversationId: string;
+  messages: Message[];
+  affectedIds: string[];
+  deletedMessages: Message[];
+}) {
+  const db = getDb();
+  const { conversationId, messages, affectedIds, deletedMessages } = input;
+  const deletedIds = deletedMessages.map((item) => item.id);
+
+  if (affectedIds.length === 0) {
+    return [];
+  }
+
+  const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
+  const allNodeRows = (
+    db
+      .prepare(
+        `SELECT
+           id,
+           source_start_message_id,
+           source_end_message_id,
+           child_node_ids
+         FROM memory_nodes
+         WHERE conversation_id = ?`
+      )
+      .all(conversationId) as Array<{
+      id: string;
+      source_start_message_id: string;
+      source_end_message_id: string;
+      child_node_ids: string;
+    }>
+  );
+  const invalidNodeIds = new Set(
+    allNodeRows
+      .filter(
+        (row) =>
+          affectedIds.includes(row.source_start_message_id) ||
+          affectedIds.includes(row.source_end_message_id)
+      )
+      .map((row) => row.id)
+  );
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    allNodeRows.forEach((row) => {
+      if (invalidNodeIds.has(row.id)) {
+        return;
+      }
+
+      const childNodeIds = JSON.parse(row.child_node_ids) as string[];
+      if (childNodeIds.some((childNodeId) => invalidNodeIds.has(childNodeId))) {
+        invalidNodeIds.add(row.id);
+        changed = true;
+      }
+    });
+  }
+
+  const deletedNodeRows = allNodeRows.filter((row) => invalidNodeIds.has(row.id));
+  const deletedNodeIds = deletedNodeRows.map((row) => row.id);
+
+  if (deletedNodeIds.length > 0) {
+    const deletedNodePlaceholders = deletedNodeIds.map(() => "?").join(", ");
+    const deletedIdSet = new Set(deletedIds);
+    const messageIndexById = new Map(messages.map((item, index) => [item.id, index]));
+    const restoredCompactionIds = new Set<string>();
+
+    db.prepare(
+      `DELETE FROM compaction_events
+       WHERE conversation_id = ?
+         AND (
+           node_id IN (${deletedNodePlaceholders})
+           OR source_start_message_id IN (${affectedPlaceholders})
+           OR source_end_message_id IN (${affectedPlaceholders})
+         )`
+    ).run(conversationId, ...deletedNodeIds, ...affectedIds, ...affectedIds);
+
+    db.prepare(
+      `DELETE FROM memory_nodes
+       WHERE conversation_id = ?
+         AND id IN (${deletedNodePlaceholders})`
+    ).run(conversationId, ...deletedNodeIds);
+
+    deletedNodeRows.forEach((row) => {
+      const startIndex = messageIndexById.get(row.source_start_message_id);
+      const endIndex = messageIndexById.get(row.source_end_message_id);
+
+      if (startIndex === undefined || endIndex === undefined) {
+        return;
+      }
+
+      const spanStart = Math.min(startIndex, endIndex);
+      const spanEnd = Math.max(startIndex, endIndex);
+
+      messages.slice(spanStart, spanEnd + 1).forEach((item) => {
+        if (!deletedIdSet.has(item.id)) {
+          restoredCompactionIds.add(item.id);
+        }
+      });
+    });
+
+    db.prepare(
+      `UPDATE memory_nodes
+       SET superseded_by_node_id = NULL
+       WHERE conversation_id = ?
+         AND superseded_by_node_id IN (${deletedNodePlaceholders})`
+    ).run(conversationId, ...deletedNodeIds);
+
+    if (restoredCompactionIds.size > 0) {
+      const restoredPlaceholders = Array.from(restoredCompactionIds).map(() => "?").join(", ");
+
+      db.prepare(
+        `UPDATE messages
+         SET compacted_at = NULL
+         WHERE id IN (${restoredPlaceholders})`
+      ).run(...restoredCompactionIds);
+    }
+  }
+
+  if (deletedIds.length === 0) {
+    return [];
+  }
+
+  const deletedAttachmentPaths = listAttachmentsForMessageIds(deletedIds).map(
+    (attachment) => attachment.relativePath
+  );
+  const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
+  deletedMessages.forEach((item) => deleteMessage.run(item.id));
+
+  return deletedAttachmentPaths;
+}
+
+export function rewindConversationToMessage(messageId: string, userId?: string) {
+  const db = getDb();
+  let deletedAttachmentPaths: string[] = [];
+  const transaction = db.transaction(() => {
+    const message = getMessage(messageId, userId);
+
+    if (!message) {
+      throw new Error("Message not found");
+    }
+
+    if (message.role === "system") {
+      throw new Error("Only user and assistant messages can be rewound to");
+    }
+
+    const conversation = getConversation(message.conversationId, userId);
+
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
+
+    const messages = listMessages(conversation.id);
+    const targetIndex = messages.findIndex((item) => item.id === message.id);
+
+    if (targetIndex === -1) {
+      throw new Error("Message not found");
+    }
+
+    const deletedMessages = messages.slice(getHistoryCutIndex(message.role, targetIndex));
+    let draft: ComposerDraft | null = null;
+
+    if (message.role === "user") {
+      const restoredAt = nowIso();
+      db.prepare(
+        "UPDATE message_attachments SET message_id = NULL, created_at = ? WHERE message_id = ?"
+      ).run(restoredAt, message.id);
+      draft = {
+        content: message.content,
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          ...attachment,
+          messageId: null,
+          createdAt: restoredAt
+        }))
+      };
+    }
+
+    deletedAttachmentPaths = discardConversationMessages({
+      conversationId: conversation.id,
+      messages,
+      affectedIds: deletedMessages.map((item) => item.id),
+      deletedMessages
+    });
+
+    return {
+      snapshot: getConversationSnapshot(conversation.id, userId),
+      deletedMessageIds: deletedMessages.map((item) => item.id),
+      draft
+    };
+  });
+
+  const result = transaction();
+  deleteAttachmentFiles(deletedAttachmentPaths);
+
+  if (!result.snapshot) {
+    throw new Error("Conversation not found");
+  }
+
+  return { ...result, snapshot: result.snapshot };
+}
+
 export function rewriteConversationFromEditedUserMessage(
   messageId: string,
   input: { content: string },
   userId?: string
 ) {
   const db = getDb();
-  const deletedAttachmentPaths = new Set<string>();
+  let deletedAttachmentPaths: string[] = [];
   const transaction = db.transaction(() => {
     const message = getMessage(messageId, userId);
 
@@ -1334,7 +1619,6 @@ export function rewriteConversationFromEditedUserMessage(
 
     const affectedIds = messages.slice(targetIndex).map((item) => item.id);
     const deletedMessages = messages.slice(targetIndex + 1);
-    const deletedIds = deletedMessages.map((item) => item.id);
 
     updateMessage(message.id, {
       content: input.content,
@@ -1345,122 +1629,12 @@ export function rewriteConversationFromEditedUserMessage(
       })
     });
 
-    const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
-    const allNodeRows = (
-      db
-        .prepare(
-          `SELECT
-             id,
-             source_start_message_id,
-             source_end_message_id,
-             child_node_ids
-           FROM memory_nodes
-           WHERE conversation_id = ?`
-        )
-        .all(conversation.id) as Array<{
-        id: string;
-        source_start_message_id: string;
-        source_end_message_id: string;
-        child_node_ids: string;
-      }>
-    );
-    const invalidNodeIds = new Set(
-      allNodeRows
-        .filter(
-          (row) =>
-            affectedIds.includes(row.source_start_message_id) ||
-            affectedIds.includes(row.source_end_message_id)
-        )
-        .map((row) => row.id)
-    );
-
-    let changed = true;
-    while (changed) {
-      changed = false;
-
-      allNodeRows.forEach((row) => {
-        if (invalidNodeIds.has(row.id)) {
-          return;
-        }
-
-        const childNodeIds = JSON.parse(row.child_node_ids) as string[];
-        if (childNodeIds.some((childNodeId) => invalidNodeIds.has(childNodeId))) {
-          invalidNodeIds.add(row.id);
-          changed = true;
-        }
-      });
-    }
-
-    const deletedNodeRows = allNodeRows.filter((row) => invalidNodeIds.has(row.id));
-    const deletedNodeIds = deletedNodeRows.map((row) => row.id);
-
-    if (deletedNodeIds.length > 0) {
-      const deletedNodePlaceholders = deletedNodeIds.map(() => "?").join(", ");
-      const deletedIdSet = new Set(deletedIds);
-      const messageIndexById = new Map(messages.map((item, index) => [item.id, index]));
-      const restoredCompactionIds = new Set<string>();
-
-      db.prepare(
-        `DELETE FROM compaction_events
-         WHERE conversation_id = ?
-           AND (
-             node_id IN (${deletedNodePlaceholders})
-             OR source_start_message_id IN (${affectedPlaceholders})
-             OR source_end_message_id IN (${affectedPlaceholders})
-           )`
-      ).run(conversation.id, ...deletedNodeIds, ...affectedIds, ...affectedIds);
-
-      db.prepare(
-        `DELETE FROM memory_nodes
-         WHERE conversation_id = ?
-           AND id IN (${deletedNodePlaceholders})`
-      ).run(conversation.id, ...deletedNodeIds);
-
-      deletedNodeRows.forEach((row) => {
-        const startIndex = messageIndexById.get(row.source_start_message_id);
-        const endIndex = messageIndexById.get(row.source_end_message_id);
-
-        if (startIndex === undefined || endIndex === undefined) {
-          return;
-        }
-
-        const spanStart = Math.min(startIndex, endIndex);
-        const spanEnd = Math.max(startIndex, endIndex);
-
-        messages.slice(spanStart, spanEnd + 1).forEach((item) => {
-          if (!deletedIdSet.has(item.id)) {
-            restoredCompactionIds.add(item.id);
-          }
-        });
-      });
-
-      db.prepare(
-        `UPDATE memory_nodes
-         SET superseded_by_node_id = NULL
-         WHERE conversation_id = ?
-           AND superseded_by_node_id IN (${deletedNodePlaceholders})`
-      ).run(conversation.id, ...deletedNodeIds);
-
-      if (restoredCompactionIds.size > 0) {
-        const restoredPlaceholders = Array.from(restoredCompactionIds).map(() => "?").join(", ");
-
-        db.prepare(
-          `UPDATE messages
-           SET compacted_at = NULL
-           WHERE id IN (${restoredPlaceholders})`
-        ).run(...restoredCompactionIds);
-      }
-    }
-
-    if (deletedIds.length > 0) {
-      const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
-
-      listAttachmentsForMessageIds(deletedIds).forEach((attachment) => {
-        deletedAttachmentPaths.add(attachment.relativePath);
-      });
-
-      deletedMessages.forEach((item) => deleteMessage.run(item.id));
-    }
+    deletedAttachmentPaths = discardConversationMessages({
+      conversationId: conversation.id,
+      messages,
+      affectedIds,
+      deletedMessages
+    });
 
     setConversationActive(conversation.id, false);
 
@@ -1468,7 +1642,7 @@ export function rewriteConversationFromEditedUserMessage(
   });
 
   const snapshot = transaction();
-  deleteAttachmentFiles([...deletedAttachmentPaths]);
+  deleteAttachmentFiles(deletedAttachmentPaths);
 
   if (!snapshot) {
     throw new Error("Conversation not found");
@@ -1571,7 +1745,11 @@ export function deletePendingUserMessage(conversationId: string, messageId: stri
 
 export function deleteFailedAssistantMessages(conversationId: string): string[] {
   const failedMessages = listMessages(conversationId).filter(
-    (message) => message.role === "assistant" && message.status === "error"
+    (message) =>
+      message.role === "assistant" &&
+      message.status === "error" &&
+      (message.timeline ?? []).length === 0 &&
+      !message.thinkingContent?.trim()
   );
 
   if (failedMessages.length === 0) {
@@ -1968,7 +2146,7 @@ export function moveConversationToFolder(conversationId: string, folderId: strin
 
 export function updateConversationProviderProfile(
   conversationId: string,
-  providerProfileId: string,
+  providerProfileId: string | null,
   userId?: string
 ) {
   const timestamp = nowIso();

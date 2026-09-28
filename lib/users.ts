@@ -1,6 +1,7 @@
 import argon2 from "argon2";
 
 import { deleteAttachmentFiles } from "@/lib/attachments";
+import { getAppVersion } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
@@ -44,8 +45,8 @@ function ensureUserPreferences(userId: string, timestamp = nowIso()) {
   getDb().prepare(`
     INSERT OR IGNORE INTO user_preferences (
       user_id, conversation_retention, memories_enabled, memories_max_count,
-      mcp_timeout, max_assistant_tool_steps, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      mcp_timeout, max_assistant_tool_steps, last_seen_release, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     defaults.conversation_retention,
@@ -53,6 +54,7 @@ function ensureUserPreferences(userId: string, timestamp = nowIso()) {
     defaults.memories_max_count,
     defaults.mcp_timeout,
     defaults.max_assistant_tool_steps,
+    getAppVersion(),
     timestamp,
     timestamp
   );

@@ -15,11 +15,11 @@ import {
 } from "@/lib/research-mode";
 import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
-import { supportsImageInput } from "@/lib/model-capabilities";
-import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
+import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { findReferencedNames } from "./reference-tokens";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -29,6 +29,7 @@ import type {
   ProviderToolCall,
   PromptMessage,
   Skill,
+  ToolApprovalContext,
   VisionMode
 } from "@/lib/types";
 
@@ -116,13 +117,47 @@ function buildCapabilitiesStableSegment(
   return lines.join("\n");
 }
 
-function buildDynamicSkillsSegment(skills: Skill[]) {
-  if (!skills.length) return "";
-  const lines = ["Available skills (metadata only — call load_skill to get full instructions):"];
-  for (const skill of skills) {
-    lines.push(`- ${getSkillResolvedName(skill)}: ${getSkillResolvedDescription(skill)}`);
+function buildDynamicSkillsSegment(skills: Skill[], saveSkillEnabled = false) {
+  if (!skills.length && !saveSkillEnabled) return "";
+
+  const lines: string[] = [];
+
+  if (skills.length) {
+    lines.push("Available skills (metadata only — call load_skill to get full instructions):");
+    for (const skill of skills) {
+      const marker = isBotWorkspaceSkillId(skill.id) ? " (workspace)" : "";
+      lines.push(`- ${getSkillResolvedName(skill)}${marker}: ${getSkillResolvedDescription(skill)}`);
+    }
+    if (saveSkillEnabled) {
+      lines.push(
+        "Skills marked (workspace) are your own — create or update reusable skills with the save_skill tool."
+      );
+    }
+  } else {
+    lines.push(
+      "No skills are available yet. You can create your own reusable skills with the save_skill tool; saved skills become available via load_skill in future turns."
+    );
   }
+
   return lines.join("\n");
+}
+
+const BOT_AUTHORED_PROMPT_PREFIX = "[Message from ";
+
+function buildInvokedSkillsDirective(loadedSkills: string[]) {
+  return [
+    "The user invoked the skills below with / for this message. Their full instructions are already loaded: follow them for this request and do not call load_skill for them again.",
+    ...loadedSkills
+  ].join("\n\n");
+}
+
+function buildBotMentionDirective(botNames: string[]) {
+  const mentions = botNames.map((name) => `@${name}`).join(", ");
+  return [
+    `The user addressed this message to ${mentions}.`,
+    "Hand the request off with message_bot instead of doing the work yourself: one call per mentioned bot, each with the part of the request meant for that bot and the context it needs.",
+    "Then briefly tell the user who you handed it to. Their replies arrive in this conversation."
+  ].join(" ");
 }
 
 function buildVisionMcpDirective(
@@ -218,7 +253,7 @@ function getEffectiveVisionMode(
   hasVisionServers: boolean
 ): VisionMode {
   if (settings.visionMode === "native") {
-    return supportsImageInput(settings.model, getProviderApiMode(settings)) ? "native" : "none";
+    return "native";
   }
   if (settings.visionMode === "mcp") {
     return hasVisionServers ? "mcp" : "none";
@@ -319,7 +354,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
       break;
     }
 
-    input.onEvent?.(next.value);
+    await input.onEvent?.(next.value);
   }
 
   if (!answer.trim()) {
@@ -344,6 +379,7 @@ export async function resolveAssistantTurn(input: {
   memoriesEnabled?: boolean;
   memoriesRigor?: MemoryRigor;
   memoryUserId?: string | null;
+  toolApproval?: ToolApprovalContext;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;
@@ -362,11 +398,14 @@ export async function resolveAssistantTurn(input: {
   appSettings?: import("@/lib/types").RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
+  delegationChain?: import("@/lib/types").DelegationChain;
   botTeam?: {
     isChief: boolean;
     roster: import("@/lib/bots").BotRosterEntry[];
   };
+  botWorkspaceSkillsEnabled?: boolean;
   research?: import("@/lib/types").ChatResearchOptions;
+  takeRedirect?: () => Promise<{ content: string; assistantMessageId: string } | null>;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const baseSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
@@ -403,7 +442,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   const turnSkills = filterSkillsForTurn(input.skills, promptMessages, {
-    includeBrowserSkills: Boolean(input.research)
+    includeBrowserSkills: Boolean(input.research) || Boolean(input.botTeam)
   });
   const toolRuntimeInput = {
     ...input,
@@ -412,7 +451,7 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search", "read_page", "message_bot"]);
+  const parallelizableToolNames = new Set<string>(["web_search", "read_page", "message_bot", "check_bot"]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -459,7 +498,6 @@ export async function resolveAssistantTurn(input: {
       )
     );
   }
-  const dynamicSkillsGuidance = buildDynamicSkillsSegment(turnSkills);
   if (shouldAddInlineAttachmentDirective(promptMessages)) {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
   }
@@ -483,6 +521,36 @@ export async function resolveAssistantTurn(input: {
     }
   }
 
+  const applyComposerReferences = async (userContent: string) => {
+    const invokedSkillNames = findReferencedNames(
+      userContent,
+      "/",
+      turnSkills.map((skill) => getSkillResolvedName(skill))
+    ).map((name) => name.toLowerCase());
+    const invokedSkillContents: string[] = [];
+    for (const skill of turnSkills) {
+      if (loadedSkillIds.has(skill.id) || !invokedSkillNames.includes(getSkillResolvedName(skill).toLowerCase())) continue;
+      invokedSkillContents.push(await loadSkillIntoTurn(skill, input, loadedSkillIds));
+      timelineSortOrder += 1;
+    }
+    if (invokedSkillContents.length) {
+      promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
+    }
+
+    if (input.botTeam && !userContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
+      const mentionedBots = findReferencedNames(
+        userContent,
+        "@",
+        input.botTeam.roster.map((entry) => entry.name)
+      );
+      if (mentionedBots.length) {
+        promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+      }
+    }
+  };
+
+  await applyComposerReferences(getLatestUserPromptContent(promptMessages));
+
   const commitAnswerSegment = async (segment: string) => {
     if (!segment) return;
     if (input.onAnswerSegment) {
@@ -490,8 +558,25 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
+  const applyRedirect = async (answeredMessage?: PromptMessage) => {
+    const redirect = await input.takeRedirect?.();
+    if (!redirect) return false;
+    toolRuntimeInput.assistantMessageId = redirect.assistantMessageId;
+    promptMessages = [
+      ...promptMessages,
+      ...(answeredMessage ? [answeredMessage] : []),
+      { role: "user", content: redirect.content }
+    ];
+    await applyComposerReferences(redirect.content);
+    return true;
+  };
+
   for (let step = 0; step < maxSteps; step += 1) {
     assertRunning();
+
+    if (step > 0 && (await applyRedirect())) {
+      step = 0;
+    }
 
     if (researchCollapseThreshold !== null && estimatePromptTokens(promptMessages) > researchCollapseThreshold) {
       promptMessages = collapseOlderToolResults(promptMessages);
@@ -531,6 +616,7 @@ export async function resolveAssistantTurn(input: {
         input.visionProfile !== undefined &&
         !getProviderReadinessError(input.visionProfile),
       botTeam: input.botTeam,
+      botWorkspaceSkillsEnabled: input.botWorkspaceSkillsEnabled,
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
@@ -540,7 +626,7 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         visionMcpServers
       }),
-      dynamicSkillsGuidance
+      buildDynamicSkillsSegment(turnSkills, input.botWorkspaceSkillsEnabled)
     );
 
     const buildProviderStream = () =>
@@ -555,7 +641,7 @@ export async function resolveAssistantTurn(input: {
           visionProfile: input.visionProfile,
           appSettings: input.appSettings,
           conversationId: input.conversationId,
-          assistantMessageId: input.assistantMessageId,
+          assistantMessageId: toolRuntimeInput.assistantMessageId,
           promptMessages,
           mcpToolSets: input.mcpToolSets,
           skills: turnSkills,
@@ -605,7 +691,7 @@ export async function resolveAssistantTurn(input: {
         toolCalls = next.value.toolCalls ?? [];
         break;
       }
-      input.onEvent?.(next.value);
+      await input.onEvent?.(next.value);
     }
 
     assertRunning();
@@ -619,7 +705,7 @@ export async function resolveAssistantTurn(input: {
         hasUnfulfilledImageGenerationIntent(promptMessages)
       ) {
         imageGenerationIntentRetries += 1;
-        input.onEvent?.({ type: "answer_reset" });
+        await input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
         continue;
       }
@@ -627,10 +713,10 @@ export async function resolveAssistantTurn(input: {
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
         if (memoryIntentRetries < 1) {
           memoryIntentRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
-            "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
+            "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If the fact is durable and would still matter in an unrelated future conversation, call the memory tool now — the call is the offer, so do not ask for permission in words first. If it only matters in this conversation, drop the claim, propose nothing, and answer normally without mentioning memory."
           );
           continue;
         }
@@ -639,7 +725,7 @@ export async function resolveAssistantTurn(input: {
       if (!answer.trim()) {
         if (emptyAnswerRetries < 1) {
           emptyAnswerRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
             "Your previous response was empty. Answer the user directly. Do not emit an empty response."
@@ -649,6 +735,18 @@ export async function resolveAssistantTurn(input: {
         throw new Error("Provider returned an empty response");
       }
       await commitAnswerSegment(answer);
+      if (
+        await applyRedirect({
+          role: "assistant",
+          content: answer,
+          reasoningContent: thinking || undefined,
+          reasoningSignature,
+          responseItems
+        })
+      ) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
 
@@ -656,10 +754,8 @@ export async function resolveAssistantTurn(input: {
       Boolean(answer.trim()) &&
       toolCalls.every((toolCall) => isProposalToolCall(toolCall.name));
 
-    if (isProposalFinalStep || (input.research && answer.trim())) {
+    if (answer.trim()) {
       await commitAnswerSegment(answer);
-    } else {
-      input.onEvent?.({ type: "answer_reset" });
     }
 
     promptMessages = [
@@ -785,6 +881,10 @@ export async function resolveAssistantTurn(input: {
     }
 
     if (isProposalFinalStep) {
+      if (await applyRedirect()) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
   }

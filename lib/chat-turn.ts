@@ -8,6 +8,7 @@ import {
   type ChatTurnControl
 } from "@/lib/chat-turn-control";
 import {
+  claimQueuedRedirectMessage,
   createMessage,
   createMessageTextSegment,
   createMessageAction,
@@ -17,6 +18,7 @@ import {
   getConversationSnapshot,
   getMessage,
   getConversationOwnerId,
+  listQueuedMessages,
   setConversationActive,
   updateMessage,
   updateMessageAction
@@ -31,7 +33,7 @@ import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compa
 import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
-import { listEnabledSkills } from "@/lib/skills";
+import { listConversationSkills } from "@/lib/bot-workspace-skills";
 import {
   getSettings,
   getSettingsForUser,
@@ -40,16 +42,34 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { nowIso } from "@/lib/utils";
-import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId, toBotSummary } from "@/lib/bots";
+import {
+  buildBotSystemPrompt,
+  buildBotRoster,
+  getBot,
+  getBotByConversationId,
+  recordBotResult,
+  toBotSummary
+} from "@/lib/bots";
+import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
   deleteBotRun,
+  setBotRunWaitingForUser,
   updateBotRunStatus
 } from "@/lib/bot-runs";
+import { UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS } from "@/lib/tool-approvals";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
 import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
-import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
+import {
+  beginTurnActivity,
+  endTurnActivity,
+  finishTurnAction,
+  setTurnWaitingForUser,
+  startTurnAction,
+  touchTurnActivity
+} from "@/lib/turn-activity";
+import type { ChatResearchOptions, ChatStreamEvent, DelegationChain, ToolApprovalContext } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -74,8 +94,13 @@ export type StartChatTurn = (
   options?: {
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
-    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
+    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine"; runId?: string };
     research?: ChatResearchOptions;
+    quietWhenBusy?: boolean;
+    unattended?: boolean;
+    providerProfileId?: string;
+    delegationChain?: DelegationChain;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -167,7 +192,7 @@ export async function* runAssistantTurn(input: {
   }
 }
 
-export function getAssistantTurnStartPreflight(conversationId: string) {
+export function getAssistantTurnStartPreflight(conversationId: string, providerProfileId?: string) {
   const conversation = getConversation(conversationId);
   if (!conversation) {
     return {
@@ -178,9 +203,10 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     };
   }
 
+  const resolvedProviderProfileId = providerProfileId ?? conversation.providerProfileId;
   const profileSettings =
-    (conversation.providerProfileId
-      ? getRuntimeProviderProfile(conversation.providerProfileId)
+    (resolvedProviderProfileId
+      ? getRuntimeProviderProfile(resolvedProviderProfileId)
       : null) ?? getDefaultRuntimeProviderProfile();
   const settings = profileSettings
     ? {
@@ -283,6 +309,9 @@ async function startAssistantTurn(
     assistantMessage?: ReturnType<typeof createMessage>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
+    unattended?: boolean;
+    delegationChain?: DelegationChain;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
@@ -298,7 +327,22 @@ async function startAssistantTurn(
     if (!bot) return;
     const botOwnerUserId = bot.userId ?? conversationOwnerId ?? null;
     if (!botOwnerUserId) return;
-    manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(bot) }, botOwnerUserId);
+    manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(getBot(bot.id) ?? bot) }, botOwnerUserId);
+  };
+  const emitDelta = (event: ChatStreamEvent) => {
+    manager.broadcast(conversationId, { type: "delta", conversationId, event });
+    globalEmitter.emit("delta", conversationId, event);
+  };
+  const toolApproval: ToolApprovalContext = {
+    userId: conversationOwnerId ?? null,
+    unattended: !bot && Boolean(options?.unattended),
+    timeoutMs: bot && options?.unattended ? UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS : undefined,
+    async onWaitChange(waiting) {
+      if (waiting) setTurnWaitingForUser(conversationId, true);
+      await options?.onUserWait?.(waiting);
+      if (!waiting) setTurnWaitingForUser(conversationId, false);
+      broadcastBotStatus();
+    }
   };
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
@@ -325,7 +369,18 @@ async function startAssistantTurn(
         estimatedTokens: 0
       });
     assistantMessageId = assistantMessage.id;
-    contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
+    contentPersistence = createAssistantContentPersistenceTracker(
+      conversationId,
+      assistantMessageId,
+      bot ? [getBotTeamWorkspacesDir(bot)] : []
+    );
+
+    if (options?.userMessageId && options.onMessagesCreated) {
+      options.onMessagesCreated({
+        userMessageId: options.userMessageId,
+        assistantMessageId: assistantMessage.id
+      });
+    }
 
     manager.broadcast(conversationId, {
       type: "delta",
@@ -346,30 +401,72 @@ async function startAssistantTurn(
     );
     broadcastBotStatus();
     started = true;
+    const activityOwnerId = bot ? bot.userId ?? conversationOwnerId ?? null : null;
+    beginTurnActivity(conversationId, {
+      onChange: activityOwnerId
+        ? (activity) => manager.broadcastAll({ type: "bot_activity", conversationId, activity }, activityOwnerId)
+        : undefined
+    });
 
     async function flushAnswerBuffer() {
       if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
-      const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
+      const pendingAnswer = answerBuffer;
+      const pendingSortOrder = timelineSortOrder++;
+      answerBuffer = "";
+      const sanitizedBuffer = await contentPersistence.appendSegment(pendingAnswer);
       if (!sanitizedBuffer) {
-        answerBuffer = "";
         return;
       }
       createMessageTextSegment({
         messageId: assistantMessageId,
         content: sanitizedBuffer,
-        sortOrder: timelineSortOrder++
+        sortOrder: pendingSortOrder
       });
-      answerBuffer = "";
     }
-    if (options?.userMessageId && options.onMessagesCreated) {
-      options.onMessagesCreated({
-        userMessageId: options.userMessageId,
-        assistantMessageId: assistantMessage.id
+
+    async function takeRedirect() {
+      if (!assistantMessageId || !contentPersistence) return null;
+      const queued = claimQueuedRedirectMessage(conversationId, control.redirectIds);
+      if (!queued) return null;
+      control.redirectIds.delete(queued.id);
+      manager.broadcast(conversationId, {
+        type: "queue_updated",
+        conversationId,
+        queuedMessages: listQueuedMessages(conversationId)
       });
+
+      await flushAnswerBuffer();
+      const content = await contentPersistence.finalize("");
+      updateMessage(assistantMessageId, {
+        content,
+        thinkingContent: latestThinking,
+        status: "completed",
+        estimatedTokens: estimateTextTokens(content)
+      });
+      emitDelta({ type: "done", messageId: assistantMessageId, message: getMessage(assistantMessageId) ?? undefined });
+
+      const next = createChatTurnMessages({ conversationId, content: queued.content, attachmentIds: [] });
+      const userMessage = getMessage(next.userMessage.id);
+      if (userMessage) {
+        manager.broadcast(conversationId, { type: "user_message_persisted", conversationId, message: userMessage });
+      }
+      options?.onMessagesCreated?.({ userMessageId: next.userMessage.id, assistantMessageId: next.assistantMessage.id });
+
+      assistantMessageId = next.assistantMessage.id;
+      contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
+      timelineSortOrder = 0;
+      answerBuffer = "";
+      latestAnswer = "";
+      latestThinking = "";
+      sawStreamedAnswerSinceLastSegment = false;
+      emitDelta({ type: "message_start", messageId: assistantMessageId });
+      touchTurnActivity(conversationId);
+      return { content: queued.content, assistantMessageId };
     }
 
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -377,6 +474,7 @@ async function startAssistantTurn(
         });
       },
       onCompactionEnd() {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -386,7 +484,7 @@ async function startAssistantTurn(
     }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
-    const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
+    const skills = appSettings.skillsEnabled ? listConversationSkills(bot) : [];
     const mcpServers = listEnabledMcpServers();
 
     let mcpToolSets: Array<{
@@ -416,6 +514,7 @@ async function startAssistantTurn(
       memoriesEnabled: appSettings.memoriesEnabled,
       memoriesRigor: appSettings.memoriesRigor,
       memoryUserId: conversationOwnerId,
+      toolApproval,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
       enableStreamRetry: true,
@@ -424,8 +523,12 @@ async function startAssistantTurn(
       conversationId: conversation.id,
       assistantMessageId: assistantMessage.id,
       botTeam,
+      botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
+      takeRedirect,
+      delegationChain: options?.delegationChain ?? { messagesSent: 0 },
       async onEvent(event: ChatStreamEvent) {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -438,10 +541,11 @@ async function startAssistantTurn(
           answerBuffer += event.text;
           latestAnswer += event.text;
         } else if (event.type === "stream_retry") {
-          answerBuffer = "";
+          const flushed = flushAnswerBuffer();
           latestAnswer = "";
           latestThinking = "";
           sawStreamedAnswerSinceLastSegment = false;
+          await flushed;
         } else if (event.type === "answer_reset") {
           answerBuffer = "";
           latestAnswer = "";
@@ -485,6 +589,7 @@ async function startAssistantTurn(
         });
         if (persisted.status === "running") {
           runningActionHandles.add(persisted.id);
+          startTurnAction(conversationId, persisted.id, persisted.label);
         }
         manager.broadcast(conversationId, {
           type: "delta",
@@ -497,6 +602,7 @@ async function startAssistantTurn(
       async onActionComplete(handle, patch) {
         if (!handle) return;
         runningActionHandles.delete(handle);
+        finishTurnAction(conversationId, handle);
         const updated = updateMessageAction(handle, {
           status: "completed",
           detail: patch.detail,
@@ -504,7 +610,9 @@ async function startAssistantTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
-          await attachAssistantFilesFromCompletedAction(conversationId, assistantMessage.id, updated);
+          if (assistantMessageId) {
+            await attachAssistantFilesFromCompletedAction(conversationId, assistantMessageId, updated);
+          }
           manager.broadcast(conversationId, {
             type: "delta",
             conversationId,
@@ -516,6 +624,7 @@ async function startAssistantTurn(
       onActionError(handle, patch) {
         if (!handle) return;
         runningActionHandles.delete(handle);
+        finishTurnAction(conversationId, handle);
         const updated = updateMessageAction(handle, {
           status: "error",
           detail: patch.detail,
@@ -554,6 +663,7 @@ async function startAssistantTurn(
 
     deleteFailedAssistantMessages(conversation.id);
     queueConversationIndex(conversation.id);
+    if (bot) recordBotResult(bot.id);
 
     const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {
@@ -648,10 +758,11 @@ async function startAssistantTurn(
         const errorMessage = error instanceof Error ? error.message : "Chat stream failed";
         updateMessage(assistantMessageId, {
           content: errorMessage,
-          thinkingContent: "",
+          thinkingContent: latestThinking,
           status: "error"
         });
       }
+      if (bot) recordBotResult(bot.id);
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
@@ -673,6 +784,7 @@ async function startAssistantTurn(
     if (researchDeadline) clearTimeout(researchDeadline);
     releaseChatTurnStart(conversationId, control);
     if (started) {
+      endTurnActivity(conversationId);
       setConversationActive(conversation.id, false);
       manager.setActive(conversationId, false);
       manager.broadcastAll(
@@ -755,11 +867,16 @@ export async function startChatTurn(
   options?: {
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
-    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
+    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine"; runId?: string };
     research?: ChatResearchOptions;
+    quietWhenBusy?: boolean;
+    unattended?: boolean;
+    providerProfileId?: string;
+    delegationChain?: DelegationChain;
+    onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
 ): Promise<ChatTurnResult> {
-  const preflight = getAssistantTurnStartPreflight(conversationId);
+  const preflight = getAssistantTurnStartPreflight(conversationId, options?.providerProfileId);
   if (!preflight.ok) {
     if (preflight.status === "failed") {
       manager.broadcast(conversationId, {
@@ -773,10 +890,12 @@ export async function startChatTurn(
 
   const claimed = claimChatTurnStart(conversationId);
   if (!claimed.ok) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: ACTIVE_TURN_ERROR_MESSAGE
-    });
+    if (!options?.quietWhenBusy) {
+      manager.broadcast(conversationId, {
+        type: "error",
+        message: ACTIVE_TURN_ERROR_MESSAGE
+      });
+    }
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }
 
@@ -796,6 +915,7 @@ export async function startChatTurn(
     });
     if (running) broadcastBotRunUpdate(running);
   }
+  claimed.control.botRunId = botRun?.id ?? options?.botRun?.runId ?? null;
 
   const finalizeBotRun = (result: ChatTurnResult) => {
     if (!botRun) return;
@@ -824,7 +944,13 @@ export async function startChatTurn(
       userMessageId: userMessage.id,
       assistantMessage,
       onMessagesCreated: options?.onMessagesCreated,
-      research: options?.research
+      research: options?.research,
+      unattended: options?.unattended,
+      delegationChain: options?.delegationChain,
+      async onUserWait(waiting) {
+        if (botRun) setBotRunWaitingForUser(botRun.id, waiting);
+        await options?.onUserWait?.(waiting);
+      }
     });
     finalizeBotRun(result);
     return result;

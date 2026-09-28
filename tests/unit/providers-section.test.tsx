@@ -4,6 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ProvidersSection } from "@/components/settings/sections/providers-section";
+import type { ProviderPresetId } from "@/lib/provider-catalog";
 import { toProviderProfileSummary } from "@/lib/provider-profile";
 import type { AppSettings, ProviderProfileSummary } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
@@ -38,7 +39,7 @@ type ProviderProfileFixture = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
-  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openai_official" | "openrouter" | "opencode_go" | "deepseek" | "xiaomi_mimo" | "anthropic_official" | "opencode_go_anthropic" | null;
+  providerPresetId: ProviderPresetId | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
   githubTokenExpiresAt: string | null;
@@ -357,6 +358,62 @@ describe("providers section", () => {
     expect(profileNameInput).toHaveValue("Default");
     expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
     expect(modelInput).toHaveValue("");
+  });
+
+  it("applies the Command Code preset from the providers settings dropdown", async () => {
+    const { container } = render(
+      React.createElement(ProvidersSection, { settings: makeSettings() })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
+    const modelInput = container.querySelector<HTMLInputElement>('input[name="provider-model"]');
+
+    expect(screen.getByRole("option", { name: "Command Code" })).toBeInTheDocument();
+    expect(modelInput).toHaveValue("gpt-test");
+
+    fireEvent.change(presetSelect, {
+      target: { value: "command_code" }
+    });
+
+    expect(apiBaseUrlInput).toHaveValue("https://api.commandcode.ai/provider/v1");
+    expect(modelInput).toHaveValue("deepseek/deepseek-v4-flash");
+    expect(
+      container.querySelector('input[name="provider-model-context-limit"]')
+    ).toHaveValue(1000000);
+  });
+
+  it("opens the Configuration group by default and re-expands it when entering a provider", async () => {
+    const settings = makeSettings();
+    const alpha = settings.providerProfiles[0];
+    const { container } = render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [alpha, { ...alpha, id: "profile_beta", name: "Beta" }]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const configurationGroup = () =>
+      Array.from(container.querySelectorAll("details")).find((node) =>
+        node.querySelector("summary")?.textContent?.startsWith("Configuration")
+      ) as HTMLDetailsElement | undefined;
+
+    expect(configurationGroup()?.open).toBe(true);
+
+    fireEvent.click(screen.getByText("Configuration"));
+    expect(configurationGroup()?.open).toBe(false);
+
+    fireEvent.click(screen.getByText("Beta"));
+    expect(configurationGroup()?.open).toBe(true);
   });
 
   it("applies request capabilities from the official provider preset", async () => {
@@ -921,7 +978,15 @@ describe("providers section", () => {
               ...base,
               id: "profile_nonvision",
               name: "Plain",
-              model: "glm-4.7"
+              model: "glm-4.7",
+              visionMode: "none"
+            },
+            {
+              ...base,
+              id: "profile_declared",
+              name: "Declared",
+              model: "deepseek-v4.1-flash",
+              visionMode: "native"
             }
           ]
         })
@@ -934,6 +999,9 @@ describe("providers section", () => {
 
     expect(screen.getByRole("option", { name: "other provider" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Vision · gpt-4o" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Declared · deepseek-v4.1-flash" })
+    ).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Plain · glm-4.7" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Main · glm-5.1" })).toBeNull();
 
@@ -961,7 +1029,8 @@ describe("providers section", () => {
               ...base,
               id: "profile_nonvision",
               name: "Plain",
-              model: "glm-4.7"
+              model: "glm-4.7",
+              visionMode: "none"
             }
           ]
         })
@@ -1290,5 +1359,116 @@ describe("providers section", () => {
 
     expect(screen.getByLabelText("Enable thinking mode")).toBeInTheDocument();
     expect(screen.queryByText("Show reasoning when supported")).toBeNull();
+  });
+
+  it("shows the Reasoning effort dropdown with glm levels for a GLM Coding Plan profile", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "glm-5.1",
+              apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+              apiMode: "chat_completions",
+              providerPresetId: "glm_coding_plan",
+              reasoningEffort: "medium"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByLabelText("Enable thinking mode")).toBeNull();
+
+    const effortSelect = screen.getByDisplayValue("medium");
+    expect(
+      Array.from(effortSelect.querySelectorAll("option")).map((option) => option.textContent)
+    ).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("keeps an unsupported stored effort selectable on GLM profiles", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "glm-5.1",
+              apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+              apiMode: "chat_completions",
+              providerPresetId: "glm_coding_plan",
+              reasoningEffort: "none"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByDisplayValue("disabled")).toBeInTheDocument();
+  });
+
+  it("persists the selected GLM reasoning effort", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings({
+      providerProfiles: [
+        {
+          ...makeSettings().providerProfiles[0],
+          model: "glm-5.1",
+          apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+          apiMode: "chat_completions",
+          providerPresetId: "glm_coding_plan",
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true
+        }
+      ]
+    });
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+
+    render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    fireEvent.change(screen.getByDisplayValue("medium"), { target: { value: "xhigh" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body));
+    expect(body.providerProfiles[0].reasoningEffort).toBe("xhigh");
   });
 });

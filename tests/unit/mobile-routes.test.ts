@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,10 +10,15 @@ import {
   POST as mobilePost,
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
+import { createBotRunRecord } from "@/lib/bot-runs";
+import { getSharedBotWorkspaceDir, resolveBotSandbox } from "@/lib/bot-sandbox";
+import { getBot } from "@/lib/bots";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
-import { createConversation, createMessage } from "@/lib/conversations";
+import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
+import { createToolApprovalRules } from "@/lib/tool-approvals";
 import { createLocalUser } from "@/lib/users";
 import { assertOpenApiResponse } from "@/tests/fixtures/mobile-contract-validator";
 import { createProviderCatalogInput, createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -178,7 +186,8 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(created.status).toBe(201);
     await assertResponseContract("/bots", "post", created);
-    const botId = ((await created.json()) as { data: { bot: { id: string } } }).data.bot.id;
+    const createdBot = ((await created.json()) as { data: { bot: { id: string; homeConversationId: string } } }).data.bot;
+    const botId = createdBot.id;
 
     const crossOwner = await mobileGet(
       request(["bots", botId], outsiderSession.token),
@@ -218,11 +227,188 @@ describe("Mobile API v1 REST adapter", () => {
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
 
+    const workspaceBot = getBot(botId)!;
+    fs.writeFileSync(path.join(resolveBotSandbox(workspaceBot).workspaceDir, "notes.md"), "# Notes");
+    fs.writeFileSync(path.join(getSharedBotWorkspaceDir(workspaceBot), "handoff.bin"), Buffer.from([1, 2, 3]));
+
+    const filePreview = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, { query: "?path=notes.md&format=text" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(filePreview.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/workspace/file", "get", filePreview);
+    await expect(filePreview.json()).resolves.toEqual({
+      data: { filename: "notes.md", mimeType: "text/markdown", content: "# Notes" }
+    });
+
+    const sharedDownload = await mobileGet(
+      request(["bots", botId, "workspace", "file"], memberSession.token, {
+        query: "?path=handoff.bin&scope=shared&download=1"
+      }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(sharedDownload.status).toBe(200);
+    expect(sharedDownload.headers.get("content-type")).toBe("application/octet-stream");
+    expect(Buffer.from(await sharedDownload.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
+
+    const outsiderFile = await mobileGet(
+      request(["bots", botId, "workspace", "file"], outsiderSession.token, { query: "?path=notes.md" }),
+      context(["bots", botId, "workspace", "file"])
+    );
+    expect(outsiderFile.status).toBe(404);
+    const read = await mobilePost(
+      request(["bots", botId, "read"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "read"])
+    );
+    expect(read.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/read", "post", read);
+    await expect(read.json()).resolves.toMatchObject({ data: { bot: { id: botId, unread: false } } });
+
+    const queuedRun = createBotRunRecord({
+      botId,
+      conversationId: createdBot.homeConversationId,
+      triggerSource: "delegated"
+    });
+    const crossOwnerRunStop = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], outsiderSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(crossOwnerRunStop.status).toBe(404);
+    const stoppedRun = await mobilePost(
+      request(["bots", botId, "runs", queuedRun.id, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "runs", queuedRun.id, "stop"])
+    );
+    expect(stoppedRun.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/runs/{runId}/stop", "post", stoppedRun);
+    await expect(stoppedRun.json()).resolves.toMatchObject({ data: { run: { id: queuedRun.id, status: "stopped" } } });
+    const stoppedBot = await mobilePost(
+      request(["bots", botId, "stop"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "stop"])
+    );
+    expect(stoppedBot.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/stop", "post", stoppedBot);
+    await expect(stoppedBot.json()).resolves.toMatchObject({ data: { bot: { id: botId, status: "idle" } } });
+
+    const approvalMessage = createMessage({
+      conversationId: createdBot.homeConversationId,
+      role: "assistant",
+      content: ""
+    });
+    const approvalAction = createMessageAction({
+      messageId: approvalMessage.id,
+      kind: "tool_approval",
+      status: "pending",
+      label: 'Allow "git" commands?',
+      detail: "git push",
+      proposalState: "pending",
+      proposalPayload: { operation: "tool_approval", scope: "shell", families: ["git"], classified: true, command: "git push" }
+    });
+    const pendingApprovals = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    expect(pendingApprovals.status).toBe(200);
+    await assertResponseContract("/bots/approvals", "get", pendingApprovals);
+    await expect(pendingApprovals.json()).resolves.toMatchObject({
+      data: {
+        approvals: [
+          {
+            botId,
+            botName: "Researcher",
+            conversationId: createdBot.homeConversationId,
+            action: { id: approvalAction.id, kind: "tool_approval", proposalState: "pending" }
+          }
+        ]
+      }
+    });
+    const outsiderApprovals = await mobileGet(
+      request(["bots", "approvals"], outsiderSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(outsiderApprovals.json()).resolves.toEqual({ data: { approvals: [] } });
+    const approved = await mobilePost(
+      request(["message-actions", approvalAction.id, "approve"], memberSession.token, { method: "POST", body: {} }),
+      context(["message-actions", approvalAction.id, "approve"])
+    );
+    expect(approved.status).toBe(200);
+    const afterApproval = await mobileGet(
+      request(["bots", "approvals"], memberSession.token),
+      context(["bots", "approvals"])
+    );
+    await expect(afterApproval.json()).resolves.toEqual({ data: { approvals: [] } });
+
+    const cleared = await mobilePost(
+      request(["bots", botId, "clear-context"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "clear-context"])
+    );
+    expect(cleared.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/clear-context", "post", cleared);
+    await expect(cleared.json()).resolves.toMatchObject({
+      data: { cleared: true, bot: { id: botId } }
+    });
+
+
+    const emptySkills = await mobileGet(
+      request(["bots", botId, "skills"], memberSession.token),
+      context(["bots", botId, "skills"])
+    );
+    expect(emptySkills.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills", "get", emptySkills);
+    await expect(emptySkills.json()).resolves.toMatchObject({ data: { skills: [] } });
+
+    const createdSkill = await mobilePost(
+      request(["bots", botId, "skills"], memberSession.token, {
+        method: "POST",
+        body: {
+          name: "Weekly digest",
+          description: "Summarize the week",
+          instructions: "Summarize the week into five bullets."
+        }
+      }),
+      context(["bots", botId, "skills"])
+    );
+    expect(createdSkill.status).toBe(201);
+    await assertResponseContract("/bots/{botId}/skills", "post", createdSkill);
+    const createdSkillBody = await createdSkill.json() as {
+      data: { skill: { id: string; name: string } };
+    };
+    const skillId = createdSkillBody.data.skill.id;
+
+    const patchedSkill = await mobilePatch(
+      request(["bots", botId, "skills", skillId], memberSession.token, {
+        method: "PATCH",
+        body: { description: "Summarize the week for the team" }
+      }),
+      context(["bots", botId, "skills", skillId])
+    );
+    expect(patchedSkill.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills/{skillId}", "patch", patchedSkill);
+
+    const outsiderSkills = await mobileGet(
+      request(["bots", botId, "skills"], outsiderSession.token),
+      context(["bots", botId, "skills"])
+    );
+    expect(outsiderSkills.status).toBe(404);
+
+    const deletedSkill = await mobileDelete(
+      request(["bots", botId, "skills", skillId], memberSession.token, { method: "DELETE" }),
+      context(["bots", botId, "skills", skillId])
+    );
+    expect(deletedSkill.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills/{skillId}", "delete", deletedSkill);
+
     const chiefDelete = await mobileDelete(
       request(["bots", chiefId], memberSession.token, { method: "DELETE" }),
       context(["bots", chiefId])
     );
     expect(chiefDelete.status).toBe(400);
+
+    const homeThreadDelete = await mobileDelete(
+      request(["conversations", createdBot.homeConversationId], memberSession.token, { method: "DELETE" }),
+      context(["conversations", createdBot.homeConversationId])
+    );
+    expect(homeThreadDelete.status).toBe(409);
+    await assertResponseContract("/conversations/{conversationId}", "delete", homeThreadDelete);
 
     const deleted = await mobileDelete(
       request(["bots", botId], memberSession.token, { method: "DELETE" }),
@@ -242,6 +428,51 @@ describe("Mobile API v1 REST adapter", () => {
       context(["avatars", "seed_x.svg"])
     );
     expect(avatarNoAuth.status).toBe(401);
+  });
+
+  it("saves and resets onboarding preferences through bearer-authenticated handlers", async () => {
+    const member = await createLocalUser({
+      username: "mobile-onboarding-member",
+      password: "MobileOnboardingPassword123!",
+      role: "user"
+    });
+    const memberSession = await createMobileSession(member.id, "Onboarding phone");
+
+    const saved = await mobilePut(
+      request(["onboarding"], memberSession.token, {
+        method: "PUT",
+        body: { defaultView: "agents", toolCallDisplay: "status_line", completed: true }
+      }),
+      context(["onboarding"])
+    );
+    expect(saved.status).toBe(200);
+    await assertResponseContract("/onboarding", "put", saved);
+    const savedBody = await saved.json() as {
+      data: { settings: { defaultView: string; toolCallDisplay: string; hasCompletedOnboarding: boolean } };
+    };
+    expect(savedBody.data.settings.defaultView).toBe("agents");
+    expect(savedBody.data.settings.toolCallDisplay).toBe("status_line");
+    expect(savedBody.data.settings.hasCompletedOnboarding).toBe(true);
+
+    const reset = await mobileDelete(
+      request(["onboarding"], memberSession.token, { method: "DELETE" }),
+      context(["onboarding"])
+    );
+    expect(reset.status).toBe(200);
+    await assertResponseContract("/onboarding", "delete", reset);
+    const resetBody = await reset.json() as {
+      data: { settings: { hasCompletedOnboarding: boolean } };
+    };
+    expect(resetBody.data.settings.hasCompletedOnboarding).toBe(false);
+
+    const invalid = await mobilePut(
+      request(["onboarding"], memberSession.token, {
+        method: "PUT",
+        body: { defaultView: "nonsense" }
+      }),
+      context(["onboarding"])
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("normalizes shared route responses and redacts provider secrets", async () => {
@@ -265,6 +496,138 @@ describe("Mobile API v1 REST adapter", () => {
     expect(serialized).toContain('"status":"connected"');
     expect(serialized).not.toContain("sk-mobile-route-secret");
     expect(serialized).not.toContain("apiKeyEncrypted");
+  });
+
+  it("lists and revokes standing tool approval rules with contract-checked responses", async () => {
+    const user = await createLocalUser({
+      username: "tool-approvals-member",
+      password: "ToolApprovalsPassword123!",
+      role: "user"
+    });
+    const session = await createMobileSession(user.id, "Approvals phone");
+    createToolApprovalRules(user.id, "shell", ["curl"]);
+
+    const created = await mobilePost(
+      request(["tool-approvals"], session.token, {
+        method: "POST",
+        body: { command: "git checkout" }
+      }),
+      context(["tool-approvals"])
+    );
+    expect(created.status).toBe(201);
+    await assertResponseContract("/tool-approvals", "post", created);
+
+    const toggled = await mobilePut(
+      request(["tool-approvals"], session.token, {
+        method: "PUT",
+        body: { allowAll: true }
+      }),
+      context(["tool-approvals"])
+    );
+    expect(toggled.status).toBe(200);
+    await assertResponseContract("/tool-approvals", "put", toggled);
+    expect((await toggled.json()) as { data: { allowAll: boolean } }).toEqual({
+      data: { allowAll: true }
+    });
+
+    const list = await mobileGet(
+      request(["tool-approvals"], session.token),
+      context(["tool-approvals"])
+    );
+    expect(list.status).toBe(200);
+    await assertResponseContract("/tool-approvals", "get", list);
+    const listBody = (await list.json()) as {
+      data: { rules: Array<{ id: string; scope: string; family: string }> };
+    };
+    expect(listBody.data.rules).toHaveLength(2);
+    expect(listBody.data.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "shell", family: "curl" }),
+        expect.objectContaining({ scope: "shell", family: "git checkout" })
+      ])
+    );
+
+    const ruleId = listBody.data.rules[0].id;
+    const revoked = await mobileDelete(
+      request(["tool-approvals", ruleId], session.token, { method: "DELETE" }),
+      context(["tool-approvals", ruleId])
+    );
+    expect(revoked.status).toBe(200);
+    await assertResponseContract("/tool-approvals/{ruleId}", "delete", revoked);
+
+    const missing = await mobileDelete(
+      request(["tool-approvals", ruleId], session.token, { method: "DELETE" }),
+      context(["tool-approvals", ruleId])
+    );
+    expect(missing.status).toBe(404);
+    await assertResponseContract("/tool-approvals/{ruleId}", "delete", missing);
+  });
+
+  it("exposes per-profile reasoning control and rejects unsupported reasoning efforts", async () => {
+    const admin = await createLocalUser({
+      username: "reasoning-admin",
+      password: "ReasoningAdminPassword123!",
+      role: "admin"
+    });
+    const session = await createMobileSession(admin.id, "Reasoning device");
+    const glm = createProviderProfileInput({
+      id: "profile_glm",
+      name: "GLM",
+      model: "glm-5.1",
+      providerConfig: {
+        apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+        apiMode: "chat_completions"
+      },
+      credentials: { apiKey: "sk-glm" }
+    });
+    const deepSeek = createProviderProfileInput({
+      id: "profile_deepseek",
+      name: "DeepSeek",
+      model: "deepseek-v4-flash",
+      reasoningEffort: "none",
+      providerConfig: { apiMode: "chat_completions" },
+      credentials: { apiKey: "sk-deepseek" }
+    });
+    updateProviderCatalog(createProviderCatalogInput([glm, deepSeek]));
+
+    const settings = await mobileGet(request(["settings"], session.token), context(["settings"]));
+    expect(settings.status).toBe(200);
+    await assertResponseContract("/settings", "get", settings);
+    const { data } = await settings.json() as {
+      data: { settings: { providerProfiles: Array<Record<string, unknown>> } };
+    };
+    const profiles = data.settings.providerProfiles;
+    expect(profiles.find((profile) => profile.id === glm.id)).toMatchObject({
+      reasoningControl: "levels",
+      reasoningEfforts: ["low", "medium", "high", "xhigh", "max"]
+    });
+    expect(profiles.find((profile) => profile.id === deepSeek.id)).toMatchObject({
+      reasoningControl: "toggle",
+      reasoningEfforts: ["none", "low", "medium", "high", "xhigh"]
+    });
+
+    const rejected = await mobilePut(
+      request(["settings", "providers"], session.token, {
+        method: "PUT",
+        body: createProviderCatalogInput([{ ...glm, reasoningEffort: "none" }, deepSeek])
+      }),
+      context(["settings", "providers"])
+    );
+    expect(rejected.status).toBe(400);
+    await assertResponseContract("/settings/providers", "put", rejected);
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_request",
+        message: expect.stringContaining('Reasoning effort "none" is not supported by model "glm-5.1"')
+      }
+    });
+    const unchanged = await mobileGet(request(["settings"], session.token), context(["settings"]));
+    const { data: after } = await unchanged.json() as {
+      data: { settings: { providerProfiles: Array<{ id: string; reasoningEffort: string }> } };
+    };
+    expect(
+      after.settings.providerProfiles.find((profile) => profile.id === glm.id)?.reasoningEffort
+    ).toBe(glm.reasoningEffort);
   });
 
   it("conforms representative resource responses to the OpenAPI contract", async () => {
@@ -328,6 +691,35 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { enabled: true }
     );
+    const computerBody = await call(
+      "/conversations/{conversationId}/computer",
+      ["conversations", conversationId, "computer"],
+      "GET"
+    ) as { data: { computer: Record<string, unknown> } };
+    expect(computerBody.data.computer).toEqual({ live: false, controlOwner: "bot", url: null, caption: null, viewport: null });
+    const takenBody = await call(
+      "/conversations/{conversationId}/computer/control",
+      ["conversations", conversationId, "computer", "control"],
+      "POST",
+      { action: "take" }
+    ) as { data: { computer: { controlOwner: string } } };
+    expect(takenBody.data.computer.controlOwner).toBe("user");
+    const returnedBody = await call(
+      "/conversations/{conversationId}/computer/control",
+      ["conversations", conversationId, "computer", "control"],
+      "POST",
+      { action: "return", note: "Signed in" }
+    ) as { data: { computer: { controlOwner: string } } };
+    expect(returnedBody.data.computer.controlOwner).toBe("bot");
+
+    const { saveLogin } = await import("@/lib/saved-logins");
+    saveLogin(admin.id, "https://example.com", "password", "contract-secret-value");
+    const loginsBody = await call("/saved-logins", ["saved-logins"], "GET") as {
+      data: { savedLogins: Array<{ id: string; origin: string; label: string }> };
+    };
+    expect(loginsBody.data.savedLogins).toEqual([expect.objectContaining({ origin: "https://example.com", label: "password" })]);
+    expect(JSON.stringify(loginsBody)).not.toContain("contract-secret-value");
+    await call("/saved-logins/{loginId}", ["saved-logins", loginsBody.data.savedLogins[0].id], "DELETE");
 
     const message = createMessage({
       conversationId,
@@ -340,6 +732,32 @@ describe("Mobile API v1 REST adapter", () => {
       "PATCH",
       { content: "Updated contract message" }
     );
+    const reply = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "Contract reply"
+    });
+    const [draftAttachment] = await createAttachments(conversationId, [
+      { filename: "draft.txt", mimeType: "text/plain", bytes: Buffer.from("draft attachment", "utf8") }
+    ]);
+    bindAttachmentsToMessage(conversationId, message.id, [draftAttachment.id]);
+    const userForkBody = await call(
+      "/messages/{messageId}/fork",
+      ["messages", message.id, "fork"],
+      "POST"
+    ) as { data: { draft: { content: string; attachments: Array<Record<string, unknown>> } } };
+    expect(userForkBody.data.draft.content).toBe("Updated contract message");
+    expect(userForkBody.data.draft.attachments[0]).not.toHaveProperty("relativePath");
+    await call("/messages/{messageId}/fork", ["messages", reply.id, "fork"], "POST");
+    const rewindBody = await call(
+      "/messages/{messageId}/rewind",
+      ["messages", message.id, "rewind"],
+      "POST"
+    ) as { data: { messages: unknown[]; draft: { attachments: Array<{ id: string; messageId: string | null }> } } };
+    expect(rewindBody.data.messages).toEqual([]);
+    expect(rewindBody.data.draft.attachments).toEqual([
+      expect.objectContaining({ id: draftAttachment.id, messageId: null })
+    ]);
 
     const formData = new FormData();
     formData.set("conversationId", conversationId);
@@ -604,5 +1022,58 @@ describe("Mobile API v1 REST adapter", () => {
     await expect(missing.json()).resolves.toEqual({
       error: { code: "not_found", message: "Mobile API operation not found" }
     });
+  });
+
+  it("serves release highlights to native clients and records the version they acknowledged", async () => {
+    const originalVersion = process.env.NEXT_PUBLIC_APP_VERSION;
+    const { getNewestReleaseNote } = await import("@/lib/release-highlights");
+    const newest = getNewestReleaseNote()!;
+    process.env.NEXT_PUBLIC_APP_VERSION = newest.version;
+
+    try {
+      const member = await createLocalUser({
+        username: "mobile-release-member",
+        password: "MobileReleasePassword123!",
+        role: "user"
+      });
+      const session = await createMobileSession(member.id, "Member phone");
+      const { getDb } = await import("@/lib/db");
+      getDb()
+        .prepare("UPDATE user_preferences SET last_seen_release = ? WHERE user_id = ?")
+        .run("", member.id);
+
+      const highlights = await mobileGet(
+        request(["whats-new"], session.token),
+        context(["whats-new"])
+      );
+      expect(highlights.status).toBe(200);
+      await assertResponseContract("/whats-new", "get", highlights);
+      await expect(highlights.json()).resolves.toEqual({
+        data: { whatsNew: { version: newest.version, autoOpen: true, bullets: newest.bullets } }
+      });
+
+      const acknowledged = await mobilePost(
+        request(["whats-new"], session.token, { method: "POST" }),
+        context(["whats-new"])
+      );
+      expect(acknowledged.status).toBe(200);
+      await assertResponseContract("/whats-new", "post", acknowledged);
+      await expect(acknowledged.json()).resolves.toEqual({
+        data: { seenReleaseVersion: newest.version }
+      });
+
+      const afterAcknowledgement = await mobileGet(
+        request(["whats-new"], session.token),
+        context(["whats-new"])
+      );
+      expect(afterAcknowledgement.status).toBe(200);
+      await assertResponseContract("/whats-new", "get", afterAcknowledgement);
+      await expect(afterAcknowledgement.json()).resolves.toMatchObject({
+        data: { whatsNew: { version: newest.version, autoOpen: false } }
+      });
+    } finally {
+      if (originalVersion === undefined) delete process.env.NEXT_PUBLIC_APP_VERSION;
+      else process.env.NEXT_PUBLIC_APP_VERSION = originalVersion;
+    }
   });
 });

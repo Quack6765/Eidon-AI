@@ -609,6 +609,9 @@ function migratePreferenceStorage(db: Database.Database) {
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
+      allow_all_tools INTEGER NOT NULL DEFAULT 0,
+      has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
+      last_seen_release TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -810,65 +813,27 @@ function migrateCompactionEventsTable(db: Database.Database) {
   console.log(`[db] Compaction events rebuild done in ${Date.now() - startedAt}ms`);
 }
 
-export function reconcileInterruptedRuntimeState(
-  db: Database.Database,
-  timestamp = new Date().toISOString()
-) {
-  const transaction = db.transaction(() => {
-    const conversations = db
-      .prepare("UPDATE conversations SET is_active = 0 WHERE is_active = 1")
-      .run().changes;
-    const messages = db
-      .prepare("UPDATE messages SET status = 'error' WHERE status = 'streaming'")
-      .run().changes;
-    const actions = db
-      .prepare(
-        `UPDATE message_actions
-         SET status = 'error',
-             detail = CASE WHEN detail = '' THEN ? ELSE detail END,
-             completed_at = COALESCE(completed_at, ?)
-         WHERE status = 'running'`
-      )
-      .run("Interrupted by server restart", timestamp).changes;
-    const titles = db
-      .prepare(
-        `UPDATE conversations
-         SET title_generation_status = 'failed'
-         WHERE title_generation_status = 'running'`
-      )
-      .run().changes;
-    const queuedMessages = db
-      .prepare(
-        `UPDATE queued_messages
-         SET status = 'failed',
-             failure_message = 'Queued follow-up was interrupted by server restart',
-             processing_started_at = NULL,
-             updated_at = ?
-         WHERE status = 'processing'`
-      )
-      .run(timestamp).changes;
-    const automationRuns = db
-      .prepare(
-        `UPDATE automation_runs
-         SET status = 'failed',
-             error_message = 'Automation run was interrupted by server restart',
-             finished_at = COALESCE(finished_at, ?)
-         WHERE status = 'running'`
-      )
-      .run(timestamp).changes;
+function runOnce(db: Database.Database, name: string, apply: () => void) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS migration_flags (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const applied = db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name);
+  if (applied) return;
+  apply();
+  db.prepare("INSERT INTO migration_flags (name, applied_at) VALUES (?, ?)").run(name, new Date().toISOString());
+}
 
-    db.prepare(
-      `UPDATE automations
-       SET last_status = 'failed',
-           last_finished_at = COALESCE(last_finished_at, ?),
-           updated_at = ?
-       WHERE last_status = 'running'`
-    ).run(timestamp, timestamp);
-
-    return { conversations, messages, actions, titles, queuedMessages, automationRuns };
+export function migrateBotConversationsToFollowDefaultProvider(db: Database.Database) {
+  runOnce(db, "bot_conversations_follow_default_provider", () => {
+    db.exec(
+      `UPDATE conversations
+       SET provider_profile_id = NULL
+       WHERE id IN (SELECT home_conversation_id FROM bots)`
+    );
   });
-
-  return transaction.immediate();
 }
 
 export function migrate(db: Database.Database) {
@@ -1143,6 +1108,28 @@ export function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS tool_approval_rules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      scope TEXT NOT NULL,
+      family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
+      ON tool_approval_rules (user_id, scope, family);
+    CREATE TABLE IF NOT EXISTS saved_logins (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      label TEXT NOT NULL COLLATE NOCASE,
+      secret_encrypted TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT,
+      UNIQUE (user_id, origin, label),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1176,6 +1163,7 @@ export function migrate(db: Database.Database) {
       status TEXT NOT NULL,
       error_message TEXT,
       trigger_source TEXT NOT NULL,
+      result_message_id TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
@@ -1217,6 +1205,10 @@ export function migrate(db: Database.Database) {
       finished_at TEXT,
       parent_message_id TEXT,
       error_message TEXT,
+      prompt TEXT,
+      reply_conversation_id TEXT,
+      reply_action_id TEXT,
+      pending_reply TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
@@ -1370,6 +1362,29 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_memories ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE");
   }
 
+  const automationRunCols = db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>;
+  if (!automationRunCols.some((col) => col.name === "result_message_id")) {
+    db.exec("ALTER TABLE automation_runs ADD COLUMN result_message_id TEXT");
+    db.exec(
+      `UPDATE automation_runs
+       SET result_message_id = (
+         SELECT m.id
+         FROM messages m
+         WHERE m.conversation_id = automation_runs.conversation_id
+           AND m.role = 'assistant'
+           AND m.status = 'completed'
+           AND m.created_at >= automation_runs.started_at
+           AND m.created_at <= automation_runs.finished_at
+         ORDER BY m.rowid DESC
+         LIMIT 1
+       )
+       WHERE status = 'completed'
+         AND conversation_id IS NOT NULL
+         AND started_at IS NOT NULL
+         AND finished_at IS NOT NULL`
+    );
+  }
+
   const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
   if (!automationCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
@@ -1390,6 +1405,14 @@ export function migrate(db: Database.Database) {
   }
   if (!automationCols.some((col) => col.name === "notify_config_json")) {
     db.exec("ALTER TABLE automations ADD COLUMN notify_config_json TEXT NOT NULL DEFAULT '{}'");
+  }
+
+  const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
+  if (!botCols.some((col) => col.name === "last_read_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN last_read_at TEXT");
+  }
+  if (!botCols.some((col) => col.name === "last_result_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN last_result_at TEXT");
   }
 
   db.exec(`
@@ -1718,6 +1741,15 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE queued_messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'");
   }
 
+  const botRunColNames = (db.prepare("PRAGMA table_info(bot_runs)").all() as Array<{ name: string }>).map(
+    (column) => column.name
+  );
+  for (const column of ["prompt", "reply_conversation_id", "reply_action_id", "pending_reply"]) {
+    if (!botRunColNames.includes(column)) {
+      db.exec(`ALTER TABLE bot_runs ADD COLUMN ${column} TEXT`);
+    }
+  }
+
   const existingSkills = db
     .prepare("SELECT id, name, content, description FROM skills")
     .all() as Array<{ id: string; name: string; content: string; description: string }>;
@@ -1993,6 +2025,9 @@ export function migrate(db: Database.Database) {
   if (!userPreferencesCols.some((column) => column.name === "confirm_external_links")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
   }
+  if (!userPreferencesCols.some((column) => column.name === "allow_all_tools")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN allow_all_tools INTEGER NOT NULL DEFAULT 0");
+  }
 
   if (!globalPreferencesCols.some((column) => column.name === "memories_rigor")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
@@ -2015,6 +2050,14 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
   }
 
+  if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN has_completed_onboarding INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!userPreferencesCols.some((column) => column.name === "last_seen_release")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN last_seen_release TEXT NOT NULL DEFAULT ''");
+  }
+
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0");
   }
@@ -2035,6 +2078,11 @@ export function migrate(db: Database.Database) {
   const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
   if (!userMemoryCols.some((column) => column.name === "pinned")) {
     db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const attachmentCols = db.prepare("PRAGMA table_info(message_attachments)").all() as Array<{ name: string }>;
+  if (!attachmentCols.some((column) => column.name === "source_path")) {
+    db.exec("ALTER TABLE message_attachments ADD COLUMN source_path TEXT");
   }
 
   const hadSemanticChunksTable = tableExists(db, "semantic_chunks");
@@ -2076,6 +2124,7 @@ export function migrate(db: Database.Database) {
   if (!hadSemanticChunksTable) {
     console.log("[db] Created semantic_chunks table");
   }
+  migrateBotConversationsToFollowDefaultProvider(db);
   console.log(`[db] Database migrations complete in ${Date.now() - migrationStartedAt}ms`);
 }
 

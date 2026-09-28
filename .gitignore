@@ -10,8 +10,10 @@ seed-native-test.cjs
 .context/
 .impeccable/
 .data
+.data-workspaces
 .cache/
 .test-data
+.test-data-workspaces
 .e2e-data/
 .superpowers/
 .worktrees/
@@ -20,8 +22,7 @@ seed-native-test.cjs
 .conductor/
 .superset/
 agent-memory/
-docs/
-docs/superpowers
+docs/superpowers/
 specs/
 tmp/
 CONTEXT.md

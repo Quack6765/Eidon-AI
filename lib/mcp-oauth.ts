@@ -498,9 +498,12 @@ function readVerifier(serverId: string): string {
   return credentials.codeVerifier ?? "";
 }
 
-export async function checkMcpOAuthSupport(serverUrl: string): Promise<boolean> {
+export async function checkMcpOAuthSupport(
+  serverUrl: string,
+  fetchFn: typeof oauthFetch = oauthFetch
+): Promise<boolean> {
   try {
-    const discovery = await discoverOAuthServerInfo(serverUrl, { fetchFn: oauthFetch });
+    const discovery = await discoverOAuthServerInfo(serverUrl, { fetchFn });
     const metadata = discovery.authorizationServerMetadata;
     return Boolean(metadata?.authorization_endpoint && metadata?.token_endpoint);
   } catch {

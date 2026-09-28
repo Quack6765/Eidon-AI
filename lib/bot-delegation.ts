@@ -1,29 +1,60 @@
-import { listMessages } from "@/lib/conversations";
-import { requestStop } from "@/lib/chat-turn-control";
+import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
+import { getMessage, listMessages, updateMessageAction } from "@/lib/conversations";
+import { requestStop, waitForChatTurnRelease } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
-import { createBot, getBotByConversationId, resolveBotByNameOrId, updateBot } from "@/lib/bots";
+import {
+  createBot,
+  getBot,
+  getBotByConversationId,
+  getBotStatus,
+  listPendingBotApprovals,
+  resolveBotByNameOrId,
+  updateBot
+} from "@/lib/bots";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   broadcastBotRunUpdate,
   broadcastBotUpsert,
+  consumeUserStoppedBotRun,
   createBotRunRecord,
   getBotRun,
-  updateBotRunStatus
+  getBotRunDelegation,
+  getLatestBotRun,
+  isBotRunStopped,
+  listBotRunIdsWithPendingReply,
+  listResumableDelegatedBotRunIds,
+  setBotRunWaitingForUser,
+  setBotRunPendingReply,
+  updateBotRunStatus,
+  type BotRunDelegation
 } from "@/lib/bot-runs";
+import { getDb } from "@/lib/db";
+import { buildRestartResumeNotice } from "@/lib/interrupted-work";
+import { createPausableTimeout } from "@/lib/pausable-timeout";
+import { formatDurationSeconds } from "@/lib/utils";
+import {
+  DELEGATED_TURN_STALL_STOP_MS,
+  consumeStallStop,
+  getTurnActivity,
+  setTurnStallStop
+} from "@/lib/turn-activity";
 import {
   DEFAULT_BOT_RUN_TIMEOUT_MS,
-  enqueueBotTask,
-  releaseBotUserSlot,
-  tryAcquireBotUserSlot
+  acquireBotUserSlot,
+  enqueueSerialTask,
+  releaseBotUserSlot
 } from "@/lib/bot-run-limiter";
 import { getConversationManager } from "@/lib/ws-singleton";
 import type { RuntimeAction } from "./tool-executors";
-import type { BotRun, PromptMessage } from "@/lib/types";
+import type { ChatTurnResult, StartChatTurn } from "@/lib/chat-turn";
+import type { Bot, BotRun, ChatResearchOptions, DelegationChain, PromptMessage } from "@/lib/types";
 
 type BotToolContext = {
   input: {
     memoryUserId?: string | null;
     conversationId?: string;
     assistantMessageId?: string;
+    delegationChain?: DelegationChain;
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
     onActionComplete?: (
@@ -50,8 +81,10 @@ function getLatestAssistantSummary(conversationId: string) {
   const messages = listMessages(conversationId);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.role === "assistant" && message.content.trim()) {
-      return truncateText(message.content.trim(), MAX_RUNTIME_TOOL_RESULT_CHARS);
+    if (message.role !== "assistant") continue;
+    const content = message.content.trim();
+    if (content || message.attachments?.some((attachment) => attachment.sourcePath)) {
+      return appendDeliveredFileLinks(truncateText(content, MAX_RUNTIME_TOOL_RESULT_CHARS), message.attachments);
     }
   }
   return "";
@@ -65,181 +98,391 @@ function mapTurnStatusToRunStatus(status: string): BotRun["status"] {
 
 type DelegationOutcome = { status: string; summary: string; errorMessage?: string };
 
-const WAKE_RETRY_DELAY_MS = 2_000;
-const WAKE_MAX_ATTEMPTS = 900;
+const WAKE_MAX_WAIT_MS = 30 * 60_000;
+const TURN_RELEASE_WAIT_FALLBACK_MS = 5_000;
+export const MAX_BOT_MESSAGES_PER_REQUEST = 10;
 
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms).unref?.();
+function createBotUserSlotLease(ownerUserId: string) {
+  let held = false;
+  return {
+    async acquire(timeoutMs: number) {
+      if (!held) held = await acquireBotUserSlot(ownerUserId, timeoutMs);
+      return held;
+    },
+    release() {
+      if (!held) return;
+      held = false;
+      releaseBotUserSlot(ownerUserId);
+    }
+  };
+}
+
+function isBusyTurnFailure(result: ChatTurnResult) {
+  return result.status === "failed" && /already has an active/i.test(result.errorMessage ?? "");
+}
+
+function broadcastPersistedUserMessage(conversationId: string, userMessageId: string, ownerUserId?: string | null) {
+  const userMessage = getMessage(userMessageId, ownerUserId ?? undefined);
+  if (!userMessage) return;
+  getConversationManager().broadcast(conversationId, {
+    type: "user_message_persisted",
+    conversationId,
+    message: userMessage
   });
 }
 
-async function runWorkerTurn(input: {
-  target: NonNullable<ReturnType<typeof resolveBotByNameOrId>>;
+async function startTurnWhenIdle(input: {
+  conversationId: string;
+  content: string;
+  ownerUserId?: string | null;
+  maxWaitMs: number;
+  busyErrorMessage: string;
+  unattended?: boolean;
+  recordBotRun?: boolean;
+  botRunId?: string;
+  isCancelled?: () => boolean;
+  personaId?: string;
+  providerProfileId?: string;
+  research?: ChatResearchOptions;
+  startChatTurn?: StartChatTurn;
+  delegationChain?: DelegationChain;
+  onTurnStarted?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  onUserWait?: (waiting: boolean) => Promise<void> | void;
+}): Promise<ChatTurnResult> {
+  const startChatTurn = input.startChatTurn ?? (await import("@/lib/chat-turn")).startChatTurn;
+  const manager = getConversationManager();
+  const deadline = Date.now() + input.maxWaitMs;
+
+  while (true) {
+    if (input.isCancelled?.()) {
+      return { status: "stopped" };
+    }
+    const result = await startChatTurn(manager, input.conversationId, input.content, [], input.personaId, {
+      botRun: input.recordBotRun ? undefined : { record: false, runId: input.botRunId },
+      quietWhenBusy: true,
+      unattended: input.unattended,
+      providerProfileId: input.providerProfileId,
+      research: input.research,
+      delegationChain: input.delegationChain,
+      onUserWait: input.onUserWait,
+      onMessagesCreated: (payload) => {
+        input.onTurnStarted?.(payload);
+        broadcastPersistedUserMessage(input.conversationId, payload.userMessageId, input.ownerUserId);
+      }
+    }).catch((error: unknown) => ({
+      status: "failed" as const,
+      errorMessage: error instanceof Error ? error.message : "Unable to start assistant turn"
+    }));
+
+    if (!isBusyTurnFailure(result)) {
+      return result;
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return { status: "failed", errorMessage: input.busyErrorMessage };
+    }
+    await waitForChatTurnRelease(input.conversationId, Math.min(remaining, TURN_RELEASE_WAIT_FALLBACK_MS));
+  }
+}
+
+type BotTurnOutcome = ChatTurnResult & { turnStarted: boolean };
+
+export function runBotTurn(input: {
+  bot: Bot;
   runId: string;
-  taskPrompt: string;
   ownerUserId: string;
-}): Promise<DelegationOutcome> {
-  const { target, runId, taskPrompt, ownerUserId } = input;
-  return enqueueBotTask(target.id, async () => {
-    if (!tryAcquireBotUserSlot(ownerUserId)) {
+  content: string;
+  timeoutMs: number;
+  personaId?: string;
+  providerProfileId?: string;
+  research?: ChatResearchOptions;
+  startChatTurn?: StartChatTurn;
+  delegationChain?: DelegationChain;
+  onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  onDeadline?: () => void;
+}): Promise<BotTurnOutcome> {
+  const { bot, runId, ownerUserId, timeoutMs } = input;
+  return enqueueSerialTask(bot.id, async (): Promise<BotTurnOutcome> => {
+    const slot = createBotUserSlotLease(ownerUserId);
+    if (!(await slot.acquire(timeoutMs))) {
       return {
         status: "failed",
-        summary: "",
+        turnStarted: false,
         errorMessage: "Too many concurrent bot runs. Try again when other bots finish."
       };
     }
 
     try {
-      updateBotRunStatus(runId, { status: "running", startedAt: new Date().toISOString() });
-      const runningRun = getBotRun(runId);
+      const currentRun = getBotRun(runId);
+      if (!currentRun || currentRun.status !== "queued") {
+        return { status: "stopped", turnStarted: false };
+      }
+
+      const runningRun = updateBotRunStatus(runId, { status: "running", startedAt: new Date().toISOString() });
       if (runningRun) broadcastBotRunUpdate(runningRun);
-      broadcastBotUpsert(target);
+      broadcastBotUpsert(bot);
 
-      const { startChatTurn } = await import("@/lib/chat-turn");
-      const manager = getConversationManager();
-      const turn = startChatTurn(manager, target.homeConversationId, taskPrompt, [], undefined, {
-        botRun: { record: false }
-      });
-
-      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let turnStarted = false;
+      let rejectDeadline: (error: Error) => void = () => {};
       const deadline = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          requestStop(target.homeConversationId);
-          reject(new BotRunDeadlineError());
-        }, DEFAULT_BOT_RUN_TIMEOUT_MS);
+        rejectDeadline = reject;
+      });
+      const timer = createPausableTimeout(() => {
+        requestStop(bot.homeConversationId);
+        input.onDeadline?.();
+        rejectDeadline(new BotRunDeadlineError());
+      }, timeoutMs);
+      timer.pause();
+
+      const turn = startTurnWhenIdle({
+        conversationId: bot.homeConversationId,
+        content: input.content,
+        ownerUserId,
+        maxWaitMs: timeoutMs,
+        busyErrorMessage: `${bot.name} stayed busy and never picked up the message`,
+        unattended: true,
+        personaId: input.personaId,
+        providerProfileId: input.providerProfileId,
+        research: input.research,
+        startChatTurn: input.startChatTurn,
+        delegationChain: input.delegationChain,
+        botRunId: runId,
+        isCancelled: () => isBotRunStopped(runId),
+        onTurnStarted: (payload) => {
+          turnStarted = true;
+          setTurnStallStop(bot.homeConversationId, DELEGATED_TURN_STALL_STOP_MS);
+          timer.resume();
+          input.onMessagesCreated?.(payload);
+          if (isBotRunStopped(runId)) requestStop(bot.homeConversationId);
+        },
+        onUserWait: async (waiting) => {
+          setBotRunWaitingForUser(runId, waiting);
+          if (waiting) {
+            timer.pause();
+            slot.release();
+            return;
+          }
+          timer.resume();
+          await slot.acquire(timer.remainingMs());
+        }
       });
 
-      let turnResult: import("@/lib/chat-turn").ChatTurnResult;
+      let turnResult: ChatTurnResult;
       try {
         turnResult = await Promise.race([turn, deadline]);
       } catch (error) {
-        if (error instanceof BotRunDeadlineError) {
-          turnResult = await turn.catch(() => ({
-            status: "failed" as const,
-            errorMessage: "Bot run timed out"
-          }));
-          if (turnResult.status === "completed") {
-            turnResult = { ...turnResult, status: "stopped" as const };
-          }
-        } else {
+        if (!(error instanceof BotRunDeadlineError)) {
           throw error;
         }
+        turnResult = await turn.catch(() => ({
+          status: "failed" as const,
+          errorMessage: "Bot run timed out"
+        }));
+        if (turnResult.status === "completed") {
+          turnResult = { ...turnResult, status: "stopped" as const };
+        }
       } finally {
-        if (timeout) clearTimeout(timeout);
+        timer.clear();
       }
 
-      const summary = getLatestAssistantSummary(target.homeConversationId);
-      if (turnResult.status === "failed") {
+      if (consumeStallStop(bot.homeConversationId)) {
         return {
           status: "failed",
-          summary,
-          errorMessage: turnResult.errorMessage ?? "Bot run failed"
+          turnStarted,
+          errorMessage: `${bot.name} stopped responding (no activity for ${Math.round(DELEGATED_TURN_STALL_STOP_MS / 60_000)} minutes) and was stopped`
         };
       }
-      return {
-        status: turnResult.status,
-        summary: summary || "The bot finished without a visible response."
-      };
+      return { ...turnResult, turnStarted };
     } finally {
-      releaseBotUserSlot(ownerUserId);
+      slot.release();
     }
   });
 }
 
-async function settleDelegationRun(input: {
-  outcome: DelegationOutcome;
+async function runWorkerTurn(input: {
+  target: Bot;
   runId: string;
-  targetName: string;
+  taskPrompt: string;
   ownerUserId: string;
-}) {
-  const finishedRun = updateBotRunStatus(input.runId, {
-    status: mapTurnStatusToRunStatus(input.outcome.status),
-    finishedAt: new Date().toISOString(),
-    errorMessage: input.outcome.errorMessage ?? null
+  delegationChain?: DelegationChain;
+}): Promise<DelegationOutcome> {
+  const { target } = input;
+  const outcome = await runBotTurn({
+    bot: target,
+    runId: input.runId,
+    ownerUserId: input.ownerUserId,
+    content: input.taskPrompt,
+    timeoutMs: DEFAULT_BOT_RUN_TIMEOUT_MS,
+    delegationChain: input.delegationChain
   });
-  if (finishedRun) broadcastBotRunUpdate(finishedRun);
 
-  const refreshedTarget = resolveBotByNameOrId(input.targetName, input.ownerUserId);
-  if (refreshedTarget) broadcastBotUpsert(refreshedTarget);
+  if (outcome.status === "failed") {
+    return {
+      status: "failed",
+      summary: outcome.turnStarted ? getLatestAssistantSummary(target.homeConversationId) : "",
+      errorMessage: outcome.errorMessage ?? "Bot run failed"
+    };
+  }
+  if (outcome.status === "stopped" && !outcome.turnStarted) {
+    return { status: "stopped", summary: "" };
+  }
+  return {
+    status: outcome.status,
+    summary: getLatestAssistantSummary(target.homeConversationId) || "The bot finished without a visible response."
+  };
 }
 
-async function completeActionFromBackground(input: {
-  actionHandle: string;
-  chiefConversationId: string;
+function settleDelegationRun(input: {
+  runId: string;
+  target: Bot;
+  delegation: BotRunDelegation;
   outcome: DelegationOutcome;
-  detail: string;
 }) {
-  const { updateMessageAction } = await import("@/lib/conversations");
-  const isFailure = input.outcome.status === "failed";
-  const updated = updateMessageAction(input.actionHandle, {
-    status: isFailure ? "error" : "completed",
-    resultSummary: isFailure
-      ? `The bot run failed${input.outcome.errorMessage ? `: ${input.outcome.errorMessage}` : ""}.`
-      : input.outcome.summary || "Finished.",
-    completedAt: new Date().toISOString()
-  });
-  if (!updated) return;
+  const { runId, target, delegation, outcome } = input;
+  const isFailure = outcome.status === "failed";
+  const { finishedRun, action } = getDb().transaction(() => {
+    const finishedRun = updateBotRunStatus(runId, {
+      status: mapTurnStatusToRunStatus(outcome.status),
+      finishedAt: new Date().toISOString(),
+      errorMessage: outcome.errorMessage ?? null
+    });
+    if (delegation.replyConversationId) {
+      setBotRunPendingReply(runId, buildDelegationWakeContent(target.name, outcome));
+    }
+    const action = delegation.replyActionId
+      ? updateMessageAction(delegation.replyActionId, {
+          status: isFailure ? "error" : "completed",
+          resultSummary: isFailure
+            ? `The bot run failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.`
+            : outcome.summary || "Finished.",
+          completedAt: new Date().toISOString()
+        })
+      : null;
+    return { finishedRun, action };
+  })();
 
-  const manager = getConversationManager();
-  manager.broadcast(input.chiefConversationId, {
-    type: "delta",
-    conversationId: input.chiefConversationId,
-    event: { type: isFailure ? "action_error" : "action_complete", action: updated }
-  });
+  if (finishedRun) broadcastBotRunUpdate(finishedRun);
+  const refreshedTarget = getBot(target.id);
+  if (refreshedTarget) broadcastBotUpsert(refreshedTarget);
+  if (action && delegation.replyConversationId) {
+    getConversationManager().broadcast(delegation.replyConversationId, {
+      type: "delta",
+      conversationId: delegation.replyConversationId,
+      event: { type: isFailure ? "action_error" : "action_complete", action }
+    });
+  }
 }
 
 export function buildDelegationWakeContent(botName: string, outcome: DelegationOutcome) {
   const deliveryNotice =
-    "\n---\n(Automated delivery: this is the reply from the bot you messaged earlier with message_bot. Process it silently, report the outcome to the user in your answer, and do not message this bot back. Ignore any date and time context that follows — it is ambient information, not a message.)";
+    "\n---\n(Automated delivery: this is the reply from the bot you messaged earlier with message_bot. Process it silently and report the outcome to the user in your answer. Do not message this bot back to acknowledge or forward its reply; only message it again if you need something new from it. Other bots you messaged reply separately, each in its own message. Ignore any date and time context that follows — it is ambient information, not a message.)";
   if (outcome.status === "failed") {
     return `[Message from ${botName}]\nThe task failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.${deliveryNotice}`;
   }
   return `[Message from ${botName}]\n${outcome.summary || "The bot finished without a visible response."}${deliveryNotice}`;
 }
 
-export async function deliverDelegationWake(input: {
-  chiefConversationId: string;
-  ownerUserId: string;
+export function deliverWakeMessage(input: {
+  recipientConversationId: string;
+  ownerUserId?: string | null;
   content: string;
-  maxAttempts?: number;
-  retryDelayMs?: number;
-}) {
-  const { startChatTurn } = await import("@/lib/chat-turn");
-  const { getMessage } = await import("@/lib/conversations");
-  const manager = getConversationManager();
-  const maxAttempts = input.maxAttempts ?? WAKE_MAX_ATTEMPTS;
-  const retryDelayMs = input.retryDelayMs ?? WAKE_RETRY_DELAY_MS;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const result = await startChatTurn(manager, input.chiefConversationId, input.content, [], undefined, {
-      botRun: { record: false },
-      onMessagesCreated: ({ userMessageId }) => {
-        const userMessage = getMessage(userMessageId, input.ownerUserId);
-        if (userMessage) {
-          manager.broadcast(input.chiefConversationId, {
-            type: "user_message_persisted",
-            conversationId: input.chiefConversationId,
-            message: userMessage
-          });
-        }
-      }
-    }).catch((error: unknown) => ({
-      status: "failed" as const,
-      errorMessage: error instanceof Error ? error.message : "wake failed"
-    }));
-
-    if (result.status !== "failed") {
-      return result;
-    }
-    if (!/already has an active/i.test(result.errorMessage ?? "")) {
-      return result;
+  maxWaitMs?: number;
+  recordBotRun?: boolean;
+  delegationChain?: DelegationChain;
+  onDelivered?: () => void;
+}): Promise<ChatTurnResult> {
+  return enqueueSerialTask(`wake:${input.recipientConversationId}`, async () => {
+    const maxWaitMs = input.maxWaitMs ?? WAKE_MAX_WAIT_MS;
+    const recipientBot = getBotByConversationId(input.recipientConversationId);
+    const slotOwnerId = recipientBot ? input.ownerUserId ?? recipientBot.userId : null;
+    const slot = slotOwnerId ? createBotUserSlotLease(slotOwnerId) : null;
+    if (slot && !(await slot.acquire(maxWaitMs))) {
+      return { status: "failed", errorMessage: "Too many concurrent bot runs to deliver the reply" };
     }
 
-    await delay(retryDelayMs);
+    try {
+      return await startTurnWhenIdle({
+        conversationId: input.recipientConversationId,
+        content: input.content,
+        ownerUserId: input.ownerUserId,
+        maxWaitMs,
+        busyErrorMessage: "Recipient conversation stayed busy",
+        unattended: Boolean(recipientBot),
+        recordBotRun: input.recordBotRun,
+        delegationChain: input.delegationChain,
+        onTurnStarted: input.onDelivered,
+        onUserWait: slot
+          ? async (waiting) => {
+              if (waiting) {
+                slot.release();
+                return;
+              }
+              await slot.acquire(maxWaitMs);
+            }
+          : undefined
+      });
+    } finally {
+      slot?.release();
+    }
+  });
+}
+
+async function deliverPendingReply(runId: string, delegationChain?: DelegationChain) {
+  const run = getBotRun(runId);
+  const delegation = getBotRunDelegation(runId);
+  if (!run || !delegation?.pendingReply || !delegation.replyConversationId) return;
+
+  const wake = await deliverWakeMessage({
+    recipientConversationId: delegation.replyConversationId,
+    ownerUserId: getBot(run.botId)?.userId,
+    content: delegation.pendingReply,
+    delegationChain,
+    onDelivered: () => setBotRunPendingReply(runId, null)
+  });
+  setBotRunPendingReply(runId, null);
+  if (wake.status === "failed" || wake.status === "skipped") {
+    console.error(`[bot-delegation] reply from bot run ${runId} could not be delivered: ${wake.errorMessage}`);
   }
+}
 
-  return { status: "failed" as const, errorMessage: "Chief conversation stayed busy" };
+async function runDelegation(runId: string, delegationChain?: DelegationChain) {
+  const run = getBotRun(runId);
+  const delegation = getBotRunDelegation(runId);
+  const target = run ? getBot(run.botId) : null;
+  if (!run || !delegation?.prompt || !target?.userId) return;
+
+  const taskPrompt = run.startedAt
+    ? buildRestartResumeNotice(target.homeConversationId, delegation.prompt)
+    : delegation.prompt;
+  const outcome: DelegationOutcome = taskPrompt === null
+    ? { status: "failed", summary: "", errorMessage: `${target.name} was interrupted by repeated server restarts` }
+    : await runWorkerTurn({ target, runId, taskPrompt, ownerUserId: target.userId, delegationChain }).catch(
+        (error: unknown) => ({
+          status: "failed",
+          summary: "",
+          errorMessage: error instanceof Error ? error.message : "Message delivery failed"
+        })
+      );
+  if (consumeUserStoppedBotRun(runId)) return;
+
+  settleDelegationRun({ runId, target, delegation, outcome });
+  await deliverPendingReply(runId, delegationChain);
+}
+
+export function resumeDelegations() {
+  const resumableRunIds = listResumableDelegatedBotRunIds();
+  const pendingReplyRunIds = listBotRunIdsWithPendingReply();
+  for (const runId of resumableRunIds) {
+    void runDelegation(runId).catch((error: unknown) => {
+      console.error(`[bot-delegation] resuming bot run ${runId} failed`, error);
+    });
+  }
+  for (const runId of pendingReplyRunIds) {
+    void deliverPendingReply(runId).catch((error: unknown) => {
+      console.error(`[bot-delegation] redelivering the reply of bot run ${runId} failed`, error);
+    });
+  }
 }
 
 export async function executeMessageBot(
@@ -288,6 +531,15 @@ export async function executeMessageBot(
     }
   }
 
+  const delegationChain = context.input.delegationChain ?? { messagesSent: 0 };
+  if (delegationChain.messagesSent >= MAX_BOT_MESSAGES_PER_REQUEST) {
+    return result(
+      `Error: bots have already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages for this request without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after the user replies.`,
+      context.timelineSortOrder + 1
+    );
+  }
+  delegationChain.messagesSent += 1;
+
   const deliveredPrompt = sender
     ? `[Message from ${sender.name}]\n${message}`
     : message;
@@ -307,43 +559,14 @@ export async function executeMessageBot(
     botId: target.id,
     conversationId: target.homeConversationId,
     triggerSource: "delegated",
-    parentMessageId: context.input.assistantMessageId ?? null
+    parentMessageId: context.input.assistantMessageId ?? null,
+    prompt: deliveredPrompt,
+    replyConversationId: context.input.conversationId ?? null,
+    replyActionId: actionHandle ?? null
   });
   broadcastBotRunUpdate(run);
 
-  void (async () => {
-      const outcome = await runWorkerTurn({ target, runId: run.id, taskPrompt: deliveredPrompt, ownerUserId }).catch(
-        (error: unknown) => ({
-          status: "failed",
-          summary: "",
-          errorMessage: error instanceof Error ? error.message : "Message delivery failed"
-        })
-      );
-
-      await settleDelegationRun({
-        outcome,
-        runId: run.id,
-        targetName: target.name,
-        ownerUserId
-      });
-
-      if (actionHandle && context.input.conversationId) {
-        await completeActionFromBackground({
-          actionHandle,
-          chiefConversationId: context.input.conversationId,
-          outcome,
-          detail
-        });
-      }
-
-      if (context.input.conversationId) {
-        await deliverDelegationWake({
-          chiefConversationId: context.input.conversationId,
-          ownerUserId,
-          content: buildDelegationWakeContent(target.name, outcome)
-        });
-      }
-  })().catch((error: unknown) => {
+  void runDelegation(run.id, delegationChain).catch((error: unknown) => {
     console.error("[bot-delegation] async settlement failed", error);
   });
 
@@ -361,6 +584,101 @@ export async function executeMessageBot(
   };
 }
 
+const CHECK_BOT_OUTPUT_CHARS = 1_500;
+
+function formatElapsed(fromIso: string, toMs = Date.now()) {
+  return formatDurationSeconds((toMs - Date.parse(fromIso)) / 1000);
+}
+
+function getLatestOutputSnippet(conversationId: string) {
+  const messages = listMessages(conversationId);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+    const text =
+      message.content.trim() ||
+      (message.timeline ?? [])
+        .filter((item): item is Extract<typeof item, { timelineKind: "text" }> => item.timelineKind === "text")
+        .map((item) => item.content)
+        .join("")
+        .trim();
+    if (!text) continue;
+    const snippet = text.length > CHECK_BOT_OUTPUT_CHARS ? `…${text.slice(-CHECK_BOT_OUTPUT_CHARS)}` : text;
+    return { status: message.status, snippet };
+  }
+  return null;
+}
+
+export function describeBotProgress(target: NonNullable<ReturnType<typeof resolveBotByNameOrId>>) {
+  const status = getBotStatus(target);
+  const run = getLatestBotRun(target.id);
+  const activity = getTurnActivity(target.homeConversationId);
+  const lines = [`${target.name} is ${status === "waiting_user" ? "waiting for the user" : status}.`];
+
+  if (status === "running") {
+    const since = activity?.startedAt ?? run?.startedAt ?? null;
+    if (since) lines.push(`Working for ${formatElapsed(since)}.`);
+    if (activity?.currentAction) lines.push(`Current step: ${activity.currentAction}.`);
+    if (activity?.stalled) {
+      lines.push(`Warning: no activity for ${formatElapsed(activity.lastActivityAt)} — it may be stalled.`);
+    } else if (activity) {
+      lines.push(`Last activity ${formatElapsed(activity.lastActivityAt)} ago.`);
+    }
+  } else if (status === "waiting_user") {
+    for (const { action } of listPendingBotApprovals({ botId: target.id })) {
+      lines.push(`Blocked: waiting ${formatElapsed(action.startedAt)} for the user to answer "${action.label}" (${action.detail}).`);
+    }
+    lines.push(`It resumes once the user answers the approval card in ${target.name}'s conversation.`);
+  } else if (status === "queued") {
+    lines.push("Waiting for its turn — another task or a concurrency slot is ahead of it.");
+  } else if (run) {
+    const finished = run.finishedAt ?? run.createdAt;
+    lines.push(
+      `Last run ${run.status}${run.errorMessage ? ` (${run.errorMessage})` : ""}, ${formatElapsed(finished)} ago.`
+    );
+  }
+
+  const output = getLatestOutputSnippet(target.homeConversationId);
+  if (output) {
+    lines.push("", output.status === "streaming" ? "Output so far:" : "Latest output:", output.snippet);
+  }
+  return lines.join("\n");
+}
+
+export async function executeCheckBot(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: BotToolContext
+) {
+  const ownerUserId = context.input.memoryUserId ?? null;
+  const botReference = String(args.bot ?? "").trim();
+
+  const result = (content: string, toolSucceeded?: boolean) => ({
+    nextSortOrder: context.timelineSortOrder,
+    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }],
+    ...(toolSucceeded === undefined ? {} : { toolSucceeded })
+  });
+
+  if (!ownerUserId) {
+    return result("Error: bot status checks are not available in this conversation");
+  }
+  if (!botReference) {
+    return result("Error: bot is required");
+  }
+
+  const target = resolveBotByNameOrId(botReference, ownerUserId);
+  if (!target) {
+    return result(`Error: no bot "${botReference}" was found. Check a teammate by its exact name or id.`);
+  }
+
+  return result(
+    `${describeBotProgress(target)}\n\n(Status check only — the bot was not interrupted. Its reply will still arrive here as a new message when it finishes; do not message it to ask for status.)`,
+    true
+  );
+}
+
+const MAX_BOT_INSTRUCTIONS_CHARS = MAX_INSTRUCTION_CHARS;
+
 export async function executeUpdateBotTool(
   toolCallId: string,
   args: Record<string, unknown>,
@@ -371,24 +689,37 @@ export async function executeUpdateBotTool(
   const name = args.name !== undefined ? String(args.name).trim() : undefined;
   const title = args.title !== undefined ? String(args.title).trim() : undefined;
   const description = args.description !== undefined ? String(args.description).trim() : undefined;
-  const systemPrompt = args.system_prompt !== undefined ? String(args.system_prompt).trim() : undefined;
+  const instructions = args.instructions !== undefined ? String(args.instructions).trim() : undefined;
 
   const result = (content: string, sortOrder: number) => ({
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
   });
 
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
   if (!ownerUserId) {
     return result("Error: bot updates are not available in this conversation", context.timelineSortOrder);
+  }
+
+  if (!actingBot?.isChief) {
+    return result("Error: only the chief of staff can update bots.", context.timelineSortOrder + 1);
   }
 
   if (!botReference) {
     return result("Error: bot is required", context.timelineSortOrder + 1);
   }
 
-  if (name === undefined && title === undefined && description === undefined && systemPrompt === undefined) {
+  if (name === undefined && title === undefined && description === undefined && instructions === undefined) {
     return result(
-      "Error: provide at least one of name, title, description, or system_prompt to update",
+      "Error: provide at least one of name, title, description, or instructions to update",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions !== undefined && instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
       context.timelineSortOrder + 1
     );
   }
@@ -412,7 +743,7 @@ export async function executeUpdateBotTool(
       ...(name !== undefined ? { name } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(description !== undefined ? { description } : {}),
-      ...(systemPrompt !== undefined ? { system_prompt: systemPrompt } : {})
+      ...(instructions !== undefined ? { instructions } : {})
     }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
@@ -424,7 +755,7 @@ export async function executeUpdateBotTool(
         ...(name !== undefined ? { name } : {}),
         ...(title !== undefined ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
-        ...(systemPrompt !== undefined ? { systemPrompt } : {})
+        ...(instructions !== undefined ? { systemPrompt: instructions } : {})
       },
       ownerUserId
     );
@@ -461,18 +792,39 @@ export async function executeCreateBotTool(
   const name = String(args.name ?? "").trim();
   const title = String(args.title ?? "").trim();
   const description = String(args.description ?? "").trim();
+  const instructions = String(args.instructions ?? "").trim();
 
   const result = (content: string, sortOrder: number) => ({
     nextSortOrder: sortOrder,
     promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
   });
 
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
   if (!ownerUserId) {
     return result("Error: bot creation is not available in this conversation", context.timelineSortOrder);
   }
 
+  if (!actingBot?.isChief) {
+    return result("Error: only the chief of staff can create bots.", context.timelineSortOrder + 1);
+  }
+
   if (!name) {
     return result("Error: name is required", context.timelineSortOrder + 1);
+  }
+
+  if (!instructions) {
+    return result(
+      "Error: instructions are required — every bot needs specific instructions covering its identity, what it owns, how it should work, its quality bar, and what to avoid",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
+      context.timelineSortOrder + 1
+    );
   }
 
   const detail = name;
@@ -481,12 +833,12 @@ export async function executeCreateBotTool(
     label: "Create bot",
     detail,
     toolName: "create_bot",
-    arguments: { name, title, description }
+    arguments: { name, title, description, instructions }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const bot = createBot({ name, title, description }, ownerUserId);
+    const bot = createBot({ name, title, description, systemPrompt: instructions }, ownerUserId);
     broadcastBotUpsert(bot);
 
     await context.input.onActionComplete?.(actionHandle, {
@@ -504,6 +856,77 @@ export async function executeCreateBotTool(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create bot";
     await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    return { ...result(`Error: ${message}`, context.timelineSortOrder + 1), toolSucceeded: false };
+  }
+}
+
+export async function executeUpdateOwnInstructionsTool(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: BotToolContext
+) {
+  const ownerUserId = context.input.memoryUserId ?? null;
+  const instructions = String(args.instructions ?? "").trim();
+
+  const result = (content: string, sortOrder: number) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
+  });
+
+  const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+
+  if (!ownerUserId || !actingBot) {
+    return result(
+      "Error: updating your own instructions is only available inside a bot's own thread",
+      context.timelineSortOrder
+    );
+  }
+
+  if (!instructions) {
+    return result(
+      "Error: instructions are required — provide the complete new instructions",
+      context.timelineSortOrder + 1
+    );
+  }
+
+  if (instructions.length > MAX_BOT_INSTRUCTIONS_CHARS) {
+    return result(
+      `Error: instructions are too long (max ${MAX_BOT_INSTRUCTIONS_CHARS} characters)`,
+      context.timelineSortOrder + 1
+    );
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "update_bot",
+    label: "Update own instructions",
+    detail: actingBot.name,
+    toolName: "update_own_instructions",
+    arguments: { instructions }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const updated = updateBot(actingBot.id, { systemPrompt: instructions }, ownerUserId);
+    if (!updated) {
+      throw new Error("Bot not found");
+    }
+    broadcastBotUpsert(updated);
+
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: actingBot.name,
+      resultSummary: `Updated own instructions for ${updated.name}`
+    });
+
+    return {
+      ...result(
+        "Your instructions have been updated and apply from your next message. Tell the user what you changed and why.",
+        context.timelineSortOrder + 1
+      ),
+      toolSucceeded: true
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update instructions";
+    await context.input.onActionError?.(actionHandle, { detail: actingBot.name, resultSummary: message });
     return { ...result(`Error: ${message}`, context.timelineSortOrder + 1), toolSucceeded: false };
   }
 }

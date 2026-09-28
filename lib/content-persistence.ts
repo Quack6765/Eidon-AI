@@ -20,11 +20,13 @@ function appendFailureNotes(content: string, failureNotes: string[]) {
 async function sanitizeAssistantContent(
   conversationId: string,
   messageId: string,
-  content: string
+  content: string,
+  authorizedRoots: string[]
 ) {
   const inferred = await inferAssistantLocalAttachments({
     conversationId,
     content,
+    authorizedRoots,
     existingAttachments: getMessage(messageId)?.attachments ?? [],
     tidyWhitespace: false
   });
@@ -70,7 +72,8 @@ export async function attachAssistantFilesFromCompletedAction(conversationId: st
 
 export function createAssistantContentPersistenceTracker(
   conversationId: string,
-  messageId: string
+  messageId: string,
+  authorizedRoots: string[] = []
 ) {
   let persistedRawContent = "";
   let persistedSanitizedContent = "";
@@ -92,7 +95,7 @@ export function createAssistantContentPersistenceTracker(
         return "";
       }
 
-      const sanitized = await sanitizeAssistantContent(conversationId, messageId, content);
+      const sanitized = await sanitizeAssistantContent(conversationId, messageId, content, authorizedRoots);
       persistedRawContent += content;
       persistedSanitizedContent += sanitized.content;
       recordFailureNote(sanitized.failureNote);
@@ -106,7 +109,7 @@ export function createAssistantContentPersistenceTracker(
       if (content.startsWith(persistedRawContent)) {
         const remainder = content.slice(persistedRawContent.length);
         if (remainder) {
-          const sanitized = await sanitizeAssistantContent(conversationId, messageId, remainder);
+          const sanitized = await sanitizeAssistantContent(conversationId, messageId, remainder, authorizedRoots);
           persistedRawContent += remainder;
           persistedSanitizedContent += sanitized.content;
           recordFailureNote(sanitized.failureNote);
@@ -116,7 +119,7 @@ export function createAssistantContentPersistenceTracker(
       }
 
       if (!persistedRawContent) {
-        const sanitized = await sanitizeAssistantContent(conversationId, messageId, content);
+        const sanitized = await sanitizeAssistantContent(conversationId, messageId, content, authorizedRoots);
         persistedRawContent = content;
         persistedSanitizedContent = sanitized.content;
         recordFailureNote(sanitized.failureNote);

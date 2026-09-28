@@ -11,7 +11,7 @@ import {
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
-import { modelMatchesPrefix, resolveCapabilities } from "@/lib/model-capabilities";
+import { modelMatchesPrefix, resolveCapabilities, supportsImageInput } from "@/lib/model-capabilities";
 
 export type ProviderConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -51,6 +51,7 @@ export type ProviderProfileCapabilities = {
   supportsTemperature: boolean;
   processingModes: readonly ProcessingMode[];
   reasoningEfforts: readonly ReasoningEffort[];
+  reasoningControl: "levels" | "toggle";
   explicitDisabledReasoning: boolean;
   outputTokenBudgetIncludesReasoning: boolean;
   longContextPricingThreshold: number | null;
@@ -101,6 +102,8 @@ export type ProviderConnectionSummary = {
 
 export type ProviderProfileSummary = ProviderProfile & {
   connection: ProviderConnectionSummary;
+  reasoningControl: ProviderProfileCapabilities["reasoningControl"];
+  reasoningEfforts: ProviderProfileCapabilities["reasoningEfforts"];
 };
 
 export function getProviderApiMode(profile: {
@@ -117,6 +120,16 @@ export function getProviderApiMode(profile: {
     apiMode: profile.providerConfig.apiMode ?? "responses",
     model: profile.model
   });
+}
+
+export function profileSupportsImageInput(profile: {
+  providerKind: ProviderKind;
+  model: string;
+  providerConfig: { apiBaseUrl?: string; apiMode?: ApiMode };
+  visionMode: VisionMode;
+}): boolean {
+  return profile.visionMode === "native" ||
+    supportsImageInput(profile.model, getProviderApiMode(profile));
 }
 
 export function getProviderApiBaseUrl(profile: ProviderProfile) {
@@ -151,8 +164,21 @@ export function resolveProviderProfileCapabilities(
     profile.providerConfig.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() ===
       "https://api.openai.com/v1";
   const hasExtendedReasoning = isOfficialEndpoint && modelMatchesPrefix(profile.model, "gpt-5.6");
-  const reasoningEfforts = ["none", "low", "medium", "high", "xhigh"] as const;
+  const defaultReasoningEfforts: readonly ReasoningEffort[] = [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+  ];
   const modelCapabilities = resolveCapabilities(profile.model, getProviderApiMode(profile));
+  const supportedReasoningEfforts = modelCapabilities.reasoningEfforts ?? defaultReasoningEfforts;
+  const reasoningControl: ProviderProfileCapabilities["reasoningControl"] =
+    PROVIDER_CATALOG[profile.providerKind].editor.apiMode &&
+    getProviderApiMode(profile) === "chat_completions" &&
+    modelCapabilities.extraBody === "thinking"
+      ? "toggle"
+      : "levels";
 
   return {
     supportsTemperature:
@@ -161,8 +187,9 @@ export function resolveProviderProfileCapabilities(
       modelCapabilities.supportsTemperature,
     processingModes: isOfficialEndpoint ? ["standard", "fast"] : [],
     reasoningEfforts: hasExtendedReasoning
-      ? [...reasoningEfforts, "max"]
-      : reasoningEfforts,
+      ? [...supportedReasoningEfforts, "max"]
+      : supportedReasoningEfforts,
+    reasoningControl,
     explicitDisabledReasoning: hasExtendedReasoning,
     outputTokenBudgetIncludesReasoning: hasExtendedReasoning,
     longContextPricingThreshold: hasExtendedReasoning ? 272000 : null
@@ -206,9 +233,12 @@ export function toProviderProfileSummary(
   profile: RuntimeProviderProfile
 ): ProviderProfileSummary {
   const { credentials: _credentials, connectionMetadata: _metadata, ...publicProfile } = profile;
+  const { reasoningControl, reasoningEfforts } = resolveProviderProfileCapabilities(profile);
   return {
     ...publicProfile,
-    connection: getProviderConnectionSummary(profile)
+    connection: getProviderConnectionSummary(profile),
+    reasoningControl,
+    reasoningEfforts
   };
 }
 

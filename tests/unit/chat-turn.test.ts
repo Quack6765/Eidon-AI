@@ -640,7 +640,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("stopped");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
@@ -1019,7 +1019,7 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.content).toBe(
-        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file was not produced by a completed tool action in this turn."
+        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file is outside the workspaces I can share files from."
       );
       expect(assistant?.attachments).toEqual([]);
     } finally {
@@ -1580,6 +1580,191 @@ describe("chat-turn", () => {
     await expect(firstStart).resolves.toEqual({ status: "completed" });
   });
 
+  it("suppresses the busy error broadcast when quietWhenBusy is set", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { startChatTurn } = await import("@/lib/chat-turn");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const manager = createConversationManager();
+    const conversation = createConversation("Quiet busy start");
+    const sent: unknown[] = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+    manager.subscribe(conversation.id, mockWs);
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "First answer" };
+        await gate;
+        return {
+          answer: "First answer",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
+
+    const firstStart = startChatTurn(manager, conversation.id, "First prompt", []);
+    await vi.waitFor(() => {
+      if (!sent.some((event) => (event as { type: string }).type === "delta")) {
+        throw new Error("waiting for first turn to start");
+      }
+    });
+
+    const quietResult = await startChatTurn(manager, conversation.id, "Quiet prompt", [], undefined, {
+      quietWhenBusy: true
+    });
+
+    expect(quietResult).toEqual({
+      status: "failed",
+      errorMessage: "Conversation already has an active assistant turn"
+    });
+    expect(sent.some((event) => (event as { type: string }).type === "error")).toBe(false);
+    expect(
+      listVisibleMessages(conversation.id).filter((message) => message.role === "user")
+    ).toHaveLength(1);
+
+    const loudResult = await startChatTurn(manager, conversation.id, "Loud prompt", []);
+
+    expect(loudResult).toEqual({
+      status: "failed",
+      errorMessage: "Conversation already has an active assistant turn"
+    });
+    expect(
+      sent.filter((event) => (event as { type: string }).type === "error")
+    ).toEqual([
+      {
+        type: "error",
+        message: "Conversation already has an active assistant turn"
+      }
+    ]);
+
+    release();
+    await expect(firstStart).resolves.toEqual({ status: "completed" });
+  });
+
+  it("delivers a delegation wake after the active turn ends without broadcasting busy errors", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const { buildDelegationWakeContent, deliverWakeMessage } = await import("@/lib/bot-delegation");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const { createLocalUser: createIntegrationUser } = await import("@/lib/users");
+    const user = await createIntegrationUser({
+      username: "wake-integration-user",
+      password: "changeme123",
+      role: "user"
+    });
+    const manager = getConversationManager();
+    const conversation = createConversation("Chief wake integration", null, { providerProfileId: null }, user.id);
+    const sent: unknown[] = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+    manager.subscribe(conversation.id, mockWs);
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "I contacted both operators." };
+        await gate;
+        return {
+          answer: "I contacted both operators.",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        return {
+          answer: "Ona saved ONA-OVERVIEW.md.",
+          thinking: "",
+          usage: { outputTokens: 3 }
+        };
+      })()
+    );
+
+    const firstTurn = startChatTurn(manager, conversation.id, "Ask both operators to save the docs", []);
+    await vi.waitFor(() => {
+      if (!sent.some((event) => (event as { type: string }).type === "delta")) {
+        throw new Error("waiting for first turn to start");
+      }
+    });
+
+    const wake = deliverWakeMessage({
+      recipientConversationId: conversation.id,
+      ownerUserId: user.id,
+      content: buildDelegationWakeContent("Ona Operator", {
+        status: "completed",
+        summary: "Saved ONA-OVERVIEW.md."
+      })
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sent.some((event) => (event as { type: string }).type === "error")).toBe(false);
+
+    release();
+    const [firstResult, wakeResult] = await Promise.all([firstTurn, wake]);
+
+    expect(firstResult).toEqual({ status: "completed" });
+    expect(wakeResult).toEqual({ status: "completed" });
+    expect(sent.filter((event) => (event as { type: string }).type === "error")).toEqual([]);
+
+    const wakeUserMessageIndex = sent.findIndex(
+      (event) =>
+        (event as { type: string }).type === "user_message_persisted" &&
+        ((event as { message?: { content?: string } }).message?.content ?? "").includes(
+          "[Message from Ona Operator]"
+        )
+    );
+    expect(wakeUserMessageIndex).toBeGreaterThan(-1);
+
+    const messageStartIndexes = sent
+      .map((event, index) => ({ event, index }))
+      .filter(
+        (entry): entry is { event: { type: string; event?: { type: string } }; index: number } =>
+          (entry.event as { type: string }).type === "delta" &&
+          ((entry.event as { event?: { type: string } }).event?.type ?? null) === "message_start"
+      )
+      .map((entry) => entry.index);
+    expect(messageStartIndexes).toHaveLength(2);
+    expect(wakeUserMessageIndex).toBeLessThan(messageStartIndexes[1]);
+
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages.filter((message) => message.role === "user").map((message) => message.content)).toEqual([
+      "Ask both operators to save the docs",
+      expect.stringContaining("[Message from Ona Operator]")
+    ]);
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(2);
+  });
+
   it("completes a turn that triggers image generation via the agentic tool system", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateProviderCatalog } = await import("@/lib/settings");
@@ -1650,7 +1835,7 @@ describe("chat-turn", () => {
       const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistantMessage?.status).toBe("completed");
       expect(assistantMessage?.content).toBe(
-        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect(assistantMessage?.attachments).toEqual([]);
     } finally {
@@ -1695,7 +1880,7 @@ describe("chat-turn", () => {
     expect(assistantMessage?.status).toBe("completed");
     expect(assistantMessage?.attachments).toEqual([]);
     expect(assistantMessage?.content).toBe(
-      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file was not produced by a completed tool action in this turn."
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file is outside the workspaces I can share files from."
     );
   });
 
@@ -2058,7 +2243,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
@@ -2136,6 +2321,149 @@ describe("chat-turn", () => {
           status: "stopped"
         })
       ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
+  it("keeps preamble text streamed before a tool step ordered above the action", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-preamble-user",
+      password: "route-preamble-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route preamble", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text: string }) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
+        onActionStart?: (action: {
+          kind: "skill_load";
+          label: string;
+          detail?: string;
+        }) => string | void;
+      }) => {
+        input.onEvent?.({ type: "answer_delta", text: "Let me check the docs." });
+        await input.onAnswerSegment?.("Let me check the docs.");
+        input.onActionStart?.({
+          kind: "skill_load",
+          label: "Load skill",
+          detail: "Checking docs"
+        });
+        input.onEvent?.({ type: "answer_delta", text: "Here are the results." });
+        await input.onAnswerSegment?.("Here are the results.");
+        return {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Find the docs", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      const segments = assistant?.textSegments ?? [];
+      const action = assistant?.actions?.[0];
+
+      expect(segments.map((segment) => segment.content)).toEqual([
+        "Let me check the docs.",
+        "Here are the results."
+      ]);
+      expect(assistant?.content).toBe("Let me check the docs.Here are the results.");
+      expect(action).toEqual(expect.objectContaining({ label: "Load skill" }));
+      expect(segments[0].sortOrder).toBeLessThan(action!.sortOrder);
+      expect(action!.sortOrder).toBeLessThan(segments[1].sortOrder);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
+  it("keeps narration streamed before a stream retry as a timeline segment", async () => {
+    const { createLocalUser: createRetryUser } = await import("@/lib/users");
+    const user = await createRetryUser({
+      username: "route-retry-user",
+      password: "password-retry-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route retry", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text?: string }) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
+      }) => {
+        input.onEvent?.({ type: "answer_delta", text: "Let me check the docs." });
+        input.onEvent?.({ type: "stream_retry" });
+        input.onEvent?.({ type: "answer_delta", text: "Here are the results." });
+        await input.onAnswerSegment?.("Here are the results.");
+        return {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Find the docs", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      const segments = assistant?.textSegments ?? [];
+
+      expect(segments.map((segment) => segment.content)).toEqual([
+        "Let me check the docs.",
+        "Here are the results."
+      ]);
+      expect(assistant?.content).toContain("Let me check the docs.");
+      expect(assistant?.content).toContain("Here are the results.");
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
     }

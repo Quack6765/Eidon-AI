@@ -1,3 +1,5 @@
+import { getDefaultVisionMode } from "@/lib/model-capabilities";
+
 export type ProviderConnectionMode = "api_key" | "oauth";
 export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
@@ -33,7 +35,7 @@ export const DEFAULT_PROFILE_BEHAVIOR = {
   leafMinMessageCount: 6,
   mergedMinNodeCount: 4,
   mergedTargetTokens: 1600,
-  visionMode: "native" as VisionMode
+  visionMode: "none" as VisionMode
 } as const;
 
 export const PROVIDER_CATALOG = {
@@ -98,6 +100,29 @@ export const PROVIDER_CATALOG = {
 >;
 
 export type ProviderKind = keyof typeof PROVIDER_CATALOG;
+
+/**
+ * The kind to use for a hand-configured endpoint that matches no preset. Named
+ * generically so callers outside this catalog never hardcode a vendor kind.
+ */
+export const CUSTOM_PROVIDER_KIND: ProviderKind = "openai_compatible";
+
+/** Kinds that connect by redirecting the user rather than by storing a key. */
+export function getOAuthProviderKinds(): ProviderKind[] {
+  return (Object.keys(PROVIDER_CATALOG) as ProviderKind[]).filter(
+    (kind) => PROVIDER_CATALOG[kind].connectionMode === "oauth"
+  );
+}
+
+/**
+ * Kinds configured with a key plus an endpoint, so they can be pointed at any
+ * compatible server rather than only the vendors covered by a preset.
+ */
+export function getApiKeyProviderKinds(): ProviderKind[] {
+  return (Object.keys(PROVIDER_CATALOG) as ProviderKind[]).filter(
+    (kind) => PROVIDER_CATALOG[kind].connectionMode === "api_key"
+  );
+}
 
 export type ProviderPresetValues = {
   name: string;
@@ -255,6 +280,42 @@ export const PROVIDER_PRESETS = [
       reasoningSummaryEnabled: false,
       modelContextLimit: 200000
     }
+  },
+  {
+    id: "command_code",
+    label: "Command Code",
+    providerKind: "openai_compatible",
+    requestRules: [
+      {
+        modelPrefix: "gpt-5",
+        apiMode: "responses"
+      }
+    ],
+    values: {
+      name: "Command Code",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      model: "deepseek/deepseek-v4-flash",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1000000,
+      temperature: 1.3,
+      maxOutputTokens: 8192
+    }
+  },
+  {
+    id: "command_code_anthropic",
+    label: "Command Code",
+    providerKind: "anthropic",
+    values: {
+      name: "Command Code",
+      apiBaseUrl: "https://api.commandcode.ai/provider",
+      model: "claude-sonnet-5",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1000000
+    }
   }
 ] as const satisfies ReadonlyArray<{
   id: string;
@@ -318,6 +379,10 @@ export function resolveProviderRequestApiMode(profile: ProviderRequestProfile): 
   return rule?.apiMode ?? profile.apiMode;
 }
 
+export function resolveDefaultVisionMode(profile: ProviderRequestProfile): VisionMode {
+  return getDefaultVisionMode(profile.model, resolveProviderRequestApiMode(profile));
+}
+
 export function applyProviderPreset<T extends PresetCompatibleProfile>(
   profile: T,
   presetId: ProviderPresetId
@@ -370,12 +435,21 @@ export function createProviderProfileDraft(input?: {
     reasoningSummaryEnabled: DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled,
     modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit
   };
+  const presetVisionMode = preset
+    ? (preset.values as ProviderPresetValues).visionMode
+    : undefined;
 
   return {
     id: input?.id ?? `profile_${crypto.randomUUID()}`,
     providerKind,
     ...DEFAULT_PROFILE_BEHAVIOR,
     ...providerValues,
+    visionMode: presetVisionMode ?? resolveDefaultVisionMode({
+      providerKind,
+      apiBaseUrl: providerValues.apiBaseUrl,
+      apiMode: providerValues.apiMode,
+      model: providerValues.model
+    }),
     visionProviderProfileId: null,
     processingMode: "processingMode" in providerValues
       ? providerValues.processingMode

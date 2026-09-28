@@ -4,7 +4,39 @@ import {
   readAttachmentText
 } from "@/lib/attachments";
 import { badRequest } from "@/lib/http";
-import type { MessageAttachment } from "@/lib/types";
+import type { AttachmentKind, MessageAttachment } from "@/lib/types";
+
+function buildContentDisposition(disposition: "inline" | "attachment", filename: string) {
+  const asciiFilename = filename.replace(/[^\w.-]+/g, "_") || "file";
+  if (asciiFilename === filename) {
+    return `${disposition}; filename="${filename}"`;
+  }
+
+  const encodedFilename = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+}
+
+export function buildFileResponse(
+  file: { filename: string; mimeType: string; kind: AttachmentKind; byteSize: number },
+  body: BodyInit,
+  download: boolean
+) {
+  const isImage = file.kind === "image";
+  const disposition = download || !isImage ? "attachment" : "inline";
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": isImage ? file.mimeType : "application/octet-stream",
+      "Content-Length": String(file.byteSize),
+      "Content-Disposition": buildContentDisposition(disposition, file.filename),
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, no-store"
+    }
+  });
+}
 
 export function buildAttachmentResponse(
   attachment: Pick<MessageAttachment, "id" | "filename" | "mimeType" | "relativePath" | "kind" | "extractedText">,
@@ -30,18 +62,7 @@ export function buildAttachmentResponse(
 
   try {
     const buffer = readAttachmentBuffer(attachment);
-    const isImage = attachment.kind === "image";
-    const disposition = download || !isImage ? "attachment" : "inline";
-
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": isImage ? attachment.mimeType : "application/octet-stream",
-        "Content-Length": String(buffer.length),
-        "Content-Disposition": `${disposition}; filename="${attachment.filename}"`,
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, no-store"
-      }
-    });
+    return buildFileResponse({ ...attachment, byteSize: buffer.length }, buffer, download);
   } catch {
     return badRequest("Attachment file not found", 404);
   }

@@ -14,7 +14,8 @@ Object.assign(process.env, {
   EIDON_ADMIN_PASSWORD: "changeme123",
   EIDON_SESSION_SECRET: "test-session-secret-which-is-long-enough",
   EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough",
-  EIDON_EMBEDDING_DISABLED: "1"
+  EIDON_EMBEDDING_DISABLED: "1",
+  AGENT_BROWSER_EXECUTABLE_PATH: path.join(dataDir, "no-browser")
 });
 
 if (typeof window !== "undefined") {
@@ -48,14 +49,17 @@ if (typeof window !== "undefined") {
 }
 
 beforeEach(async () => {
+  (globalThis as Record<symbol, unknown>)[Symbol.for("eidon.shell-isolation")] = { abi: 0 };
   const { resetDbForTests } = await import("@/lib/db");
   resetDbForTests();
-  fs.rmSync(dataDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 50
-  });
+  for (const dir of [dataDir, `${dataDir}-workspaces`]) {
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 50
+    });
+  }
 });
 
 afterEach(async () => {

@@ -250,6 +250,18 @@ export function deleteQueuedMessage({
   return result.changes > 0;
 }
 
+export function claimQueuedRedirectMessage(conversationId: string, queuedMessageIds: ReadonlySet<string>) {
+  if (queuedMessageIds.size === 0) return null;
+  return getDb().transaction(() => {
+    const next = listQueuedMessages(conversationId).find(
+      (message) => message.status === "pending" && queuedMessageIds.has(message.id)
+    );
+    if (!next) return null;
+    deleteQueuedMessage({ conversationId, queuedMessageId: next.id });
+    return next;
+  })();
+}
+
 export function failQueuedMessage({
   conversationId,
   queuedMessageId,
@@ -272,6 +284,30 @@ export function failQueuedMessage({
          AND status = 'processing'`
     )
     .run(failureMessage, timestamp, queuedMessageId, conversationId);
+
+  return result.changes > 0;
+}
+
+export function requeueQueuedMessage({
+  conversationId,
+  queuedMessageId
+}: {
+  conversationId: string;
+  queuedMessageId: string;
+}) {
+  const timestamp = nowIso();
+  const result = getDb()
+    .prepare(
+      `UPDATE queued_messages
+       SET status = 'pending',
+           failure_message = NULL,
+           processing_started_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND conversation_id = ?
+         AND status = 'processing'`
+    )
+    .run(timestamp, queuedMessageId, conversationId);
 
   return result.changes > 0;
 }

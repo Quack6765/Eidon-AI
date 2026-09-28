@@ -43,9 +43,9 @@ const nodeEnvSchema = z.object({
     .transform((value) => value ?? getSystemTimeZone())
     .refine(isValidIanaTimeZone, "TZ must be a valid IANA timezone"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((value) => value === "true"),
+    .string()
+    .default("true")
+    .transform((value) => value !== "false"),
   EIDON_ADMIN_USERNAME: z.string().min(1).default("admin"),
   EIDON_ADMIN_PASSWORD: z.string().min(8).optional(),
   EIDON_SESSION_SECRET: z.string().min(32).optional(),
@@ -56,6 +56,7 @@ const nodeEnvSchema = z.object({
     .url()
     .optional()
     .transform((value) => (value ? normalizeBaseUrl(value) : value)),
+  EIDON_BROWSER_MEMORY_BUDGET_MB: z.coerce.number().int().positive().optional(),
   EIDON_GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CALLBACK_URL: z.string().url().optional()
@@ -144,6 +145,13 @@ export function parseEnv(input: NodeJS.ProcessEnv) {
   }
 
   return resolved;
+}
+
+export function assertProductionBaseUrl() {
+  const parsed = nodeEnvSchema.parse(process.env);
+  if (parsed.NODE_ENV === "production" && !hasHttpScheme(parsed.EIDON_BASE_URL)) {
+    throw new Error(PRODUCTION_BASE_URL_MESSAGE);
+  }
 }
 
 type EidonEnv = ReturnType<typeof parseEnv>;
