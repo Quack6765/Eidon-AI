@@ -885,26 +885,26 @@ describe("message bubble", () => {
     expect(blocks[2]?.textContent).toContain("Second segment");
   });
 
-  it("collapses adjacent assistant text segments into a single prose container", () => {
+  it("renders adjacent assistant text segments as separate message blocks", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
-          content: "Hello there",
+          content: "I'll load the browser skill. The browser skill is loaded.",
           timeline: [
             {
               id: "txt_1",
               timelineKind: "text",
               sortOrder: 0,
               createdAt: new Date().toISOString(),
-              content: "Hello"
+              content: "I'll load the browser skill."
             },
             {
               id: "txt_2",
               timelineKind: "text",
               sortOrder: 1,
               createdAt: new Date().toISOString(),
-              content: " there"
+              content: "The browser skill is loaded."
             }
           ]
         }
@@ -913,8 +913,82 @@ describe("message bubble", () => {
 
     const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(proseContainers).toHaveLength(1);
-    expect(proseContainers[0]?.textContent).toContain("Hello there");
+    expect(proseContainers).toHaveLength(2);
+    expect(proseContainers[0]?.textContent).toContain("I'll load the browser skill.");
+    expect(proseContainers[1]?.textContent).toContain("The browser skill is loaded.");
+  });
+
+  it("keeps the caret on the message that is still streaming", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file. The final answer is 42.",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "File (204 chars)"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
+    const caretIn = (block: Element) => block.querySelector('div[class*="streamdown-caret"]');
+
+    expect(textBlocks).toHaveLength(2);
+    expect(caretIn(textBlocks[0])).toBeNull();
+    expect(caretIn(textBlocks[1])).not.toBeNull();
+  });
+
+  it("hides the caret on an intermediate message once a running action follows it", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file.",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const [intermediateText] = screen.getAllByTestId("assistant-message-content");
+
+    expect(intermediateText.textContent).toContain("Let me look at the file.");
+    expect(intermediateText.querySelector('div[class*="streamdown-caret"]')).toBeNull();
+    expect(container.textContent).toContain("Read page");
   });
 
   it("does not append a second assistant prose container when normalized timeline text already covers escaped message content", () => {
@@ -1035,14 +1109,16 @@ describe("message bubble", () => {
     );
     const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(proseContainers).toHaveLength(1);
-    expect(proseContainers[0]?.textContent).toContain(
-      "Got it, Charles. I'll remember that you prefer Celsius over Fahrenheit."
+    expect(proseContainers).toHaveLength(2);
+    expect(proseContainers[0]?.textContent).toContain("Got it, Charles.");
+    expect(proseContainers[1]?.textContent).toContain(
+      "I'll remember that you prefer Celsius over Fahrenheit."
     );
-    expect(blocks).toHaveLength(2);
+    expect(blocks).toHaveLength(3);
     expect(blocks[0]?.getAttribute("data-testid")).toBe("assistant-message-content");
-    expect(blocks[1]?.getAttribute("data-testid")).toBe("assistant-actions-shell");
-    expect(blocks[1]?.textContent).toContain("Save memory");
+    expect(blocks[1]?.getAttribute("data-testid")).toBe("assistant-message-content");
+    expect(blocks[2]?.getAttribute("data-testid")).toBe("assistant-actions-shell");
+    expect(blocks[2]?.textContent).toContain("Save memory");
   });
 
   it("keeps consecutive retries of the same tool as separate action rows", () => {
