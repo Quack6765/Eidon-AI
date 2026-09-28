@@ -401,10 +401,11 @@ function clampStreamingTimeline(
   timeline: MessageTimelineItem[],
   display: string,
   revealedFloor: number
-): MessageTimelineItem[] {
+): { timeline: MessageTimelineItem[]; partialTextId: string | null } {
   const clamped: MessageTimelineItem[] = [];
   const budget = Math.max(display.length, revealedFloor);
   let offset = 0;
+  let partialTextId: string | null = null;
 
   for (const item of timeline) {
     if (item.timelineKind !== "text") {
@@ -418,6 +419,9 @@ function clampStreamingTimeline(
     );
 
     if (visibleLength > 0) {
+      if (visibleLength < item.content.length) {
+        partialTextId = item.id;
+      }
       clamped.push(
         visibleLength === item.content.length
           ? item
@@ -428,7 +432,7 @@ function clampStreamingTimeline(
     offset += item.content.length;
   }
 
-  return clamped;
+  return { timeline: clamped, partialTextId };
 }
 
 function escapeHtml(value: string) {
@@ -588,10 +592,12 @@ function MessageBubbleImpl({
     const rawContent = streamingAnswer ?? message.content;
     const rawThinking = streamingThinking ?? message.thinkingContent ?? "";
     const actions = message.actions ?? [];
-    const liveTimeline =
+    const clampedStream =
       streamingTimeline !== undefined && streamingAnswer !== undefined
         ? clampStreamingTimeline(streamingTimeline, streamingAnswer, revealedAnswerCharsRef.current)
-        : streamingTimeline ?? message.timeline;
+        : null;
+    const liveTimeline = clampedStream?.timeline ?? streamingTimeline ?? message.timeline;
+    const partialStreamingTextId = clampedStream?.partialTextId ?? null;
     const contentForComparison = normalizeRealLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
       ...action,
@@ -599,30 +605,9 @@ function MessageBubbleImpl({
     }));
     const assistantBlocks: AssistantBlock[] = [];
     const deferredProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
-    let bufferedText = "";
-
-    function appendBufferedText() {
-      if (!bufferedText) {
-        return;
-      }
-
-      assistantBlocks.push({
-        id: `text_${message.id}_${assistantBlocks.length}`,
-        timelineKind: "text",
-        sortOrder: assistantBlocks.length,
-        createdAt: message.createdAt,
-        content: bufferedText
-      });
-      bufferedText = "";
-    }
-
-    function mergeText(current: string, next: string) {
-      return `${current}${next}`;
-    }
 
     timeline.forEach((item) => {
       if (item.timelineKind === "thinking") {
-        appendBufferedText();
         const visibleEnd = Math.min(
           item.endOffset ?? rawThinking.length,
           rawThinking.length
@@ -649,15 +634,16 @@ function MessageBubbleImpl({
           return;
         }
 
-        appendBufferedText();
         assistantBlocks.push(item);
         return;
       }
 
-      bufferedText = mergeText(bufferedText, item.content);
-    });
+      if (!item.content) {
+        return;
+      }
 
-    appendBufferedText();
+      assistantBlocks.push(item);
+    });
 
     const consumedText = assistantBlocks
       .filter(
@@ -746,7 +732,8 @@ function MessageBubbleImpl({
       assistantBlocks,
       renderedAssistantText,
       renderedAssistantBlockContentById,
-      lastRenderableAssistantTextId
+      lastRenderableAssistantTextId,
+      partialStreamingTextId
     };
   }, [message, streamingAnswer, streamingThinking, streamingTimeline]);
 
@@ -756,7 +743,8 @@ function MessageBubbleImpl({
     assistantBlocks,
     renderedAssistantText,
     renderedAssistantBlockContentById,
-    lastRenderableAssistantTextId
+    lastRenderableAssistantTextId,
+    partialStreamingTextId
   } = derived;
   const toolActivity = useMemo(
     () =>
@@ -1051,6 +1039,12 @@ function MessageBubbleImpl({
     isAssistantStreaming &&
     lastAssistantBlock?.timelineKind === "text" &&
     lastAssistantBlock.id === lastRenderableAssistantTextId;
+  const streamingTextBlockId =
+    isAssistantStreaming && !thinkingInProgress
+      ? lastBlockIsStreamingText && lastAssistantBlock
+        ? lastAssistantBlock.id
+        : partialStreamingTextId
+      : null;
   const showInProgressTail =
     isAssistantStreaming &&
     !awaitingFirstToken &&
@@ -1456,8 +1450,7 @@ function MessageBubbleImpl({
                       if (!renderedContent) {
                         return statusLineSlot;
                       }
-                      const isStreamingTailBlock =
-                        isAssistantStreaming && item.id === lastRenderableAssistantTextId;
+                      const isStreamingTailBlock = item.id === streamingTextBlockId;
                       return (
                         <Fragment key={item.id}>
                           {statusLineSlot}

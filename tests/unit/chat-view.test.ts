@@ -5284,15 +5284,15 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(
-        screen.getAllByText("Let me look into it. Here are the findings.").length
-      ).toBeGreaterThan(0);
+      expect(screen.getAllByTestId("assistant-message-content")).toHaveLength(2);
     });
 
-    const textBlock = screen.getAllByTestId("assistant-message-content")[0];
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
     const actionButton = screen.getAllByRole("button", { name: "web_search_exa" })[0];
+    expect(textBlocks[0]).toHaveTextContent("Let me look into it.");
+    expect(textBlocks[1]).toHaveTextContent("Here are the findings.");
     expect(
-      textBlock.compareDocumentPosition(actionButton) & Node.DOCUMENT_POSITION_FOLLOWING
+      textBlocks[1].compareDocumentPosition(actionButton) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
