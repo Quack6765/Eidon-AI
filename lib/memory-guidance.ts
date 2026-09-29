@@ -8,6 +8,13 @@ const RELEVANCE_GATE =
   "1. Cross-conversation: would this still matter weeks from now, in a different chat? Facts that matter only for this task, this project, or this discussion stay in the conversation — keep using them here and save nothing.\n" +
   "2. About the user, not the topic: save facts about the person (identity, environment, stable preferences). Do not save the subject matter being discussed — the contents of a document or codebase the user shared, choices made while working together, or anything you can simply re-read above.";
 
+const INSTRUCTIONS_VS_MEMORY =
+  "Your instructions say how you work; memory says who you are working for. Identity, role, workflow, output format, and standing behavioral directives live in your instructions — stable by design, changed rarely and deliberately. Memory holds durable facts about the user and their world that your instructions do not already state.\n" +
+  "Apply that split whenever you learn something:\n" +
+  "1. Already covered: if the fact is already stated in your instructions, or would only restate, paraphrase, or specialize them, propose nothing — memory adds to your instructions, never copies them. The same applies to updates: never rewrite a memory to mirror your instructions. If a stored memory already restates your instructions — or starts to after the instructions change — propose deleting it with delete_memory rather than letting the redundancy ride along in every conversation.\n" +
+  "2. A standing directive about how you must behave (\"always answer in French\", \"always end with next steps\", \"use this output format\") is an instruction change, not a memory: apply it with update_own_instructions and tell the user what you changed (the chief of staff changes a teammate's rules with update_bot). Memory never holds behavior rules — except when you cannot edit your own instructions: with no instruction home to write to, save the directive as a preference memory so it still persists everywhere.\n" +
+  "3. A fact about the user (identity, environment, projects, goals, relationships, constraints, tastes and dislikes — \"I'm vegetarian\", \"I work in French\", \"prefers concise answers\") is a memory, subject to the gates above. When a preference could read either way, treat it as a fact about the user — unless the user explicitly frames it as a standing rule for you.";
+
 const WORTH_OFFERING =
   "Some facts are worth remembering precisely because they stay true and matter later: birthdays and important dates, things the user dislikes or is annoyed by, favourite things, allergies and dietary needs, family and relationships, and constraints they work around (hardware, tools, health, schedule). Whenever the user mentions one of these, offer to remember it — these already pass both tests, so they are the cases where you should be proactive rather than hesitant.";
 
@@ -38,6 +45,7 @@ export function buildMemorySystemGuidance(rigor: MemoryRigor): string {
     "You have access to memory tools (create_memory, update_memory, delete_memory) to propose changes to the user's long-term memory.",
     MEMORY_SCOPE_RULE,
     RELEVANCE_GATE,
+    INSTRUCTIONS_VS_MEMORY,
     WORTH_OFFERING,
     NEVER_SAVE,
     base,
@@ -48,11 +56,11 @@ export function buildMemorySystemGuidance(rigor: MemoryRigor): string {
 
 const TOOL_DESCRIPTIONS: Record<MemoryRigor, string> = {
   low:
-    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Memories are global and re-injected into every future conversation, so use this only when the user explicitly asks you to remember something, or states something unmistakably durable such as a birthday or a lasting dislike. Never save anything that only matters in this conversation.",
+    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Memories are global and re-injected into every future conversation, so use this only when the user explicitly asks you to remember something, or states something unmistakably durable such as a birthday or a lasting dislike. Never save anything that only matters in this conversation. Never propose what your instructions already state — memory adds to them, never copies them.",
   balanced:
-    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Propose durable facts that will still matter in an unrelated future conversation — name, location, timezone, language, role, long-running goals, stable preferences — and the inherently memorable ones: birthdays and important dates, dislikes, favourites, allergies, family, and constraints. Never save the topic being discussed, current task state, or anything that only matters in this conversation.",
+    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Propose durable facts that will still matter in an unrelated future conversation — name, location, timezone, language, role, long-running goals, stable preferences — and the inherently memorable ones: birthdays and important dates, dislikes, favourites, allergies, family, and constraints. Never save the topic being discussed, current task state, or anything that only matters in this conversation. Never propose what your instructions already state — memory adds to them, never copies them.",
   high:
-    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Propose eagerly for durable personal context, preferences, goals, ongoing work, environment, and recurring needs — stated or implied — including inherently memorable facts such as birthdays, dislikes, favourites, allergies, family, and constraints. Capture more about the user, never more about this conversation."
+    "Propose a new long-term memory about the user; the call itself is the offer, showing them a card they approve, edit, or dismiss. Propose eagerly for durable personal context, preferences, goals, ongoing work, environment, and recurring needs — stated or implied — including inherently memorable facts such as birthdays, dislikes, favourites, allergies, family, and constraints. Capture more about the user, never more about this conversation. Never propose what your instructions already state — memory adds to them, never copies them."
 };
 
 export function buildCreateMemoryDescription(rigor: MemoryRigor): string {
