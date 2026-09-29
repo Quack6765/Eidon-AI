@@ -60,7 +60,7 @@ export function buildToolDefinitions(input: {
           type: "function" as const,
           function: {
             name: "generate_image",
-            description: "Generate an image from a text prompt. Call ONLY when the user's latest message explicitly requests an image, or to edit an image generated earlier in this conversation (e.g. 'add a hat'). Never generate decorative, celebratory, summary, chart, or 'completed' images — use mermaid code blocks for diagrams. If no explicit request exists, do not call this tool. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
+            description: "Generate an image from a text prompt, or restyle/modify an image generated earlier in this conversation. Use it when: the user asks for an image, picture, photo, illustration, render, poster, or similar visual; or when the user follows up on an image you generated to revise it (e.g. 'add a hat', 'make it 16:9', 'No, use a pixel theme.', 'another one'). Do NOT use it when: the user is only discussing, asking about, or complaining about images; when the output is a diagram or chart (use a mermaid code block instead); or when nobody asked for an image — never produce decorative, celebratory, or summary images of completed work. If the user has told you not to generate images, obey that until they ask. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
             parameters: {
               type: "object" as const,
               properties: {

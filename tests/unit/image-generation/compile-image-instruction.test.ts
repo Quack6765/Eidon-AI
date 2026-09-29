@@ -140,6 +140,39 @@ describe("compileImageInstruction", () => {
     expect(prompt).toContain("Latest user request:\nuser: make the previous mage noir");
   });
 
+  it("includes prior context and an edit hint for short follow-up revisions", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"pixel theme version of the previous scene","mode":"edit","assistantText":"","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [
+        { role: "user", content: "generate a picture of a mage" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_prev", name: "generate_image", arguments: "{}" }]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_prev",
+          content: "Successfully generated 1 image. Generated 1 image: mage.png"
+        },
+        { role: "user", content: "No, use a pixel theme." }
+      ],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("Relevant earlier user image requests:");
+    expect(prompt).toContain("user: generate a picture of a mage");
+    expect(prompt).toContain("short follow-up revising a recently generated image");
+    expect(prompt).toContain("Latest user request:\nuser: No, use a pixel theme.");
+  });
+
   it("extracts fenced JSON and defaults optional fields", async () => {
     callProviderText.mockResolvedValue(`
 \`\`\`json

@@ -1958,7 +1958,7 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses model-initiated generate_image when the user did not request an image", async () => {
+  it("does not block model-initiated generate_image calls and injects the image policy directive", async () => {
     const started: Array<{ kind: string; label: string }> = [];
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
@@ -1967,30 +1967,45 @@ Run browser commands.`
     }) => {
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
 
       if (providerCallCount === 1) {
         expect(toolNames).toContain("generate_image");
         expect(toolNames).toContain("execute_shell_command");
+        expect(systemPrompt).toContain("Images are produced only when the conversation calls for one");
         return createProviderStream([], {
           answer: "",
           thinking: "",
           toolCalls: [{
-            id: "call_image_unrequested",
+            id: "call_image_model_choice",
             name: "generate_image",
-            arguments: JSON.stringify({ prompt: "a graph showing the merge completed" })
+            arguments: JSON.stringify({ prompt: "a pixel theme rendition" })
           }],
           usage: { inputTokens: 6 }
         });
       }
 
-      const conversation = (promptMessages ?? []).map((message) => String(message.content ?? ""));
-      expect(conversation.some((content) => content.includes("did not explicitly request an image"))).toBe(true);
-      return createProviderStream([{ type: "answer_delta", text: "Understood — no image." }], {
-        answer: "Understood — no image.",
+      return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
+        answer: "Here is the image.",
         thinking: "",
         usage: { outputTokens: 4 }
       });
     });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
 
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -2009,9 +2024,9 @@ Run browser commands.`
       }
     });
 
-    expect(result.answer).toBe("Understood — no image.");
-    expect(generateGoogleNanoBananaImages).not.toHaveBeenCalled();
-    expect(started).toHaveLength(0);
+    expect(result.answer).toBe("Here is the image.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+    expect(started).toEqual([expect.objectContaining({ kind: "image_generation", label: "Generate image" })]);
   });
 
   it("does not force generate_image for follow-up questions about a previous image", async () => {

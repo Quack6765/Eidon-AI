@@ -63,6 +63,10 @@ const IMAGE_EDIT_DEMONSTRATIVE_PATTERN = new RegExp(
 );
 const LEADING_ASSURANCE_PHRASE_PATTERN =
   /^\s*(?:please\s+|just\s+|now\s+)?(?:can you\s+|could you\s+|would you\s+)?(?:make|do)\s+(?:sure|certain)\b/i;
+const BARE_ACKNOWLEDGMENT_PATTERN =
+  /^(?:no|nope|nah|yes|yeah|yep|yup|ok|okay|sure|hmm|hm|wow|thanks?|ty|cool|nice|great|perfect)\.?[!?]?$/i;
+const TASK_VERB_LED_PATTERN =
+  /^\s*(?:please\s+|just\s+|now\s+)?(?:can you\s+|could you\s+|would you\s+|will you\s+)?(?:summarize|summarise|audit|fix|build|deploy|migrate|research|analyze|analyse|explain|review|check|test|run|install|configure|refactor|debug|investigate|compare|translate|write|draft|reply|email|search|find|calculate|compute|count|list|sort|filter|reconcile|schedule|book|order|buy|send|post|publish|commit|push|merge)\b/i;
 
 const DONT_FORGET_TO_PATTERN = /\b(do ?n[o']?t|don'?t|dont)\s+forget\s+to\b/gi;
 
@@ -124,7 +128,9 @@ export function isImageEditContinuation(text: string, activeImageContext: boolea
   if (FOLLOW_UP_IMAGE_GENERATION_PATTERN.test(normalized)) return true;
   if (NON_IMAGE_ARTIFACT_PATTERN.test(normalized)) return false;
   if (LEADING_ASSURANCE_PHRASE_PATTERN.test(normalized)) return false;
-  return IMAGE_EDIT_VERB_LED_PATTERN.test(normalized) || IMAGE_EDIT_DEMONSTRATIVE_PATTERN.test(normalized);
+  if (IMAGE_EDIT_VERB_LED_PATTERN.test(normalized) || IMAGE_EDIT_DEMONSTRATIVE_PATTERN.test(normalized)) return true;
+  if (BARE_ACKNOWLEDGMENT_PATTERN.test(normalized) || TASK_VERB_LED_PATTERN.test(normalized)) return false;
+  return countWords(normalized) <= 16;
 }
 
 export function isImageGenerationRequested(text: string, activeImageContext: boolean) {

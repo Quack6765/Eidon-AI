@@ -52,7 +52,7 @@ const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
 const WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE =
   "Web search results have been received in this turn. Answer the user now by synthesizing the results above, or call read_page on the most relevant result URLs when the snippets are insufficient. Only call web_search again if the results clearly cannot answer the question — never to re-run or refine similar queries, and never for additional confirmation. Users wait while you search, so prefer answering from what you already have.";
 const IMAGE_TOOL_POLICY_DIRECTIVE =
-  "Images are produced only when the user explicitly requests one in their latest message, or when the user asks to edit an image generated earlier in this conversation. Never generate decorative, celebratory, summary, chart, or completion images, and never call generate_image to visualize results — use mermaid code blocks for diagrams. If no explicit image request exists, do not call generate_image.";
+  "Images are produced only when the conversation calls for one: an explicit request from the user, or a follow-up that revises an image generated earlier (including short corrections like 'No, use a pixel theme.'). Never generate decorative, celebratory, summary, chart, or completion images, and never call generate_image to visualize results — use mermaid code blocks for diagrams. If the user has told you not to generate images, obey that until they ask for one. If you are unsure whether the user wants an image, ask instead of generating.";
 const INLINE_ATTACHMENT_DIRECTIVE =
   "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
