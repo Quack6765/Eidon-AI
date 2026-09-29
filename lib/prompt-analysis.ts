@@ -3,7 +3,6 @@ import {
   getSkillResolvedDescription,
   getSkillResolvedName
 } from "@/lib/skill-runtime";
-import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
 import type { PromptMessage, Skill } from "@/lib/types";
 
 const SHELL_SKILL_INTENT_PATTERN =
@@ -29,6 +28,65 @@ export {
   getSkillResolvedName,
   getSkillResolvedDescription
 };
+
+const SYNTHETIC_ATTACHMENT_LINE_PATTERN = /^(?:Previous image reference:|Attached image:|Attached file:|\[image omitted from context)/m;
+const GENERATED_IMAGE_RESULT_PATTERN = /\b(?:successfully\s+)?(?:generated|edited)\s+\d+\s+images?\b/i;
+
+function promptMessageText(content: PromptMessage["content"]) {
+  if (typeof content === "string") return content;
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+export function getLatestUserRequestText(promptMessages: PromptMessage[]) {
+  return getLatestUserPromptContent(promptMessages)
+    .split("\n")
+    .filter((line) => !SYNTHETIC_ATTACHMENT_LINE_PATTERN.test(line.trim()))
+    .join("\n")
+    .trim();
+}
+
+export function hasActiveImageSession(promptMessages: PromptMessage[]) {
+  let lastUserIndex = -1;
+  let previousUserIndex = -1;
+  promptMessages.forEach((message, index) => {
+    if (message.role !== "user") return;
+    previousUserIndex = lastUserIndex;
+    lastUserIndex = index;
+  });
+  const scanStart = previousUserIndex >= 0 ? previousUserIndex : 0;
+
+  for (let index = scanStart; index < promptMessages.length; index += 1) {
+    const message = promptMessages[index];
+    const text = promptMessageText(message.content);
+
+    if (message.role === "user" && SYNTHETIC_ATTACHMENT_LINE_PATTERN.test(text)) {
+      return true;
+    }
+
+    if (message.role === "tool" && !text.trim().startsWith("Error:") && GENERATED_IMAGE_RESULT_PATTERN.test(text)) {
+      return true;
+    }
+
+    if (message.role === "assistant" && (message.toolCalls ?? []).some((call) => call.name === "generate_image")) {
+      const succeeded = (message.toolCalls ?? []).some(
+        (call) =>
+          call.name === "generate_image" &&
+          promptMessages.some(
+            (candidate) =>
+              candidate.role === "tool" &&
+              candidate.toolCallId === call.id &&
+              !promptMessageText(candidate.content).trim().startsWith("Error:")
+          )
+      );
+      if (succeeded) return true;
+    }
+  }
+
+  return false;
+}
 
 export function getLatestUserPromptContent(promptMessages: PromptMessage[]) {
   for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
@@ -77,33 +135,6 @@ export function shouldAddInlineAttachmentDirective(promptMessages: PromptMessage
   return !POSITIVE_IMAGE_BYTE_OUTPUT_REQUEST_PATTERN.test(latestUserContent);
 }
 
-export function hasRecentAssistantImageContext(promptMessages: PromptMessage[]) {
-  const latestUserIndex = getLatestUserPromptIndex(promptMessages);
-  if (latestUserIndex <= 0) {
-    return false;
-  }
-
-  for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-    const message = promptMessages[index];
-    if (!message || (message.role !== "assistant" && message.role !== "tool")) {
-      continue;
-    }
-
-    const content = typeof message.content === "string"
-      ? message.content
-      : message.content
-          .filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join("\n");
-
-    if (/\b(generated|created|made|rendered)\b[\s\S]{0,40}\b(image|images|picture|pictures|photo|photos|render|renders)\b|\b(image|images|picture|pictures|photo|photos|render|renders)\b[\s\S]{0,40}\b(generated|created|made|rendered)\b|\bshould appear above\b/i.test(content)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 export function filterSkillsForTurn(
   skills: Skill[],
   promptMessages: PromptMessage[],
@@ -142,11 +173,3 @@ export function hasUnfulfilledMemoryIntent(answer: string) {
   return MEMORY_INTENT_WITHOUT_TOOL_PATTERN.test(answer);
 }
 
-export function hasUnfulfilledImageGenerationIntent(promptMessages: PromptMessage[]) {
-  const latestUserContent = getLatestUserPromptContent(promptMessages);
-  if (!latestUserContent) {
-    return false;
-  }
-
-  return isFreshImageGenerationRequest(latestUserContent, hasRecentAssistantImageContext(promptMessages));
-}

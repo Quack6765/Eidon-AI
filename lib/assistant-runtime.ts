@@ -15,7 +15,7 @@ import {
 } from "@/lib/research-mode";
 import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
-import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
+import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
 import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
@@ -37,7 +37,7 @@ export type { ToolSet } from "./tool-definitions";
 export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
 export { mcpToolFunctionName, buildToolDefinitions } from "./tool-definitions";
 export { buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
-export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, hasRecentAssistantImageContext, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
+export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 
 type Usage = {
   inputTokens?: number;
@@ -51,8 +51,8 @@ const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
   "Image generation is available in this environment and a generated image is already attached in this turn. Do not claim that image generation is unavailable. Refer to the generated image result directly, do not call generate_image again in this turn, and do not embed markdown image tags or local file links in your response.";
 const WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE =
   "Web search results have been received in this turn. Answer the user now by synthesizing the results above, or call read_page on the most relevant result URLs when the snippets are insufficient. Only call web_search again if the results clearly cannot answer the question — never to re-run or refine similar queries, and never for additional confirmation. Users wait while you search, so prefer answering from what you already have.";
-const IMAGE_TOOL_REQUIRED_DIRECTIVE =
-  "The latest user request requires generating a new image. Do not claim that an image was generated unless you call generate_image in this response. Call generate_image now.";
+const IMAGE_TOOL_POLICY_DIRECTIVE =
+  "Images are produced only when the user explicitly requests one in their latest message, or when the user asks to edit an image generated earlier in this conversation. Never generate decorative, celebratory, summary, chart, or completion images, and never call generate_image to visualize results — use mermaid code blocks for diagrams. If no explicit image request exists, do not call generate_image.";
 const INLINE_ATTACHMENT_DIRECTIVE =
   "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
@@ -463,12 +463,8 @@ export async function resolveAssistantTurn(input: {
   }
 
   let imageGenerationToolConsumed = false;
-  let imageGenerationToolAttempted = false;
-  let imageGenerationIntentRetries = 0;
   let memoryIntentRetries = 0;
   let emptyAnswerRetries = 0;
-  let visibleImageActionStarted = false;
-  let visibleImageActionHandle: string | undefined;
 
   const hasWebSearch = Boolean(
     input.appSettings && input.appSettings.webSearch.providerId !== "disabled"
@@ -503,6 +499,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   if (hasImageGeneration) {
+    promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POLICY_DIRECTIVE);
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
   }
 
@@ -582,23 +579,6 @@ export async function resolveAssistantTurn(input: {
       promptMessages = collapseOlderToolResults(promptMessages);
     }
 
-    const restrictToGenerateImage =
-      !imageGenerationToolConsumed &&
-      !imageGenerationToolAttempted &&
-      imageGenerationIntentRetries === 0 &&
-      hasImageGeneration &&
-      hasUnfulfilledImageGenerationIntent(promptMessages);
-
-    if (restrictToGenerateImage && !visibleImageActionStarted) {
-      const handle = await input.onActionStart?.({
-        kind: "image_generation",
-        label: "Generate image",
-        detail: getLatestUserPromptContent(promptMessages) || "Generate image"
-      });
-      visibleImageActionStarted = true;
-      visibleImageActionHandle = typeof handle === "string" ? handle : undefined;
-    }
-
     const tools = buildToolDefinitions({
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
@@ -609,7 +589,6 @@ export async function resolveAssistantTurn(input: {
       webSearchPipelineMode: hasWebSearch ? webSearchPipeline.mode : undefined,
       imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,
-      restrictToGenerateImage,
       effectiveVisionMode,
       visionToolEnabled:
         effectiveVisionMode === "provider" &&
@@ -650,9 +629,6 @@ export async function resolveAssistantTurn(input: {
           effectiveVisionMode,
           memoryUserId: input.memoryUserId,
           imageGenerationToolEnabled: !imageGenerationToolConsumed,
-          restrictToGenerateImage,
-          imageGenerationActionHandle: visibleImageActionHandle,
-          hasVisibleImageGenerationAction: visibleImageActionStarted,
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,
           onActionError: input.onActionError,
@@ -697,19 +673,6 @@ export async function resolveAssistantTurn(input: {
     assertRunning();
 
     if (!toolCalls.length) {
-      if (
-        !imageGenerationToolConsumed &&
-        !imageGenerationToolAttempted &&
-        imageGenerationIntentRetries < 1 &&
-        hasImageGeneration &&
-        hasUnfulfilledImageGenerationIntent(promptMessages)
-      ) {
-        imageGenerationIntentRetries += 1;
-        await input.onEvent?.({ type: "answer_reset" });
-        promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
-        continue;
-      }
-
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
         if (memoryIntentRetries < 1) {
           memoryIntentRetries += 1;
@@ -790,11 +753,7 @@ export async function resolveAssistantTurn(input: {
 
     const runToolCall = (toolCall: ProviderToolCall, sortOrder: number) =>
       executeToolCall(toolCall, {
-        input: {
-          ...toolRuntimeInput,
-          imageGenerationActionHandle: visibleImageActionHandle,
-          hasVisibleImageGenerationAction: visibleImageActionStarted
-        },
+        input: toolRuntimeInput,
         mcpServers,
         loadedSkillIds,
         successfulReadOnlyToolResults,
@@ -854,7 +813,6 @@ export async function resolveAssistantTurn(input: {
           }
 
           imageGenerationToolAttemptedThisStep = true;
-          imageGenerationToolAttempted = true;
         }
 
         const result = await runToolCall(toolCall, timelineSortOrder);
@@ -870,12 +828,7 @@ export async function resolveAssistantTurn(input: {
 
         if (toolCall.name === "generate_image" && result.toolSucceeded) {
           imageGenerationToolConsumed = true;
-          visibleImageActionStarted = false;
-          visibleImageActionHandle = undefined;
           promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
-        } else if (toolCall.name === "generate_image") {
-          visibleImageActionStarted = false;
-          visibleImageActionHandle = undefined;
         }
       }
     }

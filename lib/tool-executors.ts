@@ -27,7 +27,8 @@ import {
   registerScreenshotArtifact,
   revokeScreenshotArtifact
 } from "@/lib/screenshot-artifact-capabilities";
-import { getLatestUserPromptContent } from "./prompt-analysis";
+import { getLatestUserRequestText, hasActiveImageSession } from "./prompt-analysis";
+import { isImageGenerationRequested } from "@/lib/image-generation/follow-up-context";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
@@ -307,8 +308,6 @@ export async function executeImageGeneration(
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      imageGenerationActionHandle?: string;
-      hasVisibleImageGenerationAction?: boolean;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -323,23 +322,28 @@ export async function executeImageGeneration(
   const conversationId = context.input.conversationId;
   const assistantMessageId = context.input.assistantMessageId;
 
+  const requestText = getLatestUserRequestText(context.promptMessages);
+  if (!isImageGenerationRequested(requestText, hasActiveImageSession(context.promptMessages))) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: the user did not explicitly request an image. Do not generate images unless the user asks — continue the answer without one, or ask the user what image they want."
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+
   if (!context.input.settings || !appSettings || !conversationId || !assistantMessageId) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
 
   try {
-    const initialDetail = prompt || getLatestUserPromptContent(context.promptMessages) || "Generate image";
-    if (context.input.hasVisibleImageGenerationAction) {
-      actionHandle = context.input.imageGenerationActionHandle;
-    } else {
-      const handle = await context.input.onActionStart?.({
-        kind: "image_generation",
-        label: "Generate image",
-        detail: initialDetail
-      });
-      actionHandle = typeof handle === "string" ? handle : undefined;
-    }
+    const initialDetail = prompt || requestText || "Generate image";
+    const handle = await context.input.onActionStart?.({
+      kind: "image_generation",
+      label: "Generate image",
+      detail: initialDetail
+    });
+    actionHandle = typeof handle === "string" ? handle : undefined;
 
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateImages } = await import("@/lib/image-generation/provider");
@@ -1636,8 +1640,6 @@ export async function executeToolCall(
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      imageGenerationActionHandle?: string;
-      hasVisibleImageGenerationAction?: boolean;
       appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
       conversationId?: string;

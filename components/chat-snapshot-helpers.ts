@@ -1,4 +1,4 @@
-import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
+import { isImageGenerationRequested } from "@/lib/image-generation/follow-up-context";
 import type {
   Message,
   MessageAction,
@@ -79,7 +79,7 @@ export function shouldShowProvisionalImageAction(messages: Message[]) {
     return false;
   }
 
-  return isFreshImageGenerationRequest(
+  return isImageGenerationRequested(
     latestUserContent,
     hasPriorAssistantImageContext(messages)
   );

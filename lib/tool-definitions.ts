@@ -43,7 +43,6 @@ export function buildToolDefinitions(input: {
   webSearchPipelineMode?: WebSearchPipelineMode;
   imageGenerationProviderId?: string | null;
   imageGenerationToolEnabled?: boolean;
-  restrictToGenerateImage?: boolean;
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
   botTeam?: {
@@ -61,7 +60,7 @@ export function buildToolDefinitions(input: {
           type: "function" as const,
           function: {
             name: "generate_image",
-            description: "Generate an image from a text prompt. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
+            description: "Generate an image from a text prompt. Call ONLY when the user's latest message explicitly requests an image, or to edit an image generated earlier in this conversation (e.g. 'add a hat'). Never generate decorative, celebratory, summary, chart, or 'completed' images — use mermaid code blocks for diagrams. If no explicit request exists, do not call this tool. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
             parameters: {
               type: "object" as const,
               properties: {
@@ -79,10 +78,6 @@ export function buildToolDefinitions(input: {
           }
         }
       : null;
-
-  if (input.restrictToGenerateImage) {
-    return imageTool ? [imageTool] : [];
-  }
 
   const tools: ToolDefinition[] = [];
   let hasSendingMcpTool = false;
