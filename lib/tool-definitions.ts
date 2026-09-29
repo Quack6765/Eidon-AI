@@ -379,7 +379,7 @@ export function buildToolDefinitions(input: {
       function: {
         name: "update_own_instructions",
         description:
-          "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
+          "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. A lasting directive about how you should work belongs here, never in memory. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
         parameters: {
           type: "object",
           properties: {
@@ -563,7 +563,7 @@ export function buildToolDefinitions(input: {
         function: {
           name: "update_memory",
           description:
-            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation.",
+            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation. Never rewrite a memory to restate your instructions — memory adds to them, never copies them.",
           parameters: {
             type: "object",
             properties: {

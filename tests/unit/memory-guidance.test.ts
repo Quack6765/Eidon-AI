@@ -65,3 +65,31 @@ describe("buildCreateMemoryDescription", () => {
     expect(buildCreateMemoryDescription("nonsense" as MemoryRigor)).toBe(buildCreateMemoryDescription("balanced"));
   });
 });
+
+describe("instructions-vs-memory split", () => {
+  it.each(RIGORS)("states the split and the duplication gate at %s rigor", (rigor) => {
+    const guidance = buildMemorySystemGuidance(rigor);
+
+    expect(guidance).toContain("Your instructions say how you work; memory says who you are working for");
+    expect(guidance).toContain("memory adds to your instructions, never copies them");
+    expect(guidance).toContain("never rewrite a memory to mirror your instructions");
+    expect(guidance).toContain("is an instruction change, not a memory");
+    expect(guidance).toContain("Memory never holds behavior rules");
+    expect(guidance).toContain("belongs there instead of remembering it");
+  });
+
+  it("places the split after the relevance gate and before the worth-remembering list", () => {
+    const guidance = buildMemorySystemGuidance("balanced");
+    const gate = guidance.indexOf("Propose a memory only when it would change your answer");
+    const split = guidance.indexOf("Your instructions say how you work");
+    const worth = guidance.indexOf("worth remembering precisely");
+
+    expect(gate).toBeGreaterThanOrEqual(0);
+    expect(split).toBeGreaterThan(gate);
+    expect(worth).toBeGreaterThan(split);
+  });
+
+  it.each(RIGORS)("keeps the instructions line in the create_memory description at %s rigor", (rigor) => {
+    expect(buildCreateMemoryDescription(rigor)).toContain("Never propose what your instructions already state");
+  });
+});
