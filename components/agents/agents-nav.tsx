@@ -98,10 +98,10 @@ export function AgentsNav({
 
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto scrollbar-thin">
           <Link
-            href="/agents"
+            href="/agents/roster"
             onClick={onCloseAction}
             className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-300 ${
-              pathname === "/agents"
+              pathname === "/agents/roster"
                 ? "bg-white/[0.05] font-semibold text-white"
                 : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
             }`}

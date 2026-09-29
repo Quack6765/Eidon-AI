@@ -18,7 +18,7 @@ async function signIn(page: import("@playwright/test").Page) {
 test("agents roster shows the chief and supports creating a bot", async ({ page }) => {
   await signIn(page);
 
-  await page.goto("/agents");
+  await page.goto("/agents/roster");
   await expect(page.getByText("Chief of Staff").first()).toBeVisible({ timeout: 15_000 });
 
   const newBotButton = page.getByRole("button", { name: "New bot" });
@@ -37,14 +37,14 @@ test("agents roster shows the chief and supports creating a bot", async ({ page 
   await expect(page.getByText("E2E Scout").first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("E2E lookouts").first()).toBeVisible({ timeout: 10_000 });
 
-  await page.goto("/agents");
+  await page.goto("/agents/roster");
   await expect(page.getByText("E2E Scout").first()).toBeVisible({ timeout: 10_000 });
 });
 
 test("bot detail page exposes sandbox actions and edit", async ({ page }) => {
   await signIn(page);
 
-  await page.goto("/agents");
+  await page.goto("/agents/roster");
   await expect(page.getByText("Chief of Staff").first()).toBeVisible({ timeout: 15_000 });
 
   const chiefRow = page.getByRole("link", { name: /Chief of Staff/ }).first();
@@ -62,7 +62,7 @@ test("bot detail page exposes sandbox actions and edit", async ({ page }) => {
 test("bot detail sections start collapsed and expand on click", async ({ page }) => {
   await signIn(page);
 
-  await page.goto("/agents");
+  await page.goto("/agents/roster");
   await expect(page.getByText("Chief of Staff").first()).toBeVisible({ timeout: 15_000 });
 
   const chiefRow = page.getByRole("link", { name: /Chief of Staff/ }).first();
@@ -87,7 +87,7 @@ test("bot detail sections start collapsed and expand on click", async ({ page })
 test("bot detail manages workspace skills from the details panel", async ({ page }) => {
   await signIn(page);
 
-  await page.goto("/agents");
+  await page.goto("/agents/roster");
   await expect(page.getByText("Chief of Staff").first()).toBeVisible({ timeout: 15_000 });
 
   const newBotButton = page.getByRole("button", { name: "New bot" });
