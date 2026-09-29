@@ -135,12 +135,16 @@ app.prepare().then(async () => {
     bootstrapRuntimeState,
     claimWebSocketUpgradeRouting,
     createAutomationScheduler,
+    normalizeStoredImageAttachments,
     resolveWebSocketAuthMode,
     routeWebSocketUpgrade,
     setupComputerWebSocketHandler,
     setupWebSocketHandler
   } = require("./ws-handler-compiled.cjs");
   bootstrapRuntimeState();
+  normalizeStoredImageAttachments?.().catch((err) => {
+    console.error("Stored image attachment normalization failed:", err);
+  });
   setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
   setupComputerWebSocketHandler(computerWss, { authModeForRequest: resolveWebSocketAuthMode });
   claimWebSocketUpgradeRouting(app);

@@ -12,6 +12,8 @@ export type Tokenizer = {
 
 const ESTIMATION_CHUNK_CHARS = 4096;
 
+export const IMAGE_ATTACHMENT_TOKENS = 1500;
+
 function encodeTokenCount(text: string): number {
   if (text.length <= ESTIMATION_CHUNK_CHARS) return encode(text).length;
   let total = 0;
@@ -36,12 +38,12 @@ function buildGptTokenizer(): Tokenizer {
       if (typeof content === "string") return encodeTokenCount(content);
       return content.reduce((total, part) => {
         if (part.type === "text") return total + encodeTokenCount(part.text);
-        return total + encode(`[Image attachment: ${part.filename}]`).length;
+        return total + IMAGE_ATTACHMENT_TOKENS;
       }, 0);
     },
     estimateAttachmentTokens: (attachments) =>
       attachments.reduce((total, a) => {
-        if (a.kind === "image") return total + encode(`[Image attachment: ${a.filename}]`).length;
+        if (a.kind === "image") return total + IMAGE_ATTACHMENT_TOKENS;
         if (a.kind === "file") return total + encode(`[File attachment: ${a.filename}]`).length;
         return total + encodeTokenCount(`Attached file: ${a.filename}\n${a.extractedText}`);
       }, 0),
@@ -64,12 +66,12 @@ function buildOffTokenizer(): Tokenizer {
       if (typeof content === "string") return charCountTokens(content);
       return content.reduce((total, part) => {
         if (part.type === "text") return total + charCountTokens(part.text);
-        return total + charCountTokens(`[Image attachment: ${part.filename}]`);
+        return total + IMAGE_ATTACHMENT_TOKENS;
       }, 0);
     },
     estimateAttachmentTokens: (attachments) =>
       attachments.reduce((total, a) => {
-        if (a.kind === "image") return total + charCountTokens(`[Image attachment: ${a.filename}]`);
+        if (a.kind === "image") return total + IMAGE_ATTACHMENT_TOKENS;
         if (a.kind === "file") return total + charCountTokens(`[File attachment: ${a.filename}]`);
         return total + charCountTokens(`Attached file: ${a.filename}\n${a.extractedText}`);
       }, 0),

@@ -1,4 +1,4 @@
-import { createTokenizer } from "@/lib/token-estimator";
+import { IMAGE_ATTACHMENT_TOKENS, createTokenizer } from "@/lib/token-estimator";
 
 describe("token estimator", () => {
   it("counts tokens using gpt-tokenizer", () => {
@@ -27,12 +27,37 @@ describe("token estimator", () => {
     expect(tokenizer.estimateTextTokens("")).toBe(0);
   });
 
-  it("estimates tokens for image attachments using gpt-tokenizer", () => {
-    const tokenizer = createTokenizer("gpt-tokenizer");
-    const tokens = tokenizer.estimateAttachmentTokens([
-      { id: "a1", conversationId: "c1", messageId: null, kind: "image", filename: "photo.png", mimeType: "image/png", byteSize: 100, sha256: "hash", relativePath: "c1/a1.png", extractedText: "", createdAt: "" }
-    ]);
-    expect(tokens).toBeGreaterThan(0);
+  it("estimates tokens for image attachments at the fixed image price", () => {
+    const gptTokenizer = createTokenizer("gpt-tokenizer");
+    const offTokenizer = createTokenizer("off");
+    const attachment = {
+      id: "a1",
+      conversationId: "c1",
+      messageId: null,
+      kind: "image" as const,
+      filename: "photo.png",
+      mimeType: "image/png",
+      byteSize: 100,
+      sha256: "hash",
+      relativePath: "c1/a1.png",
+      extractedText: "",
+      createdAt: ""
+    };
+
+    expect(gptTokenizer.estimateAttachmentTokens([attachment])).toBe(IMAGE_ATTACHMENT_TOKENS);
+    expect(offTokenizer.estimateAttachmentTokens([attachment])).toBe(IMAGE_ATTACHMENT_TOKENS);
+    expect(
+      gptTokenizer.estimatePromptContentTokens([
+        { type: "text", text: "hello" },
+        {
+          type: "image",
+          attachmentId: "a1",
+          filename: "photo.png",
+          mimeType: "image/png",
+          relativePath: "c1/a1.png"
+        }
+      ])
+    ).toBeGreaterThan(IMAGE_ATTACHMENT_TOKENS);
   });
 
   it("estimates tokens for file-kind attachments without extracted text", () => {

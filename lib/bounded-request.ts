@@ -11,6 +11,13 @@ export class RequestBodyTooLargeError extends Error {
   }
 }
 
+export class RequestBodyInterruptedError extends Error {
+  constructor() {
+    super("Upload interrupted before completion — retry");
+    this.name = "RequestBodyInterruptedError";
+  }
+}
+
 export async function readRequestBodyWithLimit(
   request: { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
   maxBytes: number

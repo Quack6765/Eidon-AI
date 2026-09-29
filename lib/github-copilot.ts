@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CopilotClient } from "@github/copilot-sdk";
-import type { PermissionRequest, PermissionRequestResult, Tool } from "@github/copilot-sdk";
+import type { MessageOptions, PermissionRequest, PermissionRequestResult, Tool } from "@github/copilot-sdk";
 
 import { env, getGithubAppCallbackUrl } from "@/lib/env";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";
@@ -369,6 +369,7 @@ export async function buildGithubCopilotClient(
 export async function runGithubCopilotChat(
   input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
+    attachments?: CopilotMessageAttachment[];
     abortSignal?: AbortSignal;
   }
 ) {
@@ -384,11 +385,13 @@ export async function runGithubCopilotChat(
       onPermissionRequest: buildCopilotPermissionRouter([])
     }), input.abortSignal);
 
-    return await withAbort(session.send({
-      prompt: input.messages.map((m) => m.content).join("\n")
-    }), input.abortSignal, () => {
-      void session?.abort().catch(() => undefined);
-    });
+    return await withAbort(
+      sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      input.abortSignal,
+      () => {
+        void session?.abort().catch(() => undefined);
+      }
+    );
   } finally {
     if (input.abortSignal?.aborted) {
       await session?.abort().catch(() => undefined);
@@ -397,9 +400,39 @@ export async function runGithubCopilotChat(
   }
 }
 
+export type CopilotMessageAttachment = {
+  data: string;
+  mimeType: string;
+  displayName?: string;
+};
+
+async function sendCopilotPrompt(
+  session: { send: (options: MessageOptions) => Promise<string> },
+  prompt: string,
+  attachments?: CopilotMessageAttachment[]
+) {
+  const blobs: NonNullable<MessageOptions["attachments"]> = (attachments ?? []).map((attachment) => ({
+    type: "blob" as const,
+    data: attachment.data,
+    mimeType: attachment.mimeType,
+    ...(attachment.displayName ? { displayName: attachment.displayName } : {})
+  }));
+
+  if (!blobs.length) {
+    return session.send({ prompt });
+  }
+
+  try {
+    return await session.send({ prompt, attachments: blobs });
+  } catch {
+    return session.send({ prompt });
+  }
+}
+
 export async function streamGithubCopilotChat(
   input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
+    attachments?: CopilotMessageAttachment[];
     onEvent: (event: unknown) => void;
     tools?: Tool[];
     abortSignal?: AbortSignal;
@@ -444,11 +477,13 @@ export async function streamGithubCopilotChat(
 
     session = await withAbort(client.createSession(sessionConfig), input.abortSignal);
 
-    await withAbort(session.send({
-      prompt: input.messages.map((m) => m.content).join("\n")
-    }), input.abortSignal, () => {
-      void session?.abort().catch(() => undefined);
-    });
+    await withAbort(
+      sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      input.abortSignal,
+      () => {
+        void session?.abort().catch(() => undefined);
+      }
+    );
 
     await withAbort(turnComplete, input.abortSignal, () => {
       void session?.abort().catch(() => undefined);
