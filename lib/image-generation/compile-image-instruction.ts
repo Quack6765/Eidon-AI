@@ -4,7 +4,8 @@ import type { RuntimeProviderProfile, PromptMessage } from "@/lib/types";
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { callProviderText as callProviderTextDefault } from "@/lib/provider";
 import type { CompiledImageInstruction } from "./types";
-import { referencesEarlierImagePromptContext } from "./follow-up-context";
+import { referencesEarlierImagePromptContext, isExplicitImageRequest } from "./follow-up-context";
+import { hasActiveImageSession } from "@/lib/prompt-analysis";
 
 const compiledInstructionSchema = z.object({
   mode: z.enum(["generate", "edit"]).default("generate"),
@@ -121,11 +122,12 @@ async function buildImageInstructionPrompt(messages: PromptMessage[]): Promise<s
   const latestUserIndex = getLatestUserIndex(messages);
   const latestUserRequest = getLatestUserImageRequest(messages);
   const priorUserRequests = getRelevantPriorUserRequests(messages, latestUserIndex);
-  const includePriorContext = referencesEarlierImagePromptContext(latestUserRequest);
+  const isFollowUpRevision = !isExplicitImageRequest(latestUserRequest) && hasActiveImageSession(messages);
+  const includePriorContext = referencesEarlierImagePromptContext(latestUserRequest) || isFollowUpRevision;
   const imageDescriptors = await describeLatestUserImages(messages);
 
   return `You are an image generation instruction compiler. Base the prompt and count on only the latest user image request by default. Use earlier image requests only when the latest request explicitly asks to modify or combine prior results. Produce a JSON object with these fields:
-- mode: "generate" | "edit" (default: "generate"). Use "edit" whenever the latest user message attaches an image and the request asks to change, modify, recolor, restyle, annotate, remove, add, or combine elements of that image, and whenever it modifies images generated earlier in the conversation. Use "generate" only for unrelated new images.
+- mode: "generate" | "edit" (default: "generate"). Use "edit" whenever the latest user message attaches an image and the request asks to change, modify, recolor, restyle, annotate, remove, add, or combine elements of that image, and whenever it modifies images generated earlier in the conversation. Use "generate" only for unrelated new images.${isFollowUpRevision ? " The latest request is a short follow-up revising a recently generated image — treat it as revising that image (prefer mode \"edit\" with the previous generated image as input) unless it clearly asks for something unrelated." : ""}
 - imagePrompt: string (required, the detailed image generation prompt; for "edit" phrase it as a change instruction applied to the existing image, e.g. "color every key blue while keeping the exact layout, labels, and fonts" - never as a fresh scene description)
 - negativePrompt: string (optional, things to exclude)
 - assistantText: string (optional, brief message to show the user)

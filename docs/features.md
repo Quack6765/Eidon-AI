@@ -114,7 +114,7 @@ Which tools appear depends on your configuration. The full set:
 | `draft_message` | An enabled MCP server has a tool that is not read-only | Prepares an email, Slack message, reply, or post as a draft you edit and send from the chat |
 | `web_search` | Web search is configured | Searches with the selected provider. Accepts up to 5 parallel queries and up to 10 results each |
 | `search_workspace` | Semantic recall is available | Read-only semantic search over your memories, past conversations, summaries, and attachment text |
-| `generate_image` | Image generation is configured | Generates 1–4 images from a prompt, returned as attachments. Called only when the latest message explicitly asks for an image, or to edit an image generated earlier in the conversation — the runtime refuses unrequested calls before any provider spend |
+| `generate_image` | Image generation is configured | Generates 1–4 images from a prompt, returned as attachments. The model decides when to call it (tool description + image policy: only for user-requested images and follow-up revisions of earlier ones — never decorative or summary images; diagrams use mermaid) |
 | `analyze_image` | Vision mode is `provider` and the vision profile is ready | Sends attached image paths to the nominated vision profile and returns a description |
 | `message_bot` | The conversation belongs to a bot team | Sends work to another bot; returns immediately, reply arrives later |
 | `create_bot` | Chief of Staff only | Creates a new specialist bot |

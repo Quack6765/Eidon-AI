@@ -27,8 +27,7 @@ import {
   registerScreenshotArtifact,
   revokeScreenshotArtifact
 } from "@/lib/screenshot-artifact-capabilities";
-import { getLatestUserRequestText, hasActiveImageSession } from "./prompt-analysis";
-import { isImageGenerationRequested } from "@/lib/image-generation/follow-up-context";
+import { getLatestUserRequestText } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
@@ -323,13 +322,6 @@ export async function executeImageGeneration(
   const assistantMessageId = context.input.assistantMessageId;
 
   const requestText = getLatestUserRequestText(context.promptMessages);
-  if (!isImageGenerationRequested(requestText, hasActiveImageSession(context.promptMessages))) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      "Error: the user did not explicitly request an image. Do not generate images unless the user asks — continue the answer without one, or ask the user what image they want."
-    );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
-  }
 
   if (!context.input.settings || !appSettings || !conversationId || !assistantMessageId) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
