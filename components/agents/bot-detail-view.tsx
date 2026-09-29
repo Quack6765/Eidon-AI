@@ -590,7 +590,6 @@ export function BotDetailView({
             >
           <PanelSection
             title="Runs"
-            defaultOpen
             action={
               hasActiveWork ? (
                 <button

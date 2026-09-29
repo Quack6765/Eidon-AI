@@ -80,12 +80,14 @@ describe("bot detail sections", () => {
     const toggle = screen.getAllByRole("button").find((button) => button.textContent?.includes("Details"));
     fireEvent.click(toggle!);
 
-    for (const title of ["Conversation", "Workspace", "Skills", "Browser", "Memories", "Routines"]) {
+    for (const title of ["Runs", "Conversation", "Workspace", "Skills", "Browser", "Memories", "Routines"]) {
       expect(screen.getByRole("button", { name: title })).toHaveAttribute("aria-expanded", "false");
     }
 
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
     expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("No runs yet. Messages, hand-offs, and routines appear here.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop all" })).toBeNull();
@@ -138,6 +140,7 @@ describe("bot detail sections", () => {
     const detailsButton = screen.getAllByRole("button").find((button) => button.textContent?.includes("Details"))!;
     expect(detailsButton).toHaveTextContent("2 active runs");
     fireEvent.click(detailsButton);
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
 
     expect(screen.getByText("From Chief of Staff")).toBeInTheDocument();
     expect(screen.getByText("Handed to Writer")).toBeInTheDocument();
@@ -188,6 +191,7 @@ describe("bot detail sections", () => {
     );
 
     fireEvent.click(screen.getAllByRole("button").find((button) => button.textContent?.includes("Details"))!);
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
     fireEvent.click(screen.getByRole("button", { name: "Stop run: Direct message" }));
 
     expect(await screen.findByText("Bot run not found")).toBeInTheDocument();
