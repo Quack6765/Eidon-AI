@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { compileImageInstruction, extractJsonObject } from "@/lib/image-generation/compile-image-instruction";
 import type { RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
@@ -44,6 +47,51 @@ const profile = createSettings();
 describe("compileImageInstruction", () => {
   beforeEach(() => {
     callProviderText.mockReset();
+  });
+
+  it("describes images attached to the latest user request with dimensions and edit-input note", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"make a noir poster like this photo","mode":"edit","assistantText":"","count":1}
+\`\`\`
+`);
+
+    const relativePath = "conv_desc/att_desc_photo.png";
+    const absolutePath = path.resolve(process.env.EIDON_DATA_DIR!, "attachments", relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.copyFileSync(path.resolve("tests/fixtures/images/tiny.png"), absolutePath);
+
+    try {
+      await compileImageInstruction({
+        settings: profile,
+        promptMessages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "make a poster like this" },
+              {
+                type: "image",
+                attachmentId: "att_desc",
+                filename: "photo.png",
+                mimeType: "image/png",
+                relativePath
+              }
+            ]
+          }
+        ],
+        callProviderText
+      });
+
+      const prompt = callProviderText.mock.calls[0][0].prompt;
+      expect(prompt).toContain("Images attached to the latest user request");
+      expect(prompt).toContain("photo.png (8x8)");
+      expect(prompt).toContain("provided to the image backend as edit inputs");
+    } finally {
+      fs.rmSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments"), {
+        recursive: true,
+        force: true
+      });
+    }
   });
 
   it("builds image instructions from the latest user message only", async () => {

@@ -273,7 +273,7 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Invalid attachment upload"
+      error: "Invalid attachment upload (unparseable multipart body)"
     });
   });
 

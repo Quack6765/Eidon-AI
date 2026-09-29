@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
     "ws"
   ],
   experimental: {
-    middlewareClientMaxBodySize: "100mb"
+    middlewareClientMaxBodySize: "128mb"
   }
 };
 

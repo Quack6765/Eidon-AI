@@ -2867,7 +2867,11 @@ describe("chat view", () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ attachments: [imageAttachment, textAttachment] })
+        json: async () => ({ attachments: [imageAttachment] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [textAttachment] })
       } as Response);
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
@@ -2959,7 +2963,11 @@ describe("chat view", () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ attachments: [imageAttachment, textAttachment] })
+        json: async () => ({ attachments: [imageAttachment] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [textAttachment] })
       } as Response);
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
@@ -3046,7 +3054,7 @@ describe("chat view", () => {
     const baseConversation = createPayload().conversation;
     let conversationFetchCount = 0;
 
-    vi.mocked(global.fetch).mockImplementation((input) => {
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
       if (input === "/api/personas") {
         return Promise.resolve({
           ok: true,
@@ -3055,9 +3063,11 @@ describe("chat view", () => {
       }
 
       if (input === "/api/attachments") {
+        const file = ((init?.body as FormData | undefined) ?? new FormData()).get("files");
+        const attachment = file instanceof File && file.name === "notes.txt" ? textAttachment : imageAttachment;
         return Promise.resolve({
           ok: true,
-          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+          json: async () => ({ attachments: [attachment] })
         } as Response);
       }
 
@@ -3201,7 +3211,7 @@ describe("chat view", () => {
     const baseConversation = createPayload().conversation;
     let conversationFetchCount = 0;
 
-    vi.mocked(global.fetch).mockImplementation((input) => {
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
       if (input === "/api/personas") {
         return Promise.resolve({
           ok: true,
@@ -3210,9 +3220,11 @@ describe("chat view", () => {
       }
 
       if (input === "/api/attachments") {
+        const file = ((init?.body as FormData | undefined) ?? new FormData()).get("files");
+        const attachment = file instanceof File && file.name === "notes.txt" ? textAttachment : imageAttachment;
         return Promise.resolve({
           ok: true,
-          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+          json: async () => ({ attachments: [attachment] })
         } as Response);
       }
 
@@ -3296,7 +3308,7 @@ describe("chat view", () => {
       extractedText: "hello"
     });
 
-    vi.mocked(global.fetch).mockImplementation((input) => {
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
       if (input === "/api/personas") {
         return Promise.resolve({
           ok: true,
@@ -3305,9 +3317,11 @@ describe("chat view", () => {
       }
 
       if (typeof input === "string" && input === "/api/attachments") {
+        const file = ((init?.body as FormData | undefined) ?? new FormData()).get("files");
+        const attachment = file instanceof File && file.name === "notes.txt" ? textAttachment : imageAttachment;
         return Promise.resolve({
           ok: true,
-          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+          json: async () => ({ attachments: [attachment] })
         } as Response);
       }
 

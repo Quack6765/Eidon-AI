@@ -12,6 +12,11 @@ import {
 import { getDb } from "@/lib/db";
 import { syncDirectory } from "@/lib/durable-fs";
 import { env } from "@/lib/env";
+import {
+  isProviderSafeImageMimeType,
+  normalizeImageBytes,
+  sniffImageMimeType
+} from "@/lib/image-normalization";
 import { createId } from "@/lib/ids";
 import { queueSemanticIndex } from "@/lib/semantic-index";
 import { normalizeLineBreaks } from "@/lib/text-utils";
@@ -527,25 +532,29 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       throw new Error(`Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: ${filename}`);
     }
 
-    const normalized = normalizeAttachmentKind(filename, file.mimeType);
+    const normalizedImage = await normalizeImageBytes(file.bytes);
+    const bytes = normalizedImage ? normalizedImage.bytes : file.bytes;
+    const normalized = normalizedImage
+      ? { kind: "image" as const, mimeType: normalizedImage.mimeType }
+      : normalizeAttachmentKind(filename, file.mimeType);
     const id = createId("att");
     const relativePath = path.join(conversationId, `${id}_${filename}`);
-    const sha256 = createHash("sha256").update(file.bytes).digest("hex");
-    const extractedText = normalized.kind === "text" ? await extractFileText(file.bytes, filename) : "";
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const extractedText = normalized.kind === "text" ? await extractFileText(bytes, filename) : "";
 
     records.push({
       id,
       conversationId,
       filename,
       mimeType: normalized.mimeType,
-      byteSize: file.bytes.length,
+      byteSize: bytes.length,
       sha256,
       relativePath,
       kind: normalized.kind,
       extractedText,
       sourcePath: file.sourcePath ?? null,
       createdAt: nowIso(),
-      bytes: file.bytes
+      bytes
     });
   }
 
@@ -797,7 +806,11 @@ export function resolveAbsoluteImagePathPart(
   }
 
   const extension = getExtension(realPath);
-  const mimeType = IMAGE_EXTENSION_TO_MIME.get(extension);
+  const sniffedMimeType = sniffImageMimeType(readFileHeader(realPath, 4096));
+  const mimeType =
+    sniffedMimeType && isProviderSafeImageMimeType(sniffedMimeType)
+      ? sniffedMimeType
+      : IMAGE_EXTENSION_TO_MIME.get(extension);
   if (!mimeType) {
     throw new Error(`Unsupported image type: ${path.basename(realPath)}`);
   }
@@ -872,4 +885,82 @@ export function readAttachmentText(
 export function getAttachmentDataUrl(attachment: Pick<MessageAttachment, "relativePath" | "mimeType">) {
   const buffer = readAttachmentBuffer(attachment);
   return `data:${attachment.mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function readFileHeader(absolutePath: string, length: number) {
+  const noFollowFlag = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
+  const descriptor = fs.openSync(absolutePath, fs.constants.O_RDONLY | noFollowFlag);
+  try {
+    const buffer = Buffer.alloc(length);
+    const bytesRead = fs.readSync(descriptor, buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function replaceAttachmentArtifact(relativePath: string, bytes: Buffer) {
+  const root = getAttachmentsRoot();
+  const finalPath = resolveSafeAttachmentFilePath(root, relativePath, false);
+  const directory = path.dirname(finalPath);
+  const tempPath = `${finalPath}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(tempPath, "wx", 0o600);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+  }
+  fs.renameSync(tempPath, finalPath);
+  syncDirectory(directory);
+}
+
+export async function normalizeStoredImageAttachments() {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments WHERE kind != ?`)
+    .all("image") as AttachmentRow[];
+
+  let normalized = 0;
+  let transcoded = 0;
+
+  for (const row of rows) {
+    let bytes: Buffer;
+    try {
+      bytes = readAttachmentBuffer({ relativePath: row.relative_path });
+    } catch {
+      continue;
+    }
+
+    const normalizedImage = await normalizeImageBytes(bytes);
+    if (!normalizedImage) {
+      continue;
+    }
+
+    if (!normalizedImage.bytes.equals(bytes)) {
+      try {
+        replaceAttachmentArtifact(row.relative_path, normalizedImage.bytes);
+      } catch (error) {
+        console.error(`Failed to rewrite stored image attachment ${row.id}:`, error);
+        continue;
+      }
+      transcoded += 1;
+    }
+
+    db.prepare(
+      "UPDATE message_attachments SET kind = ?, mime_type = ?, byte_size = ?, sha256 = ? WHERE id = ?"
+    ).run(
+      "image",
+      normalizedImage.mimeType,
+      normalizedImage.bytes.length,
+      createHash("sha256").update(normalizedImage.bytes).digest("hex"),
+      row.id
+    );
+    normalized += 1;
+  }
+
+  return { scanned: rows.length, normalized, transcoded };
 }

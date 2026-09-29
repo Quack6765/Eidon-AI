@@ -1,5 +1,7 @@
 import { z } from "zod";
+import sharp from "sharp";
 import type { RuntimeProviderProfile, PromptMessage } from "@/lib/types";
+import { resolveAttachmentPath } from "@/lib/attachments";
 import { callProviderText as callProviderTextDefault } from "@/lib/provider";
 import type { CompiledImageInstruction } from "./types";
 import { referencesEarlierImagePromptContext } from "./follow-up-context";
@@ -66,6 +68,42 @@ function getLatestUserIndex(messages: PromptMessage[]) {
   return -1;
 }
 
+async function describeLatestUserImages(messages: PromptMessage[]) {
+  const latestUserIndex = getLatestUserIndex(messages);
+  if (latestUserIndex < 0) {
+    return "";
+  }
+
+  const content = messages[latestUserIndex].content;
+  if (typeof content === "string") {
+    return "";
+  }
+
+  const lines: string[] = [];
+
+  for (const part of content) {
+    if (part.type !== "image") continue;
+    let dimensions = "";
+    try {
+      const metadata = await sharp(resolveAttachmentPath({ relativePath: part.relativePath })).metadata();
+      if (metadata.width && metadata.height) {
+        dimensions = ` (${metadata.width}x${metadata.height})`;
+      }
+    } catch {}
+    lines.push(`- ${part.filename}${dimensions}`);
+  }
+
+  if (!lines.length) {
+    return "";
+  }
+
+  return [
+    "Images attached to the latest user request (their bytes are provided to the image backend as edit inputs whenever mode is \"edit\"):",
+    ...lines,
+    ""
+  ].join("\n");
+}
+
 function getRelevantPriorUserRequests(messages: PromptMessage[], latestUserIndex: number) {
   if (latestUserIndex <= 0) {
     return "";
@@ -79,11 +117,12 @@ function getRelevantPriorUserRequests(messages: PromptMessage[], latestUserIndex
     .join("\n");
 }
 
-function buildImageInstructionPrompt(messages: PromptMessage[]): string {
+async function buildImageInstructionPrompt(messages: PromptMessage[]): Promise<string> {
   const latestUserIndex = getLatestUserIndex(messages);
   const latestUserRequest = getLatestUserImageRequest(messages);
   const priorUserRequests = getRelevantPriorUserRequests(messages, latestUserIndex);
   const includePriorContext = referencesEarlierImagePromptContext(latestUserRequest);
+  const imageDescriptors = await describeLatestUserImages(messages);
 
   return `You are an image generation instruction compiler. Base the prompt and count on only the latest user image request by default. Use earlier image requests only when the latest request explicitly asks to modify or combine prior results. Produce a JSON object with these fields:
 - mode: "generate" | "edit" (default: "generate"). Use "edit" whenever the latest user message attaches an image and the request asks to change, modify, recolor, restyle, annotate, remove, add, or combine elements of that image, and whenever it modifies images generated earlier in the conversation. Use "generate" only for unrelated new images.
@@ -98,7 +137,7 @@ Return ONLY the JSON object wrapped in a \`\`\`json code block.
 ${includePriorContext ? `Relevant earlier user image requests:
 ${priorUserRequests || "(none)"}
 
-` : ""}Latest user request:
+` : ""}${imageDescriptors}Latest user request:
 user: ${latestUserRequest}`;
 }
 
@@ -110,7 +149,7 @@ export async function compileImageInstruction(input: {
   abortSignal?: AbortSignal;
 }): Promise<CompiledImageInstruction> {
   const call = input.callProviderText ?? callProviderTextDefault;
-  const prompt = buildImageInstructionPrompt(input.promptMessages);
+  const prompt = await buildImageInstructionPrompt(input.promptMessages);
   const raw = await call({
     settings: input.settings,
     prompt,

@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import type { WebSocketServer } from "ws";
+import { normalizeStoredImageAttachments } from "@/lib/attachments";
 import { getCurrentUser, verifyMobileSessionToken, verifySessionToken } from "@/lib/auth";
 import { createAutomationScheduler as createAutomationSchedulerBase } from "@/lib/automation-scheduler";
 import { startChatTurn } from "@/lib/chat-turn";
@@ -93,6 +94,7 @@ function buildSnapshotMessage(
 export {
   shutdownAgentComputer,
   bootstrapRuntimeState,
+  normalizeStoredImageAttachments,
   resumeRuntimeWork,
   disposeTitleModel,
   getDb,

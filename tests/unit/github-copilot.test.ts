@@ -473,6 +473,33 @@ describe("github copilot helpers", () => {
     expect(client.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("sends image attachments as blobs and retries text-only when the send rejects them", async () => {
+    const session: MockSession = {
+      send: vi.fn()
+        .mockRejectedValueOnce(new Error("attachments unsupported"))
+        .mockResolvedValue("ok")
+    };
+    const client = createMockClient({
+      createSession: vi.fn().mockResolvedValue(session)
+    });
+    copilotClientCtor.mockImplementation(() => client);
+
+    await expect(
+      runGithubCopilotChat({
+        ...createProfile(),
+        messages: [{ role: "user", content: "look at this" }],
+        attachments: [{ data: "aGVsbG8=", mimeType: "image/jpeg", displayName: "photo.jpg" }]
+      })
+    ).resolves.toBe("ok");
+
+    expect(session.send).toHaveBeenNthCalledWith(1, {
+      prompt: "look at this",
+      attachments: [{ type: "blob", data: "aGVsbG8=", mimeType: "image/jpeg", displayName: "photo.jpg" }]
+    });
+    expect(session.send).toHaveBeenNthCalledWith(2, { prompt: "look at this" });
+    expect(client.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("aborts an active copilot turn and stops its client", async () => {
     const controller = new AbortController();
     const session: MockSession = {

@@ -1,5 +1,5 @@
 import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
-import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
+import { MAX_ATTACHMENT_TEXT_RATIO, MAX_BASELINE_IMAGES, MAX_PROMPT_IMAGES } from "@/lib/constants";
 import { listMemoriesForPrompt } from "@/lib/memories";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
@@ -23,7 +23,6 @@ import {
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
 } from "@/lib/compaction-turns";
-import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { buildToolResultMessage } from "@/lib/tool-executors";
 import { describeMessageDraftForPrompt } from "@/lib/message-draft-display";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
@@ -37,6 +36,7 @@ import type {
   MemoryNode,
   MemoryRigor,
   Message,
+  MessageAttachment,
   PromptMessage,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -217,7 +217,7 @@ async function condenseMemoryNodes(
 }
 
 export const MAX_TOOL_RESULT_CHARS = 8000;
-const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command"]);
+const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command", "image_generation"]);
 
 function collectReplayableActions(actions: MessageAction[] | undefined): MessageAction[] {
   return (actions ?? [])
@@ -238,7 +238,12 @@ function getReplayedToolResult(action: MessageAction) {
 function toProviderToolCall(action: MessageAction): ProviderToolCall {
   return {
     id: action.id,
-    name: action.toolName ?? (action.kind === "shell_command" ? "execute_shell_command" : action.label),
+    name: action.toolName ??
+      (action.kind === "shell_command"
+        ? "execute_shell_command"
+        : action.kind === "image_generation"
+          ? "generate_image"
+          : action.label),
     arguments: JSON.stringify(action.arguments ?? {})
   };
 }
@@ -248,9 +253,52 @@ function truncateToolResult(text: string): string {
   return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n[…truncated]`;
 }
 
+function getStoredAssistantImageAttachments(conversationId: string): MessageAttachment[] {
+  try {
+    const messages = listMessages(conversationId);
+    return getMostRecentAssistantImageAttachments(messages, getLatestUserMessageIndex(messages));
+  } catch {
+    return [];
+  }
+}
+
+function resolveBaselineImages(
+  input: { messages: Message[]; conversationId?: string },
+  latestUserMessageIndex: number
+): MessageAttachment[] {
+  const fromPrompt = getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex);
+  const baseline = fromPrompt.length
+    ? fromPrompt
+    : input.conversationId
+      ? getStoredAssistantImageAttachments(input.conversationId)
+      : [];
+  return baseline.slice(0, MAX_BASELINE_IMAGES);
+}
+
+function selectPromptImageIds(
+  messages: Message[],
+  baselineImages: MessageAttachment[]
+): Set<string> {
+  const included = new Set<string>(baselineImages.map((attachment) => attachment.id));
+
+  for (let index = messages.length - 1; index >= 0 && included.size < MAX_PROMPT_IMAGES; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.kind !== "image") continue;
+      included.add(attachment.id);
+      if (included.size >= MAX_PROMPT_IMAGES) break;
+    }
+  }
+
+  return included;
+}
+
 export function buildPromptMessages(input: {
   systemPrompt: string;
   personaContent?: string;
+  conversationId?: string;
   messages: Message[];
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
@@ -306,12 +354,8 @@ export function buildPromptMessages(input: {
     { role: "system", content: systemParts.join("\n\n") }
   ];
   const latestUserMessageIndex = getLatestUserMessageIndex(input.messages);
-  const latestUserMessage = latestUserMessageIndex >= 0 ? input.messages[latestUserMessageIndex] : null;
-  const referencedAssistantImages = latestUserMessage &&
-    latestUserMessage.role === "user" &&
-    referencesEarlierImageInChat(latestUserMessage.content)
-    ? getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex)
-    : [];
+  const baselineImages = resolveBaselineImages(input, latestUserMessageIndex);
+  const includedImageIds = selectPromptImageIds(input.messages, baselineImages);
 
   input.messages.forEach((message, index) => {
     if (message.role === "system") return;
@@ -349,7 +393,10 @@ export function buildPromptMessages(input: {
       content: buildUserPromptContent(
         message,
         remainingAttachmentTextTokens,
-        index === latestUserMessageIndex ? referencedAssistantImages : []
+        {
+          baselineImages: index === latestUserMessageIndex ? baselineImages : [],
+          includedImageIds
+        }
       )
     });
   });
@@ -387,6 +434,7 @@ function computeFirstPassContext(
   const promptMessages = buildPromptMessages({
     systemPrompt: settings.systemPrompt,
     personaContent,
+    conversationId,
     messages: promptHistoryMessages,
     activeMemoryNodes,
     maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
@@ -466,6 +514,7 @@ export async function ensureCompactedContext(
       buildPromptMessages({
         systemPrompt: settings.systemPrompt,
         personaContent,
+        conversationId,
         messages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),

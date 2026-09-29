@@ -41,7 +41,7 @@ describe("reliability route hardening", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Invalid attachment upload"
+      error: "Invalid attachment upload (unparseable multipart body)"
     });
   });
 
@@ -224,5 +224,158 @@ describe("reliability route hardening", () => {
       error: "Only regular chats can be made temporary"
     });
     expect(getConversation(bot.homeConversationId, user.id)?.isTemporary).toBe(false);
+  });
+});
+
+describe("attachment upload robustness", () => {
+  const boundary = "----WebKitFormBoundaryTest123";
+  let uploadUser: Awaited<ReturnType<typeof createLocalUser>>;
+
+  function buildMultipartBody(
+    parts: Array<{ name: string; content: string; filename?: string; dispositionExtra?: string; type?: string }>
+  ) {
+    let body = "";
+    for (const part of parts) {
+      body += `--${boundary}\r\n`;
+      body += `Content-Disposition: form-data; name="${part.name}"${
+        part.filename !== undefined ? `; filename="${part.filename}"` : ""
+      }${part.dispositionExtra ?? ""}\r\n`;
+      if (part.type) body += `Content-Type: ${part.type}\r\n`;
+      body += `\r\n${part.content}\r\n`;
+    }
+    body += `--${boundary}--\r\n`;
+    return body;
+  }
+
+  function uploadRequest(body: BodyInit, extraInit?: RequestInit) {
+    return new Request("http://localhost/api/attachments", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      body,
+      ...extraInit
+    } as RequestInit);
+  }
+
+  beforeEach(async () => {
+    uploadUser = await createLocalUser({
+      username: `upload-robustness-${Math.random().toString(36).slice(2, 8)}`,
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(uploadUser);
+  });
+
+  it("accepts iOS-style uploads with UTF-8, duplicate, and parenthesized filenames", async () => {
+    const { POST } = await import("@/app/api/attachments/route");
+    const conversation = createConversation("iOS uploads", null, undefined, uploadUser.id);
+    const body = buildMultipartBody([
+      { name: "conversationId", content: conversation.id },
+      { name: "files", content: "jpeg-bytes-1", filename: "IMG_0001 äöü 照片.jpg", type: "image/jpeg" },
+      { name: "files", content: "jpeg-bytes-2", filename: "photo (1).jpg", type: "image/jpeg" },
+      { name: "files", content: "jpeg-bytes-3", filename: "photo (1).jpg", type: "image/jpeg" },
+      { name: "files", content: "jpeg-bytes-4", filename: "IMG_0002.JPG" }
+    ]);
+
+    const response = await POST(uploadRequest(body));
+
+    expect(response.status).toBe(201);
+    const payload = (await response.json()) as { attachments: Array<{ filename: string }> };
+    expect(payload.attachments).toHaveLength(4);
+    expect(payload.attachments.map((attachment) => attachment.filename)).toEqual([
+      "IMG_0001_.jpg",
+      "photo_1_.jpg",
+      "photo_1_.jpg",
+      "IMG_0002.JPG"
+    ]);
+  });
+
+  it("accepts RFC 5987 filename* disposition parameters and extra disposition params", async () => {
+    const { POST } = await import("@/app/api/attachments/route");
+    const conversation = createConversation("Filename star", null, undefined, uploadUser.id);
+    const body = buildMultipartBody([
+      { name: "conversationId", content: conversation.id },
+      {
+        name: "files",
+        content: "jpeg-bytes",
+        filename: "photo.jpg",
+        dispositionExtra: "; filename*=UTF-8''%E7%85%A7%E7%89%87.jpg",
+        type: "image/jpeg"
+      },
+      {
+        name: "files",
+        content: "jpeg-bytes",
+        filename: "extra.jpg",
+        dispositionExtra: "; foo=\"bar\"; x-custom=1",
+        type: "image/jpeg"
+      },
+      {
+        name: "files",
+        content: "jpeg-bytes",
+        filename: "",
+        type: "image/jpeg"
+      }
+    ]);
+
+    const response = await POST(uploadRequest(body));
+
+    expect(response.status).toBe(201);
+    const payload = (await response.json()) as { attachments: Array<{ filename: string }> };
+    expect(payload.attachments).toHaveLength(3);
+    expect(payload.attachments[0]!.filename).toBe("_.jpg");
+    expect(payload.attachments[1]!.filename).toBe("extra.jpg");
+    expect(payload.attachments[2]!.filename).toBe("attachment");
+  });
+
+  it("reports missing conversationId distinctly", async () => {
+    const { POST } = await import("@/app/api/attachments/route");
+    const body = buildMultipartBody([
+      { name: "files", content: "jpeg-bytes", filename: "a.jpg", type: "image/jpeg" }
+    ]);
+
+    const response = await POST(uploadRequest(body));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid attachment upload (missing conversationId)"
+    });
+  });
+
+  it("reports truncated multipart bodies distinctly", async () => {
+    const { POST } = await import("@/app/api/attachments/route");
+    const conversation = createConversation("Truncated upload", null, undefined, uploadUser.id);
+    const fullBody = buildMultipartBody([
+      { name: "conversationId", content: conversation.id },
+      { name: "files", content: "jpeg-bytes-that-are-cut-off", filename: "a.jpg", type: "image/jpeg" }
+    ]);
+    const truncated = Buffer.from(fullBody.slice(0, fullBody.length - 40), "utf8");
+
+    const response = await POST(uploadRequest(truncated));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid attachment upload (unparseable multipart body)"
+    });
+  });
+
+  it("reports interrupted upload streams as retryable", async () => {
+    const { POST } = await import("@/app/api/attachments/route");
+    const partial = buildMultipartBody([
+      { name: "conversationId", content: "conv_interrupted" },
+      { name: "files", content: "jpeg-bytes", filename: "a.jpg", type: "image/jpeg" }
+    ]);
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(partial.slice(0, 60)));
+        controller.error(new Error("client disconnected"));
+      }
+    });
+
+    const response = await POST(uploadRequest(body, { duplex: "half" } as RequestInit));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Upload interrupted before completion — retry"
+    });
   });
 });
