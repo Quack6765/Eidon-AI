@@ -1815,7 +1815,7 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("stops forcing generate_image after one retry and accepts the model's text answer instead of looping", async () => {
+  it("does not force generate_image when the model answers with text instead of calling the tool", async () => {
     let providerCallCount = 0;
     const emittedEvents: ChatStreamEvent[] = [];
     streamProviderResponse.mockImplementation(() => {
@@ -1839,9 +1839,9 @@ Run browser commands.`
       onEvent: (event) => emittedEvents.push(event)
     });
 
-    expect(providerCallCount).toBe(2);
+    expect(providerCallCount).toBe(1);
     expect(result.answer).toBe("Here is some advice instead.");
-    expect(emittedEvents.filter((event) => event.type === "answer_reset")).toHaveLength(1);
+    expect(emittedEvents.filter((event) => event.type === "answer_reset")).toHaveLength(0);
   });
 
   it("does not force generate_image again after a failed generation attempt and accepts the failure explanation", async () => {
@@ -1885,28 +1885,16 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("requires generate_image for another-one follow-up requests instead of accepting a hallucinated success message", async () => {
+  it("allows generate_image for an edit continuation after a recently generated image", async () => {
     let providerCallCount = 0;
-    streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
+    streamProviderResponse.mockImplementation(({ tools }: {
       tools?: Array<{ function: { name: string } }>;
-      promptMessages?: Array<{ content: string | Array<{ type: string; text?: string }> }>;
     }) => {
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
-      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
 
       if (providerCallCount === 1) {
         expect(toolNames).toContain("generate_image");
-        return createProviderStream([], {
-          answer: "I've generated another image for you. It should appear above.",
-          thinking: "",
-          usage: { inputTokens: 8 }
-        });
-      }
-
-      if (providerCallCount === 2) {
-        expect(toolNames).toContain("generate_image");
-        expect(systemPrompt).toContain("The latest user request requires generating a new image");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -1947,7 +1935,16 @@ Run browser commands.`
       settings: createSettings(),
       promptMessages: [
         { role: "user", content: "Generate an image of a Japanese garden at sunset" },
-        { role: "assistant", content: "I've generated an image for you." },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_prev_image", name: "generate_image", arguments: JSON.stringify({ prompt: "a Japanese garden at sunset" }) }]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_prev_image",
+          content: "Successfully generated 1 image. Generated 1 image: generated-1.png"
+        },
         { role: "user", content: "Nice! Create another one" }
       ],
       skills: [],
@@ -1959,6 +1956,62 @@ Run browser commands.`
 
     expect(result.answer).toBe("Here is another image.");
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses model-initiated generate_image when the user did not request an image", async () => {
+    const started: Array<{ kind: string; label: string }> = [];
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
+      tools?: Array<{ function: { name: string } }>;
+      promptMessages?: Array<{ content: string | Array<{ type: string; text?: string }> }>;
+    }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        expect(toolNames).toContain("execute_shell_command");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_unrequested",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a graph showing the merge completed" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+
+      const conversation = (promptMessages ?? []).map((message) => String(message.content ?? ""));
+      expect(conversation.some((content) => content.includes("did not explicitly request an image"))).toBe(true);
+      return createProviderStream([{ type: "answer_delta", text: "Understood — no image." }], {
+        answer: "Understood — no image.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "user", content: "Merge the duplicate iPad memories, keeping the richer one" }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image",
+      onActionStart: (action) => {
+        started.push({ kind: action.kind, label: action.label });
+      }
+    });
+
+    expect(result.answer).toBe("Understood — no image.");
+    expect(generateGoogleNanoBananaImages).not.toHaveBeenCalled();
+    expect(started).toHaveLength(0);
   });
 
   it("does not force generate_image for follow-up questions about a previous image", async () => {
@@ -1992,14 +2045,15 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).not.toHaveBeenCalled();
   });
 
-  it("restricts fresh image requests to the generate_image tool until generation succeeds", async () => {
+  it("keeps the full toolset available for a fresh image request and generates once", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
 
       if (providerCallCount === 1) {
-        expect(toolNames).toEqual(["generate_image"]);
+        expect(toolNames).toContain("generate_image");
+        expect(toolNames).toContain("execute_shell_command");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -2058,7 +2112,7 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("starts a visible image action before the model returns its generate_image tool call and reuses the same handle", async () => {
+  it("starts a visible image action only when the generate_image tool actually runs", async () => {
     const started: Array<{ kind: string; label: string; detail?: string }> = [];
     const completed: Array<{ handle?: string; detail?: string; resultSummary?: string }> = [];
     let providerCallCount = 0;
@@ -2067,14 +2121,9 @@ Run browser commands.`
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
 
-      expect(started).toHaveLength(1);
-      expect(started[0]).toEqual(expect.objectContaining({
-        kind: "image_generation",
-        label: "Generate image"
-      }));
-
       if (providerCallCount === 1) {
-        expect(toolNames).toEqual(["generate_image"]);
+        expect(started).toHaveLength(0);
+        expect(toolNames).toContain("generate_image");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -2086,6 +2135,12 @@ Run browser commands.`
           usage: { inputTokens: 6 }
         });
       }
+
+      expect(started).toHaveLength(1);
+      expect(started[0]).toEqual(expect.objectContaining({
+        kind: "image_generation",
+        label: "Generate image"
+      }));
 
       return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
         answer: "Here is the image.",

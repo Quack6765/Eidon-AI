@@ -17,11 +17,26 @@ vi.mock("@/lib/attachments", () => ({
   bindAttachmentsToMessage: vi.fn()
 }));
 
-const promptMessages: PromptMessage[] = [
+const editPromptMessages: PromptMessage[] = [
+  { role: "user", content: "generate an image of a keyboard" },
+  {
+    role: "assistant",
+    content: "",
+    toolCalls: [{ id: "call_prev", name: "generate_image", arguments: JSON.stringify({ prompt: "a keyboard" }) }]
+  },
+  {
+    role: "tool",
+    toolCallId: "call_prev",
+    content: "Successfully generated 1 image. Generated 1 image: keyboard.png"
+  },
   { role: "user", content: "Change all keys to blue" }
 ];
 
-function createContext() {
+const generatePromptMessages: PromptMessage[] = [
+  { role: "user", content: "Generate an image of a landscape" }
+];
+
+function createContext(promptMessages: PromptMessage[] = editPromptMessages) {
   return {
     input: {
       settings: createRuntimeProviderProfile(),
@@ -93,7 +108,7 @@ describe("executeImageGeneration edit handling", () => {
     const context = createContext();
     const result = await executeImageGeneration("call_2", { prompt: "Change all keys to blue" }, context);
 
-    expect(resolveEditInputImages).toHaveBeenCalledWith(promptMessages, "conv_1");
+    expect(resolveEditInputImages).toHaveBeenCalledWith(editPromptMessages, "conv_1");
     expect(generateImages).toHaveBeenCalledWith(expect.objectContaining({
       instruction: expect.objectContaining({ mode: "edit" }),
       inputImages
@@ -119,7 +134,7 @@ describe("executeImageGeneration edit handling", () => {
       }]
     });
 
-    await executeImageGeneration("call_3", { prompt: "generate a landscape" }, createContext());
+    await executeImageGeneration("call_3", { prompt: "generate a landscape" }, createContext(generatePromptMessages));
 
     expect(resolveEditInputImages).not.toHaveBeenCalled();
     expect(generateImages).toHaveBeenCalledWith(expect.objectContaining({ inputImages: undefined }));

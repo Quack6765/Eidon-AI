@@ -24,9 +24,6 @@ export type RuntimeToolContext = {
   effectiveVisionMode: VisionMode;
   memoryUserId?: string | null;
   imageGenerationToolEnabled?: boolean;
-  restrictToGenerateImage?: boolean;
-  imageGenerationActionHandle?: string;
-  hasVisibleImageGenerationAction?: boolean;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onActionComplete?: (
     handle: string | undefined,

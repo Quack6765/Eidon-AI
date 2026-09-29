@@ -39,7 +39,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
       : undefined,
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
     imageGenerationToolEnabled: context.imageGenerationToolEnabled,
-    restrictToGenerateImage: context.restrictToGenerateImage,
     effectiveVisionMode: context.effectiveVisionMode,
     computerHandoffEnabled: Boolean(context.conversationId && getBotByConversationId(context.conversationId))
   });
@@ -73,8 +72,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
             onActionStart: context.onActionStart,
             onActionComplete: context.onActionComplete,
             onActionError: context.onActionError,
-            imageGenerationActionHandle: context.imageGenerationActionHandle,
-            hasVisibleImageGenerationAction: context.hasVisibleImageGenerationAction,
             appSettings: context.appSettings,
             conversationId: context.conversationId,
             assistantMessageId: context.assistantMessageId,
