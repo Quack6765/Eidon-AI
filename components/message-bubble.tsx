@@ -306,7 +306,7 @@ function DelegateActionLine({
         </span>
       ) : null}
       {canExpand && isOpen && action.resultSummary ? (
-        <div className="max-w-full px-6 text-center text-[11px] break-words whitespace-pre-wrap font-mono">
+        <div className="w-full text-left text-[11px] break-words whitespace-pre-wrap font-mono">
           <AnsiText
             text={action.resultSummary}
             defaultTextClassName={action.status === "error" ? "text-red-300/60" : "text-white/35"}
