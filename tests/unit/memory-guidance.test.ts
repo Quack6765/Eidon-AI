@@ -75,7 +75,9 @@ describe("instructions-vs-memory split", () => {
     expect(guidance).toContain("never rewrite a memory to mirror your instructions");
     expect(guidance).toContain("is an instruction change, not a memory");
     expect(guidance).toContain("Memory never holds behavior rules");
-    expect(guidance).toContain("belongs there instead of remembering it");
+    expect(guidance).toContain("save the directive as a preference memory");
+    expect(guidance).toContain("propose deleting it with delete_memory");
+    expect(guidance).toContain("treat it as a fact about the user");
   });
 
   it("places the split after the relevance gate and before the worth-remembering list", () => {

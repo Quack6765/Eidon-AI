@@ -586,7 +586,7 @@ export function buildToolDefinitions(input: {
         function: {
           name: "delete_memory",
           description:
-            "Delete a stored memory that is no longer true or no longer useful; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
+            "Delete a stored memory that is no longer true, no longer useful, or that duplicates your instructions; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
           parameters: {
             type: "object",
             properties: {
