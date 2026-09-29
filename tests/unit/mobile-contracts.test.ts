@@ -12,6 +12,10 @@ import {
   MOBILE_API_MINIMUM_SERVER_VERSION
 } from "@/lib/constants";
 import {
+  OPENAI_GPT_IMAGE_MODEL_IDS,
+  OPENAI_GPT_IMAGE_QUALITIES
+} from "@/lib/image-generation/catalog";
+import {
   assertOpenApiResponse,
   assertWebSocketMessage,
   compileOpenApiJsonRequestBodies,
@@ -329,6 +333,32 @@ describe("Mobile API v1 contracts", () => {
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(47);
     expect(compileOpenApiJsonResponses()).toBe(135);
+  });
+
+  it("widens the image generation enums for GPT Image 2.5", () => {
+    const contract = readJson(openApiPath) as {
+      components: {
+        schemas: {
+          ImageGenerationUpdate: {
+            oneOf: Array<{
+              properties: {
+                providerId: { const?: string };
+                configuration: {
+                  properties?: { model?: { enum: string[] }; quality?: { enum: string[] } };
+                };
+              };
+            }>;
+          };
+        };
+      };
+    };
+
+    const openAi = contract.components.schemas.ImageGenerationUpdate.oneOf.find(
+      (branch) => branch.properties.providerId.const === "openai_gpt_image"
+    );
+    expect(openAi).toBeDefined();
+    expect(openAi?.properties.configuration.properties?.model?.enum).toEqual([...OPENAI_GPT_IMAGE_MODEL_IDS]);
+    expect(openAi?.properties.configuration.properties?.quality?.enum).toEqual([...OPENAI_GPT_IMAGE_QUALITIES]);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

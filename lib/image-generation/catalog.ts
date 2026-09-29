@@ -7,14 +7,18 @@ export const GOOGLE_NANO_BANANA_MODEL_IDS = [
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview"
 ] as const;
-export const OPENAI_GPT_IMAGE_MODEL_IDS = ["gpt-image-2"] as const;
+export const OPENAI_GPT_IMAGE_MODEL_IDS = [
+  "gpt-image-2",
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst"
+] as const;
 export const IMAGE_GENERATION_MODEL_IDS = [
   ...GOOGLE_NANO_BANANA_MODEL_IDS,
   ...OPENAI_GPT_IMAGE_MODEL_IDS
 ] as const;
 export type ImageGenerationModelId = typeof IMAGE_GENERATION_MODEL_IDS[number];
 
-export const OPENAI_GPT_IMAGE_QUALITIES = ["auto", "low", "medium", "high"] as const;
+export const OPENAI_GPT_IMAGE_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
 export type OpenAiGptImageQuality = typeof OPENAI_GPT_IMAGE_QUALITIES[number];
 
 export const IMAGE_GENERATION_PROVIDER_IDS = ["disabled", "google_nano_banana", "openai_gpt_image"] as const;
@@ -26,7 +30,7 @@ export type ImageGenerationConfiguration = {
 
 export const DEFAULT_GOOGLE_NANO_BANANA_MODEL: ImageGenerationModelId =
   "gemini-3.1-flash-image-preview";
-export const DEFAULT_OPENAI_GPT_IMAGE_MODEL: ImageGenerationModelId = "gpt-image-2";
+export const DEFAULT_OPENAI_GPT_IMAGE_MODEL: typeof OPENAI_GPT_IMAGE_MODEL_IDS[number] = "gpt-image-2.5-flare";
 export const DEFAULT_OPENAI_GPT_IMAGE_QUALITY: OpenAiGptImageQuality = "auto";
 
 export const GOOGLE_NANO_BANANA_MODEL_OPTIONS = [
@@ -36,15 +40,37 @@ export const GOOGLE_NANO_BANANA_MODEL_OPTIONS = [
 ] as const satisfies ReadonlyArray<{ value: ImageGenerationModelId; label: string }>;
 
 export const OPENAI_GPT_IMAGE_MODEL_OPTIONS = [
-  { value: "gpt-image-2", label: "GPT Image 2" }
+  { value: "gpt-image-2", label: "GPT Image 2" },
+  { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" },
+  { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst" }
 ] as const satisfies ReadonlyArray<{ value: ImageGenerationModelId; label: string }>;
 
 export const OPENAI_GPT_IMAGE_QUALITY_OPTIONS = [
   { value: "auto", label: "Auto" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
-  { value: "high", label: "High" }
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" }
 ] as const satisfies ReadonlyArray<{ value: OpenAiGptImageQuality; label: string }>;
+
+export const OPENAI_GPT_IMAGE_MODEL_QUALITIES: Record<
+  typeof OPENAI_GPT_IMAGE_MODEL_IDS[number],
+  ReadonlyArray<OpenAiGptImageQuality>
+> = {
+  "gpt-image-2": ["auto", "low", "medium", "high"],
+  "gpt-image-2.5-flare": ["auto", "low", "medium", "high", "xhigh", "max"],
+  "gpt-image-2.5-sunburst": ["auto", "low", "medium", "high", "xhigh", "max"]
+};
+
+export function getOpenAiGptImageQualityOptions(
+  model: ImageGenerationModelId = DEFAULT_OPENAI_GPT_IMAGE_MODEL
+): ReadonlyArray<{ value: OpenAiGptImageQuality; label: string }> {
+  const supported = OPENAI_GPT_IMAGE_MODEL_QUALITIES[
+    isOpenAiGptImageModelId(model) ? model : DEFAULT_OPENAI_GPT_IMAGE_MODEL
+  ];
+  return OPENAI_GPT_IMAGE_QUALITY_OPTIONS.filter((option) => supported.includes(option.value));
+}
 
 export function getImageGenerationModelOptions(
   providerId: ImageGenerationProviderId
@@ -83,7 +109,11 @@ export const imageGenerationIntegrationUpdateSchema = z.discriminatedUnion("prov
     configuration: z.object({
       model: z.enum(OPENAI_GPT_IMAGE_MODEL_IDS),
       quality: z.enum(OPENAI_GPT_IMAGE_QUALITIES).optional()
-    }).strict(),
+    }).strict().refine(
+      (configuration) => !configuration.quality || OPENAI_GPT_IMAGE_MODEL_QUALITIES[configuration.model]
+        .includes(configuration.quality),
+      { message: "The selected quality is not supported by the selected model" }
+    ),
     ...credentialFields
   }).strict()
 ]);

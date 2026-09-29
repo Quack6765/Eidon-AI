@@ -106,7 +106,7 @@ describe("generateOpenAiGptImages", () => {
       expect.objectContaining({
         prompt: "poster of Seoul at dusk\n\nAvoid: blur, watermark",
         size: "960x1280",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5-flare",
         quality: "auto"
       }),
       { signal: abortController.signal }
@@ -138,7 +138,7 @@ describe("generateOpenAiGptImages", () => {
     );
     expect(editMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-image-2",
+        model: "gpt-image-2.5-flare",
         prompt: "Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: change the hat color to red",
         n: 2,
         quality: "high"
