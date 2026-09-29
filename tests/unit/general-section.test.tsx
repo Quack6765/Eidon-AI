@@ -30,7 +30,8 @@ type GeneralSettingsOverrides = Partial<GeneralSectionSettings> & {
   searxngBaseUrl?: string;
   imageGenerationBackend?: ImageGenerationProviderId;
   googleNanoBananaModel?: ImageGenerationModelId;
-  openAiGptImageQuality?: "auto" | "low" | "medium" | "high";
+  openAiGptImageModel?: ImageGenerationModelId;
+  openAiGptImageQuality?: "auto" | "low" | "medium" | "high" | "xhigh" | "max";
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasExternalSttApiKey?: boolean;
@@ -103,7 +104,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       configuration: imageProvider === "google_nano_banana"
         ? { model: overrides.googleNanoBananaModel ?? "gemini-3.1-flash-image-preview" }
         : imageProvider === "openai_gpt_image"
-          ? { model: "gpt-image-2", quality: overrides.openAiGptImageQuality ?? "auto" }
+          ? { model: overrides.openAiGptImageModel ?? "gpt-image-2", quality: overrides.openAiGptImageQuality ?? "auto" }
           : {},
       configured: imageProvider === "google_nano_banana"
         ? overrides.hasGoogleNanoBananaApiKey ?? false
@@ -1019,6 +1020,87 @@ describe("general section", () => {
     expect(body.imageGeneration).toEqual({
       providerId: "openai_gpt_image",
       configuration: { model: "gpt-image-2", quality: "low" },
+      credentialAction: "preserve"
+    });
+  });
+
+  it("shows the extended quality tiers for GPT Image 2.5 models", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "openai_gpt_image",
+      openAiGptImageModel: "gpt-image-2.5-flare",
+      openAiGptImageQuality: "xhigh",
+      hasOpenAiGptImageApiKey: true
+    });
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageGlobalIntegrations: true
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Image generation/ }));
+    expect(screen.getByLabelText("Image generation model")).toHaveValue("gpt-image-2.5-flare");
+    expect(screen.getByLabelText("Image generation quality")).toHaveValue("xhigh");
+    const qualities = Array.from(
+      (screen.getByLabelText("Image generation quality") as HTMLSelectElement).options
+    ).map((option) => option.value);
+    expect(qualities).toEqual(["auto", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("keeps GPT Image 2 quality options capped at High", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "openai_gpt_image",
+      openAiGptImageModel: "gpt-image-2",
+      hasOpenAiGptImageApiKey: true
+    });
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageGlobalIntegrations: true
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Image generation/ }));
+    const qualities = Array.from(
+      (screen.getByLabelText("Image generation quality") as HTMLSelectElement).options
+    ).map((option) => option.value);
+    expect(qualities).toEqual(["auto", "low", "medium", "high"]);
+  });
+
+  it("resets an unsupported quality when switching to GPT Image 2 and saves the reset value", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "openai_gpt_image",
+      openAiGptImageModel: "gpt-image-2.5-sunburst",
+      openAiGptImageQuality: "max",
+      hasOpenAiGptImageApiKey: true
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response);
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageGlobalIntegrations: true
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Image generation/ }));
+    fireEvent.change(screen.getByLabelText("Image generation model"), { target: { value: "gpt-image-2" } });
+    expect(screen.getByLabelText("Image generation quality")).toHaveValue("auto");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.imageGeneration).toEqual({
+      providerId: "openai_gpt_image",
+      configuration: { model: "gpt-image-2", quality: "auto" },
       credentialAction: "preserve"
     });
   });

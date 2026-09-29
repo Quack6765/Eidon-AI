@@ -103,7 +103,7 @@ describe("image generation provider", () => {
     expect(generateOpenAiGptImages).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: "openai-image-key",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5-flare",
         quality: "auto"
       })
     );

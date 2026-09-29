@@ -726,6 +726,53 @@ describe("settings domains", () => {
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("openai-secret");
   });
 
+  it("persists GPT Image 2.5 models with their extended quality tiers", async () => {
+    saveProfiles();
+    const user = await createLocalUser({ username: "gpt-image-25-admin", password: "password-123", role: "admin" });
+
+    const flare = updateGeneralSettingsBundleForUser(user.id, {
+      preferences: {},
+      imageGeneration: {
+        providerId: "openai_gpt_image" as const,
+        configuration: { model: "gpt-image-2.5-flare" as const, quality: "xhigh" as const },
+        credentialAction: "preserve" as const
+      }
+    }, true);
+    expect(flare.imageGeneration).toMatchObject({
+      providerId: "openai_gpt_image",
+      configuration: { model: "gpt-image-2.5-flare", quality: "xhigh" }
+    });
+
+    const sunburst = updateGeneralSettingsBundleForUser(user.id, {
+      preferences: {},
+      imageGeneration: {
+        providerId: "openai_gpt_image" as const,
+        configuration: { model: "gpt-image-2.5-sunburst" as const, quality: "max" as const },
+        credentialAction: "preserve" as const
+      }
+    }, true);
+    expect(sunburst.imageGeneration).toMatchObject({
+      providerId: "openai_gpt_image",
+      configuration: { model: "gpt-image-2.5-sunburst", quality: "max" }
+    });
+  });
+
+  it("rejects quality tiers the selected GPT Image model does not support", async () => {
+    saveProfiles();
+    const user = await createLocalUser({ username: "image-quality-admin", password: "password-123", role: "admin" });
+
+    expect(() => updateGeneralSettingsBundleForUser(user.id, {
+      preferences: {},
+      imageGeneration: {
+        providerId: "openai_gpt_image" as const,
+        configuration: { model: "gpt-image-2" as const, quality: "xhigh" as const },
+        credentialAction: "preserve" as const
+      }
+    }, true)).toThrow();
+
+    expect(getSettingsForUser(user.id).imageGeneration).toMatchObject({ providerId: "disabled" });
+  });
+
   it("persists memory rigor as a user-scoped preference", async () => {
     saveProfiles();
     const user = await createLocalUser({ username: "rigor-user", password: "password-123", role: "user" });

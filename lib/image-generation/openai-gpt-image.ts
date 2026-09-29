@@ -1,5 +1,5 @@
 import OpenAI, { toFile } from "openai";
-import type { ImageGenerateParams } from "openai/resources";
+import type { ImageEditParams, ImageGenerateParams } from "openai/resources";
 import {
   DEFAULT_OPENAI_GPT_IMAGE_MODEL,
   DEFAULT_OPENAI_GPT_IMAGE_QUALITY,
@@ -50,14 +50,14 @@ export async function generateOpenAiGptImages(input: {
           toFile(new Uint8Array(image.bytes), image.filename, { type: image.mimeType })
         )),
         n: input.instruction.count,
-        quality: input.quality ?? DEFAULT_OPENAI_GPT_IMAGE_QUALITY
+        quality: (input.quality ?? DEFAULT_OPENAI_GPT_IMAGE_QUALITY) as ImageEditParams["quality"]
       }, { signal: input.abortSignal })
     : await client.images.generate({
         model: input.model ?? DEFAULT_OPENAI_GPT_IMAGE_MODEL,
         prompt: buildPrompt(input.instruction),
         n: input.instruction.count,
         size: ASPECT_RATIO_SIZES[input.instruction.aspectRatio] as ImageGenerateParams["size"],
-        quality: input.quality ?? DEFAULT_OPENAI_GPT_IMAGE_QUALITY
+        quality: (input.quality ?? DEFAULT_OPENAI_GPT_IMAGE_QUALITY) as ImageGenerateParams["quality"]
       }, { signal: input.abortSignal });
 
   const images = renameGeneratedImages((response.data ?? [])

@@ -6,8 +6,8 @@ import {
 import {
   getDefaultImageGenerationConfiguration,
   getImageGenerationModelOptions,
+  getOpenAiGptImageQualityOptions,
   IMAGE_GENERATION_PROVIDER_CATALOG,
-  OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
   type ImageGenerationModelId,
   type ImageGenerationProviderId,
   type OpenAiGptImageQuality
@@ -32,6 +32,8 @@ export function ImageGenerationSettings({
 }) {
   const defaultConfiguration = getDefaultImageGenerationConfiguration(draft.providerId);
   const modelOptions = getImageGenerationModelOptions(draft.providerId);
+  const selectedModel = draft.configuration.model ?? defaultConfiguration.model;
+  const qualityOptions = getOpenAiGptImageQualityOptions(selectedModel);
 
   function selectProvider(providerId: ImageGenerationProviderId) {
     onChange(selectIntegrationProvider<AppSettings["imageGeneration"]>(
@@ -40,6 +42,20 @@ export function ImageGenerationSettings({
       providerId,
       getDefaultImageGenerationConfiguration(providerId)
     ));
+  }
+
+  function selectModel(model: ImageGenerationModelId) {
+    const quality = draft.configuration.quality;
+    const qualitySupported = !quality
+      || getOpenAiGptImageQualityOptions(model).some((option) => option.value === quality);
+    onChange({
+      ...draft,
+      configuration: {
+        ...draft.configuration,
+        model,
+        ...(quality && !qualitySupported ? { quality: "auto" as OpenAiGptImageQuality } : {})
+      }
+    });
   }
 
   return (
@@ -71,10 +87,7 @@ export function ImageGenerationSettings({
               id="image-generation-model"
               aria-label="Image generation model"
               value={draft.configuration.model ?? defaultConfiguration.model}
-              onChange={(event) => onChange({
-                ...draft,
-                configuration: { ...draft.configuration, model: event.target.value as ImageGenerationModelId }
-              })}
+              onChange={(event) => selectModel(event.target.value as ImageGenerationModelId)}
               className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
             >
               {modelOptions.map((model) => (
@@ -101,7 +114,7 @@ export function ImageGenerationSettings({
                 })}
                 className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
               >
-                {OPENAI_GPT_IMAGE_QUALITY_OPTIONS.map((quality) => (
+                {qualityOptions.map((quality) => (
                   <option key={quality.value} value={quality.value}>{quality.label}</option>
                 ))}
               </select>
