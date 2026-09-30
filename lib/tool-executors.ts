@@ -30,7 +30,27 @@ import {
 import { getLatestUserRequestText, hasActiveImageSession } from "./prompt-analysis";
 import { isImageGenerationRequested } from "@/lib/image-generation/follow-up-context";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
-import { listBotWorkspaceSkills, slugifySkillFolderName, upsertBotWorkspaceSkill } from "./bot-workspace-skills";
+import {
+  archiveLibrarySkill,
+  createLibrarySkill,
+  ensureLibraryReady,
+  findLibrarySkill,
+  getSkillLibraryDir,
+  hardDeleteLibrarySkill,
+  listLibrarySkills,
+  normalizeSkillRef,
+  parseSkillId,
+  patchLibrarySkillFile,
+  removeLibrarySupportFile,
+  rewriteLibrarySkill,
+  skillRefCategory,
+  skillRefLeaf,
+  writeLibrarySupportFile
+} from "./skill-library";
+import { evaluateSkillGuards, type SkillWriteOrigin } from "./skill-guards";
+import { normalizeSkillOperation, SKILL_MANAGE_BATCH_MAX_OPS, type SkillOperation } from "./skill-operation";
+import { join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import {
   classifyShellCommand,
@@ -623,7 +643,7 @@ export async function executeLoadSkill(
     const bot = context.input.conversationId
       ? getBotByConversationId(context.input.conversationId)
       : null;
-    workspaceSkills = bot ? listBotWorkspaceSkills(bot) : [];
+    workspaceSkills = bot ? listLibrarySkills(bot.userId ?? null) : [];
     skill = workspaceSkills.find(
       (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
     );
@@ -693,14 +713,16 @@ export async function loadSkillIntoTurn(
   ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 }
 
-export async function executeSaveSkill(
+export async function executeSkillManage(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
     input: {
       abortSignal?: AbortSignal;
       conversationId?: string;
+      memoryUserId?: string | null;
       skills?: Skill[];
+      skillWriteOrigin?: SkillWriteOrigin;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (
         handle: string | undefined,
@@ -711,6 +733,7 @@ export async function executeSaveSkill(
         patch: { detail?: string; resultSummary?: string }
       ) => Promise<void> | void;
     };
+    loadedSkillIds: Set<string>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -722,74 +745,238 @@ export async function executeSaveSkill(
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const errorResult = (message: string) => ({
-    nextSortOrder: sortOrder,
+    nextSortOrder: sortOrder + 1,
     promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
     toolSucceeded: false
   });
 
-  const bot = context.input.conversationId
-    ? getBotByConversationId(context.input.conversationId)
-    : null;
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+  const origin: SkillWriteOrigin = context.input.skillWriteOrigin ?? "foreground";
 
-  if (!bot) {
-    return errorResult("save_skill is only available in agent conversations that have a workspace.");
+  if (!bot && origin === "foreground") {
+    return errorResult("skill_manage is only available in agent conversations that have a workspace.");
   }
 
-  let result: ReturnType<typeof upsertBotWorkspaceSkill>;
-  try {
-    result = upsertBotWorkspaceSkill(bot, {
-      name: String(args.name ?? ""),
-      description: String(args.description ?? ""),
-      instructions: String(args.instructions ?? "")
+  const ownerUserId = bot?.userId ?? context.input.memoryUserId ?? null;
+  if (ownerUserId === null && bot?.userId !== null) {
+    return errorResult("skill_manage could not determine which skill library to write to.");
+  }
+
+  ensureLibraryReady(ownerUserId);
+
+  const rawOperations = Array.isArray(args.operations) ? args.operations : [args];
+  if (!rawOperations.length) {
+    return errorResult("operations must contain at least one operation.");
+  }
+  if (rawOperations.length > SKILL_MANAGE_BATCH_MAX_OPS) {
+    return errorResult(`operations exceeds the batch limit of ${SKILL_MANAGE_BATCH_MAX_OPS}.`);
+  }
+
+  const operations = rawOperations.map((entry) => normalizeSkillOperation(entry));
+  const invalid = operations.find((entry) => "error" in entry);
+  if (invalid && "error" in invalid) {
+    return errorResult(invalid.error);
+  }
+
+  const deleteOps = operations.filter((entry) => !("error" in entry) && entry.action === "delete");
+  if (deleteOps.length && operations.length > 1) {
+    return errorResult("delete must be the SOLE op in its call — it doesn't compose with other ops' rollback.");
+  }
+
+  const loadedRefs = new Set(
+    [...context.loadedSkillIds].map((id) => parseSkillId(id)).filter((ref): ref is string => Boolean(ref))
+  );
+
+  const results: string[] = [];
+  const undoStack: Array<() => void> = [];
+
+  const rollback = () => {
+    for (const undo of undoStack.reverse()) {
+      try {
+        undo();
+      } catch {
+        // best effort
+      }
+    }
+  };
+
+  const snapshotFile = (path: string) => {
+    const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+    undoStack.push(() => {
+      if (before === null) {
+        rmSync(path, { force: true });
+      } else {
+        writeFileSync(path, before, "utf8");
+      }
     });
+  };
+
+  try {
+    for (const operation of operations as SkillOperation[]) {
+      throwIfAborted(context.input.abortSignal);
+
+      const guard = evaluateSkillGuards({
+        ownerUserId,
+        ref: operation.name,
+        name: operation.name,
+        action: operation.action,
+        origin,
+        absorbedInto: operation.action === "delete" ? operation.absorbedInto ?? null : null,
+        loadedRefs,
+        filePath: "filePath" in operation ? operation.filePath ?? null : null
+      });
+
+      if (!guard.ok) {
+        throw new Error(guard.error);
+      }
+
+      const found = findLibrarySkill(ownerUserId, operation.name);
+      const ref = found?.ref ?? normalizeSkillRef(operation.name) ?? operation.name;
+
+      switch (operation.action) {
+        case "create": {
+          snapshotFile(join(getSkillLibraryDir(ownerUserId), ...ref.split("/"), "SKILL.md"));
+          const created = createLibrarySkill(ownerUserId, {
+            name: skillRefLeaf(ref),
+            category: skillRefCategory(ref),
+            content: operation.content,
+            actor: origin === "background-review" ? "background-review" : "foreground",
+            agentAuthored: origin === "background-review"
+          });
+          if ("error" in created) {
+            throw new Error(created.error);
+          }
+          results.push(created.warning ? `Skill '${created.ref}' created. ${created.warning}` : `Skill '${created.ref}' created.`);
+          break;
+        }
+
+        case "patch": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          snapshotFile(join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), "SKILL.md"));
+          if (operation.content !== undefined) {
+            const rewritten = rewriteLibrarySkill(ownerUserId, found.ref, {
+              content: operation.content,
+              actor: origin === "background-review" ? "background-review" : "foreground"
+            });
+            if ("error" in rewritten) {
+              throw new Error(rewritten.error);
+            }
+            results.push(`Skill '${found.ref}' updated (full rewrite).`);
+          } else {
+            const patched = patchLibrarySkillFile(ownerUserId, found.ref, {
+              oldString: operation.oldString ?? "",
+              newString: operation.newString ?? "",
+              replaceAll: operation.replaceAll,
+              filePath: operation.filePath,
+              actor: origin === "background-review" ? "background-review" : "foreground"
+            });
+            if ("error" in patched) {
+              throw new Error(patched.error);
+            }
+            results.push(`Patched ${patched.filePath} in skill '${found.ref}' (${patched.replacements} replacement(s).)`);
+          }
+          break;
+        }
+
+        case "write_file": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library. Create it first with action='create'.`);
+          }
+          const targetPath = join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), ...(operation.filePath ?? "").split("/"));
+          snapshotFile(targetPath);
+          const written = writeLibrarySupportFile(ownerUserId, found.ref, {
+            filePath: operation.filePath ?? "",
+            fileContent: operation.fileContent ?? "",
+            actor: origin === "background-review" ? "background-review" : "foreground"
+          });
+          if ("error" in written) {
+            throw new Error(written.error);
+          }
+          results.push(`File '${written.filePath}' written to skill '${found.ref}'.`);
+          break;
+        }
+
+        case "remove_file": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          const targetPath = join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), ...(operation.filePath ?? "").split("/"));
+          snapshotFile(targetPath);
+          const removed = removeLibrarySupportFile(ownerUserId, found.ref, {
+            filePath: operation.filePath ?? "",
+            actor: origin === "background-review" ? "background-review" : "foreground"
+          });
+          if ("error" in removed) {
+            throw new Error(removed.error);
+          }
+          results.push(`File '${removed.filePath}' removed from skill '${found.ref}'.`);
+          break;
+        }
+
+        case "delete": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          const deleted =
+            origin === "foreground"
+              ? hardDeleteLibrarySkill(ownerUserId, found.ref, "foreground")
+              : archiveLibrarySkill(ownerUserId, found.ref);
+          if ("error" in deleted) {
+            throw new Error(deleted.error);
+          }
+          results.push(
+            origin === "foreground"
+              ? `Skill '${found.ref}' deleted.`
+              : `Skill '${found.ref}' archived (recoverable under .archive/).`
+          );
+          break;
+        }
+      }
+    }
   } catch (error) {
-    result = { error: error instanceof Error ? error.message : "Failed to write the skill file" };
+    rollback();
+    const message = error instanceof Error ? error.message : "skill_manage failed";
+    const handle = await context.input.onActionStart?.({
+      kind: "skill_manage",
+      label: "Skill manage",
+      detail: message.split("\n")[0]
+    });
+    await context.input.onActionError?.(typeof handle === "string" ? handle : undefined, {
+      resultSummary: message
+    });
+    return errorResult(message);
   }
 
   throwIfAborted(context.input.abortSignal);
-  const detail = "skill" in result ? result.skill.name : String(args.name ?? "").trim();
+  const detail = results[0]?.split("\n")[0] ?? "skill_manage";
   const handle = await context.input.onActionStart?.({
-    kind: "save_skill",
-    label: "Save skill",
-    detail
+    kind: "skill_manage",
+    label: "Update skills",
+    detail,
+    toolName: "skill_manage"
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  if ("error" in result) {
-    await context.input.onActionError?.(actionHandle, { detail, resultSummary: result.error });
-    return errorResult(`Cannot save skill — ${result.error}`);
-  }
-
-  const savedSkill = result.skill;
   await context.input.onActionComplete?.(actionHandle, {
     detail,
-    resultSummary: "Skill saved to the workspace skills folder."
+    resultSummary: results.join(" ")
   });
 
+  const refreshed = listLibrarySkills(ownerUserId).find((skill) => results.some((line) => line.includes(`'${skill.name}'`) || line.includes(`'${skill.id}'`)));
   const turnSkills = context.input.skills;
-  if (turnSkills) {
-    const resolvedNameLower = savedSkill.name.toLowerCase();
-    for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
-      const existing = turnSkills[index];
-      if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
-        turnSkills.splice(index, 1);
-      }
-    }
-    const existingIndex = turnSkills.findIndex((skill) => skill.id === savedSkill.id);
+  if (turnSkills && refreshed) {
+    const existingIndex = turnSkills.findIndex((skill) => skill.id === refreshed.id);
     if (existingIndex >= 0) {
-      turnSkills[existingIndex] = savedSkill;
+      turnSkills[existingIndex] = refreshed;
     } else {
-      turnSkills.push(savedSkill);
+      turnSkills.push(refreshed);
     }
   }
 
-  const resultMsg = buildToolResultMessage(
-    toolCallId,
-    `Skill saved: ${savedSkill.name} (skills/${slugifySkillFolderName(savedSkill.name)}/SKILL.md). It is available via load_skill, including right away in this turn.`
-  );
   return {
     nextSortOrder: sortOrder + 1,
-    promptMessages: [...context.promptMessages, resultMsg],
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, results.join("\n"))],
     toolSucceeded: true
   };
 }
@@ -1635,6 +1822,7 @@ export async function executeToolCall(
       settings?: RuntimeProviderProfile;
       visionProfile?: RuntimeProviderProfile;
       skills: Skill[];
+      skillWriteOrigin?: SkillWriteOrigin;
       mcpToolSets: ToolSet[];
       memoryUserId?: string | null;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -1673,8 +1861,8 @@ export async function executeToolCall(
     return executeLoadSkill(toolCallId, args, context);
   }
 
-  if (name === "save_skill") {
-    return executeSaveSkill(toolCallId, args, context);
+  if (name === "skill_manage") {
+    return executeSkillManage(toolCallId, args, context);
   }
 
   if (name === "execute_shell_command") {

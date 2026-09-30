@@ -65,6 +65,14 @@ const browsers: Array<{ child: FakeProcess; args: string[]; port: number }> = []
 const agentBrowserCalls: Array<{ args: string[]; env: Record<string, string> }> = [];
 let nextPort = 41_000;
 let agentBrowserFailure: string | null = null;
+const pendingSpawnTimers = new Set<ReturnType<typeof setTimeout>>();
+
+function clearPendingSpawnTimers() {
+  for (const timer of pendingSpawnTimers) {
+    clearTimeout(timer);
+  }
+  pendingSpawnTimers.clear();
+}
 
 function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string>; cwd?: string }): FakeProcess {
   if (command === "python3") {
@@ -95,7 +103,11 @@ function fakeSpawn(command: string, args: string[], options: { env?: Record<stri
   const wsPath = `/devtools/browser/${port}`;
   browsers.push({ child, args, port });
   browserByUrl.set(`ws://127.0.0.1:${port}${wsPath}`, child);
-  setTimeout(() => writeFileSync(join(profileDir, "DevToolsActivePort"), `${port}\n${wsPath}\n`), 5);
+  const portTimer = setTimeout(() => {
+    pendingSpawnTimers.delete(portTimer);
+    writeFileSync(join(profileDir, "DevToolsActivePort"), `${port}\n${wsPath}\n`);
+  }, 5);
+  pendingSpawnTimers.add(portTimer);
   return child;
 }
 
@@ -116,6 +128,7 @@ describe("agent computer browser host", () => {
   let fakeBrowser: string;
 
   beforeEach(async () => {
+    clearPendingSpawnTimers();
     spawnMock.mockReset();
     spawnMock.mockImplementation(fakeSpawn);
     spawnSyncMock.mockReset();
@@ -138,6 +151,7 @@ describe("agent computer browser host", () => {
   });
 
   afterEach(() => {
+    clearPendingSpawnTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     rmSync(join(fakeBrowser, ".."), { recursive: true, force: true });

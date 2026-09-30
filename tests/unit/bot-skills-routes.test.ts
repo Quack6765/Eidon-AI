@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBot } from "@/lib/bots";
-import { getBotSkillsDir, listBotWorkspaceSkills } from "@/lib/bot-workspace-skills";
+import { getSkillLibraryDir, listLibrarySkills } from "@/lib/skill-library";
 import { createLocalUser } from "@/lib/users";
 import type { Bot } from "@/lib/types";
 
@@ -28,7 +28,7 @@ function buildSkillContext(
 }
 
 function seedWorkspaceSkill(bot: Pick<Bot, "id" | "userId">, folder: string, content: string) {
-  const skillDir = join(getBotSkillsDir(bot), folder);
+  const skillDir = join(getSkillLibraryDir(bot.userId), folder);
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, "SKILL.md"), content, "utf8");
 }
@@ -97,7 +97,7 @@ describe("bot skills routes", () => {
     expect(payload.skill?.content).toBe(
       "---\nname: Meeting Notes\ndescription: Summarize meetings.\n---\n\nCapture action items.\n"
     );
-    expect(existsSync(join(getBotSkillsDir(bot), "meeting-notes", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(getSkillLibraryDir(bot.userId), "meeting-notes", "SKILL.md"))).toBe(true);
   });
 
   it("rejects invalid create payloads and name collisions", async () => {
@@ -110,7 +110,7 @@ describe("bot skills routes", () => {
       new Request("http://localhost/", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "Only Name" })
+        body: JSON.stringify({ name: "only-name" })
       }),
       buildBotContext(bot.id)
     );
@@ -125,10 +125,10 @@ describe("bot skills routes", () => {
 
     expect(invalid.status).toBe(400);
     expect(collision.status).toBe(400);
-    expect(((await collision.json()) as { error: string }).error).toContain("already exists");
+    expect(((await collision.json()) as { error: string }).error).toContain("already exists at taken");
   });
 
-  it("patches fields, merges with existing content, and renames folders on name change", async () => {
+  it("patches fields in place and refuses to rename a skill", async () => {
     const { user, bot } = await createUserWithBot("skillspatcher");
     requireUserMock.mockResolvedValue(user);
     seedWorkspaceSkill(
@@ -138,7 +138,7 @@ describe("bot skills routes", () => {
     );
 
     const { PATCH } = await import("@/app/api/bots/[botId]/skills/[skillId]/route");
-    const skillId = `botws-${bot.id}-old-name`;
+    const skillId = "teamskill-old-name";
     const partial = await PATCH(
       new Request("http://localhost/", {
         method: "PATCH",
@@ -163,11 +163,10 @@ describe("bot skills routes", () => {
       buildSkillContext(bot.id, skillId)
     );
 
-    expect(renamed.status).toBe(200);
-    const renamedPayload = (await renamed.json()) as { skill?: { id: string } };
-    expect(renamedPayload.skill?.id).toBe(`botws-${bot.id}-new-name`);
-    expect(existsSync(join(getBotSkillsDir(bot), "old-name"))).toBe(false);
-    expect(listBotWorkspaceSkills(bot).map((skill) => skill.name)).toEqual(["New Name"]);
+    expect(renamed.status).toBe(400);
+    expect(((await renamed.json()) as { error: string }).error).toContain("Renaming a skill is not supported");
+    expect(existsSync(join(getSkillLibraryDir(bot.userId), "old-name", "SKILL.md"))).toBe(true);
+    expect(listLibrarySkills(bot.userId).map((skill) => skill.name)).toEqual(["Old Name"]);
   });
 
   it("returns 404 for unknown or malformed skill ids", async () => {
@@ -181,7 +180,7 @@ describe("bot skills routes", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: "Whatever" })
       }),
-      buildSkillContext(bot.id, `botws-${bot.id}-ghost`)
+      buildSkillContext(bot.id, "teamskill-ghost")
     );
     const malformed = await DELETE(
       new Request("http://localhost/", { method: "DELETE" }),
@@ -200,16 +199,16 @@ describe("bot skills routes", () => {
     const { DELETE } = await import("@/app/api/bots/[botId]/skills/[skillId]/route");
     const response = await DELETE(
       new Request("http://localhost/", { method: "DELETE" }),
-      buildSkillContext(bot.id, `botws-${bot.id}-doomed`)
+      buildSkillContext(bot.id, "teamskill-doomed")
     );
     const second = await DELETE(
       new Request("http://localhost/", { method: "DELETE" }),
-      buildSkillContext(bot.id, `botws-${bot.id}-doomed`)
+      buildSkillContext(bot.id, "teamskill-doomed")
     );
 
     expect(response.status).toBe(200);
     expect(((await response.json()) as { success: boolean }).success).toBe(true);
-    expect(existsSync(join(getBotSkillsDir(bot), "doomed"))).toBe(false);
+    expect(existsSync(join(getSkillLibraryDir(bot.userId), "doomed"))).toBe(false);
     expect(second.status).toBe(404);
   });
 });

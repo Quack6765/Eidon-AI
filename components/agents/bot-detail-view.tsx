@@ -10,7 +10,10 @@ import {
   LoaderCircle,
   PanelRight,
   Pencil,
+  Pin,
+  PinOff,
   RotateCcw,
+  Sparkles,
   Square,
   Trash2
 } from "lucide-react";
@@ -27,6 +30,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/settings/badge";
 import { addGlobalWsListener } from "@/lib/ws-client";
+import { getSkillState, getSkillUsage, isSkillPinned } from "@/lib/skill-runtime";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
 import type { Automation, BotRun, BotSummary, Skill, UserMemory } from "@/lib/types";
 
@@ -456,6 +460,28 @@ export function BotDetailView({
     }
   }
 
+  async function handleSkillMaintenance(
+    op: "pin" | "unpin" | "adopt" | "restore",
+    refOrName: string
+  ) {
+    try {
+      const response = await fetch(`/api/bots/${bot.id}/skills/maintenance`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(op === "restore" ? { op, archivedName: refOrName } : { op, ref: refOrName })
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setBotSkillsError(payload?.error ?? "Could not update skill");
+        return;
+      }
+      setBotSkillsError(null);
+      await loadSkills();
+    } catch {
+      setBotSkillsError("Could not update skill");
+    }
+  }
+
   async function handleSkillDelete() {
     const target = skillDeleteTarget;
     setSkillDeleteTarget(null);
@@ -691,50 +717,137 @@ export function BotDetailView({
             }
           >
             <p className="text-xs leading-5 text-[var(--muted)]">
-              Skills this bot keeps in its workspace. It can save skills itself, and you can add or edit them here.
+              Skills shared by every agent on this team. Any of them can create, edit or delete a skill,
+              and so can you.
             </p>
             <div className="mt-3">
               {botSkillsError ? (
                 <div className="text-xs text-red-200">{botSkillsError}</div>
               ) : botSkills === null ? (
                 <div className="text-xs text-[var(--muted)]">Loading skills…</div>
-              ) : botSkills.length === 0 ? (
+              ) : botSkills.filter((skill) => getSkillState(skill) !== "archived").length === 0 ? (
                 <p className="text-xs text-[var(--muted)]">
-                  No skills yet. This bot saves skills it creates here, and you can add your own.
+                  No skills yet. Any agent on this team saves skills it creates here, and you can add your own.
                 </p>
               ) : (
                 <ul className="divide-y divide-white/4 rounded-xl border border-white/6 bg-white/[0.02]">
-                  {botSkills.map((skill) => (
-                    <li key={skill.id} className="flex items-start justify-between gap-3 px-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium text-[#f4f4f5]">{skill.name}</span>
-                        <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">{skill.description}</span>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSkillEditTarget(skill);
-                            setIsSkillModalOpen(true);
-                          }}
-                          aria-label={`Edit skill ${skill.name}`}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5]"
-                        >
-                          <Pencil className="h-3 w-3" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSkillDeleteTarget(skill)}
-                          aria-label={`Delete skill ${skill.name}`}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-red-500/10 hover:text-red-300"
-                        >
-                          <Trash2 className="h-3 w-3" aria-hidden="true" />
-                        </button>
-                      </span>
-                    </li>
-                  ))}
+                  {botSkills
+                    .filter((skill) => getSkillState(skill) !== "archived")
+                    .map((skill) => {
+                      const usage = getSkillUsage(skill);
+                      return (
+                        <li key={skill.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="block truncate text-xs font-medium text-[#f4f4f5]">{skill.name}</span>
+                              {isSkillPinned(skill) ? <Badge variant="pinned">pinned</Badge> : null}
+                              {skill.createdBy === "agent" ? <Badge variant="managed">auto</Badge> : null}
+                              {getSkillState(skill) === "stale" ? <Badge variant="stale">stale</Badge> : null}
+                              {usage.useCount === 0 ? <Badge variant="unused">never used</Badge> : null}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">{skill.description}</span>
+                            <span className="mt-0.5 block truncate text-[10px] text-[#52525b]">
+                              {usage.useCount} load{usage.useCount === 1 ? "" : "s"}
+                              {usage.lastUsedAt
+                                ? ` · last used ${new Date(usage.lastUsedAt).toLocaleDateString()}`
+                                : " · never loaded"}
+                            </span>
+                          </div>
+                          <span className="flex shrink-0 items-center gap-1">
+                            {!skill.createdBy || skill.createdBy === "learn" ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSkillMaintenance("adopt", skill.name)}
+                                aria-label={`Hand skill ${skill.name} to skill maintenance`}
+                                title="Hand to skill maintenance"
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                              >
+                                <Sparkles className="h-3 w-3" aria-hidden="true" />
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSkillMaintenance(isSkillPinned(skill) ? "unpin" : "pin", skill.name)
+                              }
+                              aria-label={`${isSkillPinned(skill) ? "Unpin" : "Pin"} skill ${skill.name}`}
+                              title={isSkillPinned(skill) ? "Unpin" : "Pin"}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                            >
+                              {isSkillPinned(skill) ? (
+                                <PinOff className="h-3 w-3" aria-hidden="true" />
+                              ) : (
+                                <Pin className="h-3 w-3" aria-hidden="true" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSkillEditTarget(skill);
+                                setIsSkillModalOpen(true);
+                              }}
+                              aria-label={`Edit skill ${skill.name}`}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                            >
+                              <Pencil className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSkillDeleteTarget(skill)}
+                              aria-label={`Delete skill ${skill.name}`}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                            >
+                              <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </span>
+                        </li>
+                      );
+                    })}
                 </ul>
               )}
+
+              {botSkills !== null && botSkills.some((skill) => getSkillState(skill) === "archived") ? (
+                <div className="mt-3">
+                  <p className="text-[11px] font-medium text-[var(--muted)]">
+                    Archived — kept recoverable and hidden from the skill list.
+                  </p>
+                  <ul className="mt-1.5 divide-y divide-white/4 rounded-xl border border-white/6 bg-white/[0.02]">
+                    {botSkills
+                      .filter((skill) => getSkillState(skill) === "archived")
+                      .map((skill) => (
+                        <li key={skill.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="block truncate text-xs font-medium text-[#a1a1aa]">{skill.name}</span>
+                              <Badge variant="archived">archived</Badge>
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">{skill.description}</span>
+                          </div>
+                          <span className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSkillMaintenance("restore", skill.name)}
+                              aria-label={`Restore skill ${skill.name}`}
+                              title="Restore"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                            >
+                              <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSkillDeleteTarget(skill)}
+                              aria-label={`Delete skill ${skill.name} permanently`}
+                              title="Delete permanently"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                            >
+                              <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           </PanelSection>
 
@@ -933,7 +1046,7 @@ export function BotDetailView({
         title="Delete skill?"
         description={
           <>
-            <strong className="font-medium text-[var(--text)]">{skillDeleteTarget?.name}</strong> will be removed from this bot&apos;s workspace. This action cannot be undone.
+            <strong className="font-medium text-[var(--text)]">{skillDeleteTarget?.name}</strong> will be removed from the team&apos;s shared skill library. This action cannot be undone.
           </>
         }
         onConfirm={handleSkillDelete}

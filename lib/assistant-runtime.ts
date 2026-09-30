@@ -16,7 +16,7 @@ import {
 import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
-import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
+import { isLibrarySkillId } from "./skill-library";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
 import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
 import { findReferencedNames } from "./reference-tokens";
@@ -117,25 +117,29 @@ function buildCapabilitiesStableSegment(
   return lines.join("\n");
 }
 
-function buildDynamicSkillsSegment(skills: Skill[], saveSkillEnabled = false) {
-  if (!skills.length && !saveSkillEnabled) return "";
+function buildDynamicSkillsSegment(skills: Skill[], skillManageEnabled = false) {
+  if (!skills.length && !skillManageEnabled) return "";
 
   const lines: string[] = [];
 
   if (skills.length) {
     lines.push("Available skills (metadata only — call load_skill to get full instructions):");
     for (const skill of skills) {
-      const marker = isBotWorkspaceSkillId(skill.id) ? " (workspace)" : "";
-      lines.push(`- ${getSkillResolvedName(skill)}${marker}: ${getSkillResolvedDescription(skill)}`);
+      const marker = isLibrarySkillId(skill.id) ? " (shared)" : "";
+      const state = skill.state === "archived" ? " [archived]" : skill.state === "stale" ? " [stale]" : "";
+      lines.push(`- ${getSkillResolvedName(skill)}${marker}${state}: ${getSkillResolvedDescription(skill)}`);
     }
-    if (saveSkillEnabled) {
+    if (skillManageEnabled) {
       lines.push(
-        "Skills marked (workspace) are your own — create or update reusable skills with the save_skill tool."
+        "Skills marked (shared) live in this team's shared library — every agent here reads and writes the same skills.",
+        "When the user asks you to learn, capture, or save a workflow as a skill, load the skill-authoring skill first and follow it.",
+        "With skill_manage, prefer patching a loaded skill over patching an umbrella, over adding a support file, over creating a new skill. Creation is the last resort."
       );
     }
   } else {
     lines.push(
-      "No skills are available yet. You can create your own reusable skills with the save_skill tool; saved skills become available via load_skill in future turns."
+      "No skills are available yet. With skill_manage you can create reusable skills in this team's shared library; they become available via load_skill in future turns.",
+      "When the user asks you to learn, capture, or save a workflow as a skill, load the skill-authoring skill first and follow it."
     );
   }
 
@@ -404,6 +408,8 @@ export async function resolveAssistantTurn(input: {
     roster: import("@/lib/bots").BotRosterEntry[];
   };
   botWorkspaceSkillsEnabled?: boolean;
+  skillManageEnabled?: boolean;
+  toolAllowlist?: string[];
   research?: import("@/lib/types").ChatResearchOptions;
   takeRedirect?: () => Promise<{ content: string; assistantMessageId: string } | null>;
 }) {
@@ -596,6 +602,8 @@ export async function resolveAssistantTurn(input: {
         !getProviderReadinessError(input.visionProfile),
       botTeam: input.botTeam,
       botWorkspaceSkillsEnabled: input.botWorkspaceSkillsEnabled,
+      skillManageEnabled: input.skillManageEnabled,
+      toolAllowlist: input.toolAllowlist,
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
@@ -605,7 +613,7 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         visionMcpServers
       }),
-      buildDynamicSkillsSegment(turnSkills, input.botWorkspaceSkillsEnabled)
+      buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled)
     );
 
     const buildProviderStream = () =>

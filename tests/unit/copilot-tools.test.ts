@@ -171,6 +171,8 @@ describe("buildCopilotTools", () => {
     vi.mocked(parseSkillContentMetadata).mockReturnValue({
       name: "",
       description: "",
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: []
     });
     vi.mocked(coerceEnumValues).mockImplementation((_schema: unknown, args: Record<string, unknown>) => args);
@@ -713,11 +715,13 @@ describe("buildCopilotTools", () => {
       if (content === "research skill content") {
         return {
           name: "Deep Research",
+          platforms: [],
+          tags: [],
           description: "Investigate a topic thoroughly",
           shellCommandPrefixes: []
         };
       }
-      return { name: "", description: "", shellCommandPrefixes: [] };
+      return { name: "", description: "", platforms: [], tags: [], shellCommandPrefixes: [] };
     });
 
     const skill = makeSkill({

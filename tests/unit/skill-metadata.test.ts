@@ -3,6 +3,8 @@ import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 describe("skill metadata", () => {
   it("returns empty prefixes when frontmatter is absent", () => {
     expect(parseSkillContentMetadata("# No frontmatter")).toEqual({
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: []
     });
   });
@@ -19,6 +21,8 @@ Body`)
     ).toEqual({
       name: "Browser Agent",
       description: "Use for browser tasks.",
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: ["agent-browser", "playwright"]
     });
   });
@@ -41,6 +45,8 @@ Body`)
     ).toEqual({
       name: "Release Pilot",
       description: "Use for release work.",
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: ["git", "npm"]
     });
   });

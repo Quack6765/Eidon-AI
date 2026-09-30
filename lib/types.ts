@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff" | "secret_request";
+export type MessageActionKind = "skill_load" | "skill_manage" | "skill_review" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff" | "secret_request";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -427,6 +427,19 @@ export type McpToolCallResult = {
   isError?: boolean;
 };
 
+export type SkillLifecycleState = "active" | "stale" | "archived";
+
+export type SkillProvenance = "agent" | "learn" | "installed" | null;
+
+export type SkillUsage = {
+  useCount: number;
+  viewCount: number;
+  lastUsedAt: string | null;
+  lastViewedAt: string | null;
+  patchCount: number;
+  lastPatchedAt: string | null;
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -435,6 +448,10 @@ export type Skill = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  state?: SkillLifecycleState;
+  pinned?: boolean;
+  createdBy?: SkillProvenance;
+  usage?: SkillUsage;
 };
 
 export type Persona = {
