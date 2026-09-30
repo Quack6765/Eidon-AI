@@ -208,7 +208,12 @@ function normalizeAutomationProposalPayload(
   const payload: AutomationProposalPayload = {
     name: parsed.name,
     prompt: parsed.prompt,
-    scheduleKind: parsed.scheduleKind === "calendar" ? "calendar" : "interval",
+    scheduleKind:
+      parsed.scheduleKind === "calendar"
+        ? "calendar"
+        : parsed.scheduleKind === "once"
+          ? "once"
+          : "interval",
     intervalMinutes: typeof parsed.intervalMinutes === "number" ? parsed.intervalMinutes : null,
     calendarFrequency:
       parsed.calendarFrequency === "daily" || parsed.calendarFrequency === "weekly"
@@ -218,6 +223,7 @@ function normalizeAutomationProposalPayload(
     daysOfWeek: Array.isArray(parsed.daysOfWeek)
       ? parsed.daysOfWeek.filter((day): day is number => Number.isInteger(day))
       : [],
+    runAt: typeof parsed.runAt === "string" ? parsed.runAt : null,
     providerProfileId,
     personaId: typeof parsed.personaId === "string" ? parsed.personaId : null,
     continuePreviousConversation:

@@ -73,6 +73,7 @@ function buildAutomationPayload(
     calendarFrequency: "daily",
     timeOfDay: "08:30",
     daysOfWeek: [],
+    runAt: null,
     providerProfileId: PROVIDER_PROFILE_ID,
     personaId: null,
     continuePreviousConversation: false,

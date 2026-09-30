@@ -62,7 +62,7 @@ export type UserRole = "admin" | "user";
 
 export type AuthSource = "env_super_admin" | "local";
 
-export type AutomationScheduleKind = "interval" | "calendar";
+export type AutomationScheduleKind = "interval" | "calendar" | "once";
 
 export type AutomationCalendarFrequency = "daily" | "weekly";
 
@@ -301,6 +301,7 @@ export type Automation = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt: string | null;
   continuePreviousConversation: boolean;
   enabled: boolean;
   research: boolean;
@@ -492,6 +493,7 @@ export type AutomationProposalPayload = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt?: string | null;
   providerProfileId: string;
   personaId: string | null;
   continuePreviousConversation?: boolean;

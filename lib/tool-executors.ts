@@ -8,7 +8,7 @@ import {
   buildUpdateMemoryProposal,
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
-import { assertValidSchedule } from "@/lib/automations";
+import { assertFutureRunAt, assertValidSchedule } from "@/lib/automations";
 import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, getShellCommandLabel, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
@@ -1412,8 +1412,14 @@ function parseAutomationScheduleArgs(args: Record<string, unknown>): {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt: string | null;
 } {
-  const scheduleKind: AutomationScheduleKind = args.schedule_kind === "calendar" ? "calendar" : "interval";
+  const scheduleKind: AutomationScheduleKind =
+    args.schedule_kind === "calendar"
+      ? "calendar"
+      : args.schedule_kind === "once"
+        ? "once"
+        : "interval";
   const intervalMinutes =
     typeof args.interval_minutes === "number" && Number.isFinite(args.interval_minutes)
       ? Math.round(args.interval_minutes)
@@ -1424,8 +1430,16 @@ function parseAutomationScheduleArgs(args: Record<string, unknown>): {
   const daysOfWeek = Array.isArray(args.days_of_week)
     ? args.days_of_week.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= 6)
     : [];
+  const runAt = (() => {
+    if (scheduleKind !== "once" || typeof args.run_at !== "string" || !args.run_at.trim()) {
+      return null;
+    }
 
-  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek };
+    const parsed = new Date(args.run_at.trim());
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  })();
+
+  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek, runAt };
 }
 
 export async function executeCreateAutomationProposal(
@@ -1453,6 +1467,7 @@ export async function executeCreateAutomationProposal(
 
   try {
     assertValidSchedule(schedule);
+    assertFutureRunAt(schedule.scheduleKind, schedule.runAt);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid automation schedule";
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
@@ -1477,6 +1492,7 @@ export async function executeCreateAutomationProposal(
     calendarFrequency: schedule.calendarFrequency,
     timeOfDay: schedule.timeOfDay,
     daysOfWeek: schedule.daysOfWeek,
+    runAt: schedule.runAt,
     providerProfileId,
     personaId: null,
     botId: bot?.id ?? null,
@@ -1496,9 +1512,14 @@ export async function executeCreateAutomationProposal(
   });
   throwIfAborted(context.input.abortSignal);
 
+  const onceNote =
+    schedule.scheduleKind === "once"
+      ? " It runs a single time and then deletes itself."
+      : "";
+
   const resultMsg = buildToolResultMessage(
     toolCallId,
-    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
+    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card.${onceNote} Tell the user you have proposed the automation and that they can review and approve it.`
   );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }

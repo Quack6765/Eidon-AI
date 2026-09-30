@@ -84,7 +84,9 @@ A toggle in the composer switches a turn into deep research mode.
 
 Scheduled prompts that run on their own and leave a normal transcript behind.
 
-**Schedules.** Either `interval` (every N minutes, minimum 5) or `calendar` (daily, or weekly on chosen weekdays, at a local `HH:MM`). Calendar schedules use the server's `TZ`.
+**Schedules.** Either `interval` (every N minutes, minimum 5), `calendar` (daily, or weekly on chosen weekdays, at a local `HH:MM`), or `once` (a single run at an absolute instant). Calendar schedules use the server's `TZ`.
+
+**One-time automations.** A `once` automation fires exactly one time and then deletes itself, so it can never trigger again — the run's transcript stays in your chats and the completion notification links straight to it. Say "remind me tomorrow to …" in a conversation and the model proposes one; you approve it like any other proposal, and **Settings → Automations** can also create one by hand. If the server happens to be down when the moment passes, the run still fires once on the next start rather than being lost. A one-time automation created with no notification channel configured starts with web push enabled so it actually reaches you, and a manual **Run now** only previews it — the scheduled moment is what consumes it. Deleting a one-time automation is not undoable.
 
 **Per-automation configuration.** Each automation carries its own provider profile, an optional persona, an optional bot to run inside, a deep-research flag with its own run timeout, and a *continue previous conversation* switch — with it on, each run appends to the previous run's conversation so daily briefs build on prior results; with it off, every run starts fresh.
 
@@ -100,7 +102,7 @@ Scheduled prompts that run on their own and leave a normal transcript behind.
 
 **Run-done notifications.** Each automation can push the result to an ntfy topic (self-hostable), a raw webhook POST (Slack/Discord/Matrix incoming webhooks), Pushover (using your Pushover account keys from **Settings → Notifications**), or web push on your subscribed browsers. Notifications are title-only (for example `Eidon: "Daily digest" failed: <error>`) unless a channel opts into the run summary; webhook URLs and header values are stored encrypted and are never shown again after saving. With `EIDON_BASE_URL` set, every payload carries a deep link straight to that run's transcript (ntfy `click`, Pushover `url`, web push `url`, webhook `runUrl`).
 
-**Assistant-proposed automations.** The model can call `create_automation` when a request is obviously recurring. Like memory writes, this creates a proposal card you approve or dismiss; nothing gets scheduled without your sign-off.
+**Assistant-proposed automations.** The model can call `create_automation` when a request is for something that should run on its own — a recurring task like "check this every morning", or a one-off like "remind me tomorrow to X". Like memory writes, this creates a proposal card you approve or dismiss; nothing gets scheduled without your sign-off.
 
 ## Tools available to the model
 
@@ -113,7 +115,7 @@ Which tools appear depends on your configuration. The full set:
 | `skill_manage` | The conversation belongs to a bot and skills are enabled | Creates, edits, and deletes skills in the team's shared skill library |
 | `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace). Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
-| `create_automation` | Always | Proposes a scheduled automation for your approval |
+| `create_automation` | Always | Proposes a scheduled or one-time automation for your approval |
 | `draft_message` | An enabled MCP server has a tool that is not read-only | Prepares an email, Slack message, reply, or post as a draft you edit and send from the chat |
 | `web_search` | Web search is configured | Searches with the selected provider. Accepts up to 5 parallel queries and up to 10 results each |
 | `search_workspace` | Semantic recall is available | Read-only semantic search over your memories, past conversations, summaries, and attachment text |

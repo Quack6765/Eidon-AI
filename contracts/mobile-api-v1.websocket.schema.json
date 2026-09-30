@@ -49,11 +49,12 @@
       "properties": {
         "name": { "type": "string" },
         "prompt": { "type": "string" },
-        "scheduleKind": { "type": "string", "enum": ["interval", "calendar"] },
+        "scheduleKind": { "type": "string", "enum": ["interval", "calendar", "once"] },
         "intervalMinutes": { "type": ["integer", "null"] },
         "calendarFrequency": { "type": ["string", "null"], "enum": ["daily", "weekly", null] },
         "timeOfDay": { "type": ["string", "null"] },
         "daysOfWeek": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 } },
+        "runAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "providerProfileId": { "$ref": "#/$defs/OpaqueId" },
         "personaId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "continuePreviousConversation": { "type": "boolean" },
