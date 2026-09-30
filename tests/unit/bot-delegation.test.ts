@@ -43,6 +43,12 @@ import type { DelegationChain, PromptMessage } from "@/lib/types";
 
 function buildContext(memoryUserId: string | null, assistantMessageId?: string, conversationId = "conv_chief") {
   const calls: Array<{ label: string; kind: string }> = [];
+  const actionStarts: Array<{
+    label: string;
+    kind: string;
+    detail?: string;
+    arguments?: Record<string, unknown> | null;
+  }> = [];
   const completions: Array<string | undefined> = [];
   const errors: Array<string | undefined> = [];
   return {
@@ -51,8 +57,14 @@ function buildContext(memoryUserId: string | null, assistantMessageId?: string, 
         memoryUserId,
         conversationId,
         assistantMessageId: assistantMessageId ?? undefined,
-        onActionStart: async (action: { label: string; kind: string }) => {
+        onActionStart: async (action: {
+          label: string;
+          kind: string;
+          detail?: string;
+          arguments?: Record<string, unknown> | null;
+        }) => {
           calls.push({ label: action.label, kind: action.kind });
+          actionStarts.push(action);
           return "action_1";
         },
         onActionComplete: async (_handle: string | undefined, patch: { resultSummary?: string }) => {
@@ -66,6 +78,7 @@ function buildContext(memoryUserId: string | null, assistantMessageId?: string, 
       promptMessages: [] as PromptMessage[]
     },
     calls,
+    actionStarts,
     completions,
     errors
   };
@@ -141,6 +154,33 @@ describe("bot-delegation", () => {
       replyActionId: "action_1",
       pendingReply: null
     });
+  });
+
+  it("stores the full message that was sent, not a truncated copy", async () => {
+    const user = await createLocalUser({ username: "delegatestore", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const chiefMessage = createMessage({ conversationId: chief.homeConversationId, role: "assistant", content: "" });
+    const worker = createBot({ name: "Archivist" }, user.id);
+    const longMessage = `Summarise every thread about the migration. ${"detail ".repeat(60)}`.trim();
+    expect(longMessage.length).toBeGreaterThan(200);
+
+    startChatTurnMock.mockImplementation(
+      async (_manager: unknown, conversationId: string, _content: string) => {
+        if (conversationId === worker.homeConversationId) {
+          stubWorkerAnswer(conversationId, "Archived.");
+        }
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context, actionStarts } = buildContext(user.id, chiefMessage.id, chief.homeConversationId);
+    await executeMessageBot("call_store", { bot: "Archivist", message: longMessage }, context);
+
+    const started = actionStarts.at(0);
+    expect(started?.kind).toBe("message_bot");
+    expect(started?.arguments?.message).toBe(longMessage);
+    expect(started?.detail?.startsWith("→ Archivist: Summarise every thread")).toBe(true);
+    expect(started?.detail?.endsWith("[truncated]")).toBe(true);
   });
 
   it("rejects messaging unknown bots or itself without creating runs", async () => {

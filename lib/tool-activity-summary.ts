@@ -1,4 +1,5 @@
 import type { MessageAction, MessageActionKind, MessageActionStatus } from "@/lib/types";
+import { isDelegationActionKind } from "@/lib/delegation-marker";
 
 export type ToolActivityRow = {
   id: string;
@@ -37,7 +38,7 @@ const BUCKETS = [
 type BucketKey = (typeof BUCKETS)[number]["key"];
 
 export function isMessageBotActionKind(kind: MessageActionKind) {
-  return kind === "delegate_task" || kind === "message_bot";
+  return isDelegationActionKind(kind);
 }
 
 export function isToolActivityAction(action: Pick<MessageAction, "kind">) {

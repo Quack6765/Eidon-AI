@@ -66,6 +66,7 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
+import { matchDelegationReplies } from "@/lib/delegation-marker";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type {
   ChatResearchOptions,
@@ -380,6 +381,7 @@ export function ChatView({
       );
     });
   }, [messages, rewind.removedMessageIds]);
+  const delegationReplies = useMemo(() => matchDelegationReplies(renderableMessages), [renderableMessages]);
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(INITIAL_VISIBLE_MESSAGE_COUNT);
   const hiddenMessageCount = Math.max(renderableMessages.length - visibleMessageLimit, 0);
   const visibleMessages = useMemo(
@@ -2500,6 +2502,7 @@ export function ChatView({
                   isRegenerating={regeneratingMessageId === message.id}
                   referenceCandidates={referenceCandidates}
                   computerConversationId={payload.conversation.id}
+                  delegationReplies={delegationReplies}
                 />
               </div>
             );

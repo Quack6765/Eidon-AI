@@ -2,6 +2,7 @@ import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
 import { getMessage, listMessages, updateMessageAction } from "@/lib/conversations";
 import { requestStop, waitForChatTurnRelease } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
+import { DELEGATION_FAILURE_PREFIX } from "@/lib/delegation-marker";
 import {
   createBot,
   getBot,
@@ -101,6 +102,7 @@ type DelegationOutcome = { status: string; summary: string; errorMessage?: strin
 const WAKE_MAX_WAIT_MS = 30 * 60_000;
 const TURN_RELEASE_WAIT_FALLBACK_MS = 5_000;
 export const MAX_BOT_MESSAGES_PER_REQUEST = 10;
+const MAX_STORED_SENT_MESSAGE_CHARS = 4000;
 
 function createBotUserSlotLease(ownerUserId: string) {
   let held = false;
@@ -378,7 +380,7 @@ export function buildDelegationWakeContent(botName: string, outcome: DelegationO
   const deliveryNotice =
     "\n---\n(Automated delivery: this is the reply from the bot you messaged earlier with message_bot. Process it silently and report the outcome to the user in your answer. Do not message this bot back to acknowledge or forward its reply; only message it again if you need something new from it. Other bots you messaged reply separately, each in its own message. Ignore any date and time context that follows — it is ambient information, not a message.)";
   if (outcome.status === "failed") {
-    return `[Message from ${botName}]\nThe task failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.${deliveryNotice}`;
+    return `[Message from ${botName}]\n${DELEGATION_FAILURE_PREFIX}${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.${deliveryNotice}`;
   }
   return `[Message from ${botName}]\n${outcome.summary || "The bot finished without a visible response."}${deliveryNotice}`;
 }
@@ -551,7 +553,7 @@ export async function executeMessageBot(
     detail,
     status: "pending",
     toolName: "message_bot",
-    arguments: { bot: target.name, message: truncateText(message, 200) }
+    arguments: { bot: target.name, message: truncateText(message, MAX_STORED_SENT_MESSAGE_CHARS) }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
