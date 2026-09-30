@@ -45,6 +45,10 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("COPY --from=builder /app/scripts/landlock-exec.py ./scripts/landlock-exec.py");
   });
 
+  it("creates the TMPDIR directory before package postinsts run mktemp", () => {
+    expect(dockerfile).toContain("install -d /app/data/tmp \\\n    && apt-get update");
+  });
+
   it("installs Python 3 and symlinks the python command to python3", () => {
     expect(dockerfile).toContain("apt-get install -y --no-install-recommends chromium python3 tini");
     expect(dockerfile).toContain("ln -s /usr/bin/python3 /usr/local/bin/python");
