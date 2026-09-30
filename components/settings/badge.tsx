@@ -5,7 +5,12 @@ export type BadgeVariant =
   | "http"
   | "stdio"
   | "violet"
-  | "auth-required";
+  | "auth-required"
+  | "stale"
+  | "archived"
+  | "pinned"
+  | "managed"
+  | "unused";
 
 const variantStyles: Record<BadgeVariant, string> = {
   default: "bg-emerald-500/10 text-emerald-400",
@@ -14,7 +19,12 @@ const variantStyles: Record<BadgeVariant, string> = {
   http: "bg-sky-500/10 text-sky-400",
   stdio: "bg-emerald-500/10 text-emerald-400",
   violet: "bg-violet-500/10 text-violet-400",
-  "auth-required": "bg-amber-500/10 text-amber-400"
+  "auth-required": "bg-amber-500/10 text-amber-400",
+  stale: "bg-amber-500/10 text-amber-400",
+  archived: "bg-white/[0.06] text-[#a1a1aa]",
+  pinned: "bg-violet-500/10 text-violet-400",
+  managed: "bg-sky-500/10 text-sky-400",
+  unused: "bg-white/[0.06] text-[#a1a1aa]"
 };
 
 export function Badge({

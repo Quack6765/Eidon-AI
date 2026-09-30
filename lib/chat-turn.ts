@@ -33,7 +33,8 @@ import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compa
 import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
-import { listConversationSkills } from "@/lib/bot-workspace-skills";
+import { listConversationSkills } from "@/lib/skill-library";
+import { scheduleSkillReview } from "@/lib/skill-review";
 import {
   getSettings,
   getSettingsForUser,
@@ -98,6 +99,8 @@ export type StartChatTurn = (
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    toolAllowlist?: string[];
+    skillOwnerUserId?: string | null;
     providerProfileId?: string;
     delegationChain?: DelegationChain;
     onUserWait?: (waiting: boolean) => Promise<void> | void;
@@ -310,6 +313,8 @@ async function startAssistantTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
     unattended?: boolean;
+    toolAllowlist?: string[];
+    skillOwnerUserId?: string | null;
     delegationChain?: DelegationChain;
     onUserWait?: (waiting: boolean) => Promise<void> | void;
   }
@@ -484,7 +489,8 @@ async function startAssistantTurn(
     }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
-    const skills = appSettings.skillsEnabled ? listConversationSkills(bot) : [];
+    const skillOwner = bot ?? (options?.skillOwnerUserId ? { userId: options.skillOwnerUserId } : null);
+    const skills = appSettings.skillsEnabled ? listConversationSkills(skillOwner) : [];
     const mcpServers = listEnabledMcpServers();
 
     let mcpToolSets: Array<{
@@ -523,7 +529,9 @@ async function startAssistantTurn(
       conversationId: conversation.id,
       assistantMessageId: assistantMessage.id,
       botTeam,
-      botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
+      botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(skillOwner),
+      skillManageEnabled: appSettings.skillsEnabled && Boolean(skillOwner),
+      toolAllowlist: options?.toolAllowlist,
       research: options?.research,
       takeRedirect,
       delegationChain: options?.delegationChain ?? { messagesSent: 0 },
@@ -663,7 +671,14 @@ async function startAssistantTurn(
 
     deleteFailedAssistantMessages(conversation.id);
     queueConversationIndex(conversation.id);
-    if (bot) recordBotResult(bot.id);
+    if (bot) {
+      recordBotResult(bot.id);
+      void scheduleSkillReview({
+        bot,
+        conversationId: conversation.id,
+        assistantMessageId
+      });
+    }
 
     const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {
@@ -871,6 +886,8 @@ export async function startChatTurn(
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
     unattended?: boolean;
+    toolAllowlist?: string[];
+    skillOwnerUserId?: string | null;
     providerProfileId?: string;
     delegationChain?: DelegationChain;
     onUserWait?: (waiting: boolean) => Promise<void> | void;
@@ -946,6 +963,8 @@ export async function startChatTurn(
       onMessagesCreated: options?.onMessagesCreated,
       research: options?.research,
       unattended: options?.unattended,
+      toolAllowlist: options?.toolAllowlist,
+      skillOwnerUserId: options?.skillOwnerUserId,
       delegationChain: options?.delegationChain,
       async onUserWait(waiting) {
         if (botRun) setBotRunWaitingForUser(botRun.id, waiting);

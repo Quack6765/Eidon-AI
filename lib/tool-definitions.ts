@@ -37,6 +37,8 @@ export function buildToolDefinitions(input: {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   botWorkspaceSkillsEnabled?: boolean;
+  skillManageEnabled?: boolean;
+  toolAllowlist?: string[];
   memoriesEnabled: boolean;
   memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
@@ -154,7 +156,10 @@ export function buildToolDefinitions(input: {
     });
   }
 
-  if (input.skills.length) {
+  const allowlist = input.toolAllowlist ? new Set(input.toolAllowlist) : null;
+  const forcedByAllowlist = (name: string) => Boolean(allowlist?.has(name));
+
+  if (input.skills.length || forcedByAllowlist("load_skill")) {
     tools.push({
       type: "function",
       function: {
@@ -171,21 +176,73 @@ export function buildToolDefinitions(input: {
     });
   }
 
-  if (input.botWorkspaceSkillsEnabled) {
+  if (input.skillManageEnabled || forcedByAllowlist("skill_manage")) {
     tools.push({
       type: "function",
       function: {
-        name: "save_skill",
+        name: "skill_manage",
         description:
-          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Saving under an existing skill's exact name updates it. Use it whenever you develop a workflow or set of instructions worth reusing later.",
+          "Create or update reusable skills in the shared skills library. Prefer extending an existing skill over creating a narrow sibling: patch a loaded skill first, then an existing umbrella, then add a references/ or templates/ or scripts/ support file, and only create when no skill covers the class of task. Never create a skill for a one-off task, a single-step task, or an incident that only made sense today. Names must be class-level and lowercase. Send up to 20 operations in one call; delete must be the sole operation.",
         parameters: {
           type: "object",
           properties: {
-            name: { type: "string", description: "Short skill name, e.g. \"Release Notes\". Use an existing skill's exact name to update it." },
-            description: { type: "string", description: "One-line description of when the skill applies" },
-            instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
+            operations: {
+              type: "array",
+              maxItems: 20,
+              description: "Operations to apply in order. Batches are atomic and roll back on failure.",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "action"],
+                properties: {
+                  name: {
+                    type: "string",
+                    description: "Skill name, or 'category/name'. Must match the directory name exactly."
+                  },
+                  action: {
+                    type: "string",
+                    enum: ["create", "patch", "write_file", "remove_file", "delete"],
+                    description: "What to do with this skill"
+                  },
+                  content: {
+                    type: "string",
+                    description: "Full SKILL.md text (YAML frontmatter + markdown body) — for create, or patch as a last-resort full rewrite."
+                  },
+                  category: {
+                    type: "string",
+                    description: "Optional category subdir (e.g. 'devops'). create only."
+                  },
+                  old_string: {
+                    type: "string",
+                    description: "Text to find. patch only."
+                  },
+                  new_string: {
+                    type: "string",
+                    description: "Replacement; empty string deletes the match. patch only."
+                  },
+                  replace_all: {
+                    type: "boolean",
+                    description: "Replace all occurrences (default false). patch only."
+                  },
+                  file_path: {
+                    type: "string",
+                    description:
+                      "Path RELATIVE to the skill's own directory, e.g. 'references/api.md' — no leading slash, never absolute; first segment must be references/, templates/, scripts/ or assets/."
+                  },
+                  file_content: {
+                    type: "string",
+                    description: "Full text of the supporting file. write_file only."
+                  },
+                  absorbed_into: {
+                    type: "string",
+                    description:
+                      "Curator consolidation only: the umbrella skill that absorbed this one (must exist). Required for any delete that is not a direct user request."
+                  }
+                }
+              }
+            }
           },
-          required: ["name", "description", "instructions"]
+          required: ["operations"]
         }
       }
     });
@@ -609,6 +666,11 @@ export function buildToolDefinitions(input: {
         }
       }
     );
+  }
+
+  if (input.toolAllowlist) {
+    const allowed = new Set(input.toolAllowlist);
+    return tools.filter((tool) => allowed.has(tool.function.name));
   }
 
   return tools;

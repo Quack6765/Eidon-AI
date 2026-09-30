@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { listConversationSkills } from "@/lib/bot-workspace-skills";
+import { listConversationSkills } from "@/lib/skill-library";
 import { getBotByConversationId, listBots } from "@/lib/bots";
 import { getConversation } from "@/lib/conversations";
 import { notFoundResponse, ok } from "@/lib/http";

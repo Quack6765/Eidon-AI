@@ -74,19 +74,22 @@ This keeps a dedicated image-analysis server out of the tool list for profiles t
 
 ## Skills
 
-A skill is a Markdown document you write once and the model loads on demand. Skills are stored in the app — there is no filesystem to manage — and are available across every chat.
+A skill is a Markdown document you write once and the model loads on demand. Skills live in a **shared library, one per team**, under `bot-workspaces/<user>/shared/skills/` in the data directory — shared with every agent on this team, so a skill one bot learns is available to the rest. There is no per-bot collection and no per-agent ownership. Skills managed under **Settings → Skills** are deployment-wide: they appear in every chat, including your own, and are read-only to agents.
 
-When at least one skill is enabled, the model gets a `load_skill` tool whose description lists the available skill names. Calling it injects the skill's full text into the turn, and the loaded skill shows up in the message timeline.
+A skill lives in a folder — `[category/]<name>/SKILL.md` plus optional support folders `references/`, `templates/`, `scripts/`, and `assets/` for material the skill points at. A skill is identified by its name, or `category/name`; the folder name is its identity, so editing a skill's text never renames it.
+
+When at least one skill is available, the model gets a `load_skill` tool whose description lists the available skill names. Calling it injects the skill's full text into the turn, and the loaded skill shows up in the message timeline.
 
 ### Front matter
 
-A skill may begin with a YAML front-matter block. Three keys are recognized:
+A skill may begin with a YAML front-matter block. These keys are recognized:
 
 | Key | Effect |
 | --- | --- |
-| `name` | Overrides the skill's display name. This is the name the model sees and passes to `load_skill` |
+| `name` | Overrides the skill's display name. This is the name the model sees and passes to `load_skill`. In the shared library it should match the folder name |
 | `description` | Overrides the description. This is the model's only cue for when to load the skill, so write it as trigger conditions |
 | `shell_command_prefixes` | Marks the skill as shell-based and gates when it is offered. Accepts an inline array or a YAML list. `allowed_command_prefixes` and `command_prefixes` are accepted as aliases |
+| `platforms`, `tags`, `related_skills`, `author`, `version` | Extra details recorded with the skill: where it applies, how it is tagged, which skills it relates to, who wrote it, and its version. They do not change when the skill is offered |
 
 If `description` is absent, Eidon derives one from the first non-heading line of the document.
 
@@ -94,7 +97,7 @@ If `description` is absent, Eidon derives one from the first non-heading line of
 
 This field controls **skill visibility**, not command execution. Getting this wrong is a security mistake, so be precise about what it does:
 
-- A skill that declares `shell_command_prefixes` is **withheld from the model's skill list** unless the latest user message names the skill, contains something URL-like, or matches Eidon's browser/shell intent patterns (words like *browser*, *website*, *click*, *navigate*, *screenshot*, *form*, *login*, *dom*). A skill with no prefixes is always offered.
+- A skill that declares `shell_command_prefixes` is **withheld from the model's skill list** unless the latest user message names the skill, contains something URL-like, or matches Eidon's browser/shell intent patterns (words like *browser*, *website*, *click*, *navigate*, *screenshot*, *form*, *login*, *dom*). On those triggers only skills that look like browser skills — their name or description mentions *browser* — are offered. A skill with no prefixes is always offered.
 - It does **not** restrict what `execute_shell_command` may run. That tool is always available to the model and passes the command to a shell as the container user, with the container's full filesystem access. There is no per-command allowlist anywhere in the execution path.
 
 Treat the prefixes as documentation plus a relevance filter. If you need to constrain what the assistant can do to a machine, constrain the container — not the skill front matter. See [Security and storage notes](./configuration.md#security-and-storage-notes).
@@ -131,9 +134,107 @@ Read-only access to the analytics database.
 - `accounts` — one row per customer account; join on `events.account_id`.
 ```
 
+### The skill tools
+
+`load_skill` loads a skill's full text into the turn. `skill_manage` creates and changes skills in the shared library; bot teammates get it whenever skills are enabled. It takes a list of `operations`, applied in order:
+
+| Operation | What it does |
+| --- | --- |
+| `create` | Adds a new skill. `content` is the full `SKILL.md` text (front matter plus body); `category` is optional |
+| `patch` | Edits text: `old_string`/`new_string` (with `replace_all`, and `file_path` to edit a support file instead), or `content` to rewrite the whole `SKILL.md` |
+| `write_file` | Adds or replaces a support file under `references/`, `templates/`, `scripts/`, or `assets/` |
+| `remove_file` | Deletes a support file |
+| `delete` | Removes a skill. `absorbed_into` names the umbrella skill that absorbed this one — required whenever the delete was not asked for directly |
+
+Up to 20 operations go in one call, and `delete` must be the sole operation. A batch is atomic: if one operation fails, none of them are applied.
+
+### When to write a skill
+
+A skill captures a **class of work**, not one job, and extending an existing skill always beats creating a new one. The model is instructed to work down this list, stopping at the first step that fits:
+
+1. Patch the skill it has loaded for the task.
+2. Patch the existing umbrella skill that covers the class of task.
+3. Add a support file — under `references/`, `templates/`, or `scripts/` — to that umbrella.
+4. Create a new skill only when no existing skill covers the class of task.
+
+The rule the model is given, in its own words: *"Never create a skill for a one-off task, a single-step task, or an incident that only made sense today. Names must be class-level and lowercase."* A name that only makes sense for today's task is wrong.
+
+### Learning in the background
+
+After a task, an agent reviews what it did and saves or improves a skill when the workflow will come up again. One-off work is never saved. After each completed bot turn an optional background pass reviews the conversation and may create or update skills on its own — that is how a recurring workflow gets captured without anyone asking for it. It writes curator-managed skills into the shared library and shows up in the message timeline as a **Skill review** action.
+
+The **Learn from each task** switch under **Settings → Skills → Skill maintenance** turns this pass off. It is on by default.
+
+The pass is deliberately narrow: it runs with only the two skill tools and cannot change your agent's instructions or its memory. When a lesson belongs somewhere else it says so in its summary rather than writing a skill.
+
+### Where a lesson belongs
+
+Three places can hold something an agent learned, and a lesson goes in exactly one:
+
+| | Holds | Changed with |
+| --- | --- | --- |
+| **Instructions** | How the agent behaves — tone, verbosity, language, output format, standing rules such as "always answer in French" | `update_own_instructions`, or `update_bot` from the chief of staff |
+| **Memory** | Who you are — identity, environment, long-running projects, stable facts and tastes | `create_memory`, which you approve first |
+| **Skills** | How to do a class of task — the workflow, the steps, the pitfalls, which tool to reach for | `skill_manage` |
+
+A preference that could read either way is treated as a fact about you, unless you frame it as a standing rule. A user-preference lesson lives in exactly one place: the skill that governs the task when one exists, or instructions or memory for a cross-cutting preference no skill owns — never two, or a memory ends up restating a skill until both fill up.
+
+### Who may edit what
+
+Every skill records who created it:
+
+| `created_by` | Meaning |
+| --- | --- |
+| `agent` | Curator-managed: written by the assistant or by a background pass |
+| `learn` | Saved at your request |
+| `installed` | Shipped with Eidon, such as the bundled `skill-authoring` skill |
+
+Background passes may only touch curator-managed skills. A user-authored skill is safe from autonomous changes until you hand it over with **adopt** in the bot's skill list. A **pinned** skill cannot be deleted (edits are still allowed), and an **essential** skill such as the bundled `agent-browser` can never be deleted at all (edits are still allowed there too). Skills managed under **Settings → Skills** are a separate, deployment-wide collection and are read-only to every agent. There is no per-agent ownership: every agent on the team works in the same shared library.
+
+### Keeping the library tidy
+
+A maintenance pass keeps the shared library from growing without bound:
+
+- A skill unused for **14 days** is marked stale.
+- At **30 days** it is moved to `.archive/` and leaves the skill list. The curator **never hard-deletes a skill** — archiving is reversible, and **Restore** brings an archived skill back. A skill is removed for good only when you delete it yourself or when the archive TTL removes old archives.
+- Pinned, essential, and user-authored skills are exempt.
+- An optional consolidation pass (**Merge near-duplicate skills**, off by default) folds narrow sibling skills into one umbrella skill.
+
+By default maintenance runs once a week, only after 2 hours of idle time, and the first run waits one full interval. Everything is editable under **Settings → Skills → Skill maintenance**:
+
+| Setting | Default |
+| --- | --- |
+| Skill maintenance | On |
+| Run maintenance every | 168 hours (one week) |
+| Only when idle for | 2 hours |
+| Mark unused skills stale after | 14 days |
+| Archive unused skills after | 30 days |
+| Delete archived skills after | 0 — archives are kept forever |
+| Merge near-duplicate skills | Off |
+| Learn from each task | On |
+| Keep this many maintenance backups | 5 |
+
+### Limits
+
+| Limit | Value |
+| --- | --- |
+| Skill name | 64 characters |
+| Description | 1,024 characters |
+| Description shown in the skill list | 60 characters — longer ones raise a warning, since every skill's description is always in front of the model |
+| `SKILL.md` text | 100,000 characters |
+| Each supporting file | 1 MiB |
+
+There is deliberately **no limit on how many skills you can have**. Marking unused skills stale and folding near-duplicates together is what keeps the list short; a cap would only make the agent stop saving useful things.
+
+A description over **60 characters** raises a warning when a skill is created: descriptions must fit the system-prompt budget, so the model is nudged to keep them short. The warning does not block saving.
+
+Everything else the linter checks — missing sections, a long body, dangling file references, soft size caps — is advisory and never blocks. Saving is refused only for a name that is too long or invalid, an empty description or one over 1,024 characters, content over 100,000 characters, or a supporting file over 1 MiB.
+
+There is deliberately **no cap on the number of skills**. Staleness and consolidation are what keep the library small.
+
 ## Built-in: the Agent Browser skill
 
-Eidon ships one skill out of the box. The production image installs the `agent-browser` CLI globally and Chromium alongside it, and wraps the CLI so it always uses the bundled Chromium binary.
+Eidon ships one skill out of the box. It is an **essential** skill: it can be edited but never deleted. The production image installs the `agent-browser` CLI globally and Chromium alongside it, and wraps the CLI so it always uses the bundled Chromium binary.
 
 The skill documents the CLI's commands and tells the model how to use them:
 

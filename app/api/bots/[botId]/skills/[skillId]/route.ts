@@ -4,11 +4,15 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { getBot } from "@/lib/bots";
 import {
-  deleteBotWorkspaceSkill,
-  getBotWorkspaceSkill,
-  parseBotWorkspaceSkillId,
-  saveBotWorkspaceSkill
-} from "@/lib/bot-workspace-skills";
+  buildSkillMarkdown,
+  ensureLibraryReady,
+  findLibrarySkill,
+  hardDeleteLibrarySkill,
+  normalizeSkillDisplayName,
+  resolveLibrarySkill,
+  rewriteLibrarySkill
+} from "@/lib/skill-library";
+import { assertEssentialGuard, assertPinnedGuard, buildGuardTarget } from "@/lib/skill-guards";
 import { parseSkillContentMetadata, stripSkillFrontmatter } from "@/lib/skill-metadata";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
@@ -36,11 +40,10 @@ export async function PATCH(
     return badRequest("Bot not found", 404);
   }
 
-  if (!parseBotWorkspaceSkillId(bot, params.skillId)) {
-    return badRequest("Skill not found", 404);
-  }
+  const ownerUserId = bot.userId ?? null;
+  ensureLibraryReady(ownerUserId);
 
-  const existing = getBotWorkspaceSkill(bot, params.skillId);
+  const existing = resolveLibrarySkill(ownerUserId, params.skillId);
   if (!existing) {
     return badRequest("Skill not found", 404);
   }
@@ -50,16 +53,27 @@ export async function PATCH(
     return badRequest("Invalid skill data");
   }
 
-  const metadata = parseSkillContentMetadata(existing.content);
-  const result = saveBotWorkspaceSkill(
-    bot,
-    {
-      name: body.data.name ?? metadata.name ?? existing.name,
-      description: body.data.description ?? metadata.description ?? existing.description,
-      instructions: body.data.instructions ?? stripSkillFrontmatter(existing.content).trim()
-    },
-    params.skillId
+  const metadata = parseSkillContentMetadata(existing.skill.content);
+
+  if (body.data.name !== undefined) {
+    const requested = normalizeSkillDisplayName(body.data.name);
+    if (!requested) {
+      return badRequest("Use letters, numbers, hyphens, dots, or underscores for the skill name.");
+    }
+    if (requested !== existing.ref) {
+      return badRequest(
+        "Renaming a skill is not supported — its directory is its identity. Create a new skill and delete this one instead."
+      );
+    }
+  }
+
+  const content = buildSkillMarkdown(
+    existing.skill.name,
+    body.data.description ?? metadata.description ?? existing.skill.description,
+    body.data.instructions ?? stripSkillFrontmatter(existing.skill.content).trim()
   );
+
+  const result = rewriteLibrarySkill(ownerUserId, existing.ref, { content, actor: "user" });
   if ("error" in result) {
     return badRequest(result.error);
   }
@@ -80,8 +94,27 @@ export async function DELETE(
     return badRequest("Bot not found", 404);
   }
 
-  if (!deleteBotWorkspaceSkill(bot, params.skillId)) {
+  const ownerUserId = bot.userId ?? null;
+  ensureLibraryReady(ownerUserId);
+
+  const existing = resolveLibrarySkill(ownerUserId, params.skillId);
+  if (!existing) {
     return badRequest("Skill not found", 404);
+  }
+
+  const target = buildGuardTarget(ownerUserId, existing.ref, existing.skill.name);
+  const pinned = assertPinnedGuard(target, "delete");
+  if (!pinned.ok) {
+    return badRequest(pinned.error);
+  }
+  const essential = assertEssentialGuard(target, "delete");
+  if (!essential.ok) {
+    return badRequest(essential.error);
+  }
+
+  const result = hardDeleteLibrarySkill(ownerUserId, existing.ref, "user");
+  if ("error" in result) {
+    return badRequest(result.error);
   }
 
   return ok({ success: true });

@@ -1,6 +1,10 @@
 export type SkillContentMetadata = {
   name?: string;
   description?: string;
+  platforms: string[];
+  tags: string[];
+  author?: string;
+  version?: string;
   shellCommandPrefixes: string[];
 };
 
@@ -48,6 +52,8 @@ export function parseSkillContentMetadata(content: string): SkillContentMetadata
 
   if (!match) {
     return {
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: []
     };
   }
@@ -55,6 +61,10 @@ export function parseSkillContentMetadata(content: string): SkillContentMetadata
   const lines = match[1].split("\n");
   let name: string | undefined;
   let description: string | undefined;
+  let author: string | undefined;
+  let version: string | undefined;
+  const platforms: string[] = [];
+  const tags: string[] = [];
   const shellCommandPrefixes: string[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -81,6 +91,45 @@ export function parseSkillContentMetadata(content: string): SkillContentMetadata
 
     if (key === "description" && value) {
       description = trimMatchingQuotes(value);
+      continue;
+    }
+
+    if (key === "author" && value) {
+      author = trimMatchingQuotes(value);
+      continue;
+    }
+
+    if (key === "version" && value) {
+      version = trimMatchingQuotes(value);
+      continue;
+    }
+
+    if (key === "platforms" || key === "tags" || key === "related_skills") {
+      const target = key === "platforms" ? platforms : tags;
+      if (value) {
+        target.push(...parseInlineArray(value));
+        continue;
+      }
+
+      for (let nestedIndex = index + 1; nestedIndex < lines.length; nestedIndex += 1) {
+        const nestedRawLine = lines[nestedIndex];
+        const nestedLine = nestedRawLine.trim();
+
+        if (!nestedLine) {
+          continue;
+        }
+
+        if (!nestedRawLine.startsWith(" ") && !nestedRawLine.startsWith("\t")) {
+          break;
+        }
+
+        const arrayItemMatch = nestedLine.match(/^-\s*(.+)$/);
+        if (arrayItemMatch) {
+          target.push(trimMatchingQuotes(arrayItemMatch[1].trim()));
+        }
+
+        index = nestedIndex;
+      }
       continue;
     }
 
@@ -120,6 +169,10 @@ export function parseSkillContentMetadata(content: string): SkillContentMetadata
   return {
     name,
     description,
+    platforms: normalizePrefixes(platforms),
+    tags: normalizePrefixes(tags),
+    author,
+    version,
     shellCommandPrefixes: normalizePrefixes(shellCommandPrefixes)
   };
 }

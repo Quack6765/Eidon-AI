@@ -46,6 +46,8 @@ Only the Chief of Staff can call `create_bot` and `update_bot`. Other bots that 
 - its own workspace directory under `bot-workspaces/<user>/<bot>/`, which is the working directory for its shell commands
 - its own `agent-browser` session with a dedicated socket directory, so its cookies and logins are entirely separate from every other bot's
 
+**Shared skills.** The team shares one skill library at `bot-workspaces/<user>/shared/skills/` — shared with every agent on this team rather than kept per bot. Any bot can extend it with `skill_manage`, and an optional **Learn from each task** pass captures recurring workflows as skills after a run, marked **Skill review** in the timeline. Unused skills go stale and are archived — never deleted — by skill maintenance, and can be restored. See [MCP and skills](./mcp-and-skills.md#skills).
+
 **Status and visibility.** Each bot shows a live status of `idle`, `queued`, or `running`. A **Waiting for input** indicator appears when a bot has left a proposal pending your approval. Runs are recorded with their trigger source — a direct message, another bot's delegation, or a scheduled routine — plus timings and any error.
 
 **Per-bot state.** For each bot you can browse its workspace file tree, read and manage its private memories, and reset its browser session (which closes any open browser and wipes that session's directory). Bots read the shared account memory but their memory tools write into their own pool, so one bot's notes never leak into another's.
@@ -108,6 +110,7 @@ Which tools appear depends on your configuration. The full set:
 | --- | --- | --- |
 | `mcp_<server>_<tool>` | An MCP server is enabled and connected | One entry per discovered tool. Vision-flagged servers only appear in `mcp` vision mode |
 | `load_skill` | At least one skill is enabled and relevant | Loads a skill's full instructions into the turn |
+| `skill_manage` | The conversation belongs to a bot and skills are enabled | Creates, edits, and deletes skills in the team's shared skill library |
 | `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace). Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
 | `create_automation` | Always | Proposes a scheduled automation for your approval |

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBot } from "@/lib/bots";
-import { getBotSkillsDir } from "@/lib/bot-workspace-skills";
+import { getSkillLibraryDir } from "@/lib/skill-library";
 import { createConversation } from "@/lib/conversations";
 import { updateGlobalPreferences } from "@/lib/global-preferences";
 import type { ComposerReferences } from "@/lib/reference-tokens";
@@ -53,7 +53,7 @@ describe("composer references route", () => {
     requireUserMock.mockResolvedValue(user);
     const writer = createBot({ name: "Writer", title: "Copywriter" }, user.id);
     const editor = createBot({ name: "Editor" }, user.id);
-    const skillDir = join(getBotSkillsDir(writer), "tone-guide");
+    const skillDir = join(getSkillLibraryDir(writer.userId), "tone-guide");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), "---\nname: Tone Guide\ndescription: House voice.\n---\n\nBe warm.", "utf8");
 
