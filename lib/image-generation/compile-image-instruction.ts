@@ -3,9 +3,34 @@ import sharp from "sharp";
 import type { RuntimeProviderProfile, PromptMessage } from "@/lib/types";
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { callProviderText as callProviderTextDefault } from "@/lib/provider";
-import type { CompiledImageInstruction } from "./types";
+import {
+  IMAGE_GENERATION_ANCHORS,
+  IMAGE_GENERATION_IMAGE_ROLES,
+  type CompiledImageInstruction
+} from "./types";
 import { referencesEarlierImagePromptContext, isExplicitImageRequest } from "./follow-up-context";
 import { hasActiveImageSession } from "@/lib/prompt-analysis";
+
+const anchorPlacementSchema = z.object({
+  kind: z.literal("anchor"),
+  anchor: z.enum(IMAGE_GENERATION_ANCHORS),
+  widthPercent: z.number().positive().max(100).default(22),
+  opacity: z.number().min(0).max(1).default(1),
+  rotationDeg: z.number().default(0),
+  marginPercent: z.number().min(0).max(50).default(3),
+  restyle: z.boolean().default(true)
+});
+
+const placementSchema = z.discriminatedUnion("kind", [
+  anchorPlacementSchema,
+  z.object({ kind: z.literal("semantic"), hint: z.string().min(1) })
+]);
+
+const inputSlotSchema = z.object({
+  filename: z.string().min(1),
+  role: z.enum(IMAGE_GENERATION_IMAGE_ROLES),
+  label: z.string().min(1)
+});
 
 const compiledInstructionSchema = z.object({
   mode: z.enum(["generate", "edit"]).default("generate"),
@@ -13,10 +38,9 @@ const compiledInstructionSchema = z.object({
   negativePrompt: z.string().default(""),
   assistantText: z.string().default(""),
   aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).default("1:1"),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  seed: z.number().int().nonnegative().optional(),
-  count: z.number().int().min(1).max(4).default(1)
+  count: z.number().int().min(1).max(4).default(1),
+  inputs: z.array(inputSlotSchema).optional().catch(undefined),
+  placement: placementSchema.optional().catch(undefined)
 });
 export function extractJsonObject(raw: string) {
   const fenced = raw.match(/```json\s*([\s\S]*?)```/i)?.[1];
@@ -91,7 +115,7 @@ async function describeLatestUserImages(messages: PromptMessage[]) {
         dimensions = ` (${metadata.width}x${metadata.height})`;
       }
     } catch {}
-    lines.push(`- ${part.filename}${dimensions}`);
+    lines.push(`- Image ${lines.length + 1}: ${part.filename}${dimensions}`);
   }
 
   if (!lines.length) {
@@ -99,7 +123,7 @@ async function describeLatestUserImages(messages: PromptMessage[]) {
   }
 
   return [
-    "Images attached to the latest user request (their bytes are provided to the image backend as edit inputs whenever mode is \"edit\"):",
+    "Images attached to the latest user request, in the order their bytes are provided to the image backend as edit inputs whenever mode is \"edit\":",
     ...lines,
     ""
   ].join("\n");
@@ -133,6 +157,8 @@ async function buildImageInstructionPrompt(messages: PromptMessage[]): Promise<s
 - assistantText: string (optional, brief message to show the user)
 - aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4" (default: "1:1")
 - count: number 1-4 (default: 1)
+- inputs: optional array with one entry per attached image listed above, keeping their order: { filename, role, label }. role is "canvas" when the image is the one to modify, "content" when it is an element to place into the canvas (a logo, a product, a sticker), "style" when it is only a style reference, or "character" when it is a person or character to keep consistent. Infer role from the user's wording and the filenames; name exactly one "canvas". label is a short human phrase for that image such as "the logo" or "base photo". Omit this field entirely when no image is attached.
+- placement: optional, set only when the request puts one attached image onto another. Use { "kind": "anchor", "anchor": one of "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right", "widthPercent": number 1-100 (default 22), "opacity": number 0-1 (default 1), "rotationDeg": number (default 0), "marginPercent": number 0-50 (default 3), "restyle": boolean (default true) } when the target is geometric — a corner, an edge, or the centre — and can be positioned without looking at the image. Use { "kind": "semantic", "hint": "a short phrase naming the target, e.g. \"onto the black t-shirt\"" } when the target is a part of the scene that cannot be positioned geometrically, such as "on her jacket" or "on the bottle". Prefer "anchor" whenever the user names a corner, edge or centre. Set restyle to false only when the user wants the placed element pixel-identical and nothing else touched. When placement is set, imagePrompt must describe only the change applied to the canvas — never where the element is placed or how large it should be, because the pipeline positions it geometrically.
 
 Return ONLY the JSON object wrapped in a \`\`\`json code block.
 

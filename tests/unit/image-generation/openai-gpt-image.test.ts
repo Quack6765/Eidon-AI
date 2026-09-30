@@ -1,4 +1,9 @@
 import { generateOpenAiGptImages } from "@/lib/image-generation/openai-gpt-image";
+import type {
+  CompiledImageInstruction,
+  ImageGenerationEditMask,
+  ImageGenerationReferenceImage
+} from "@/lib/image-generation/types";
 
 const { generateMock, editMock, toFileMock } = vi.hoisted(() => ({
   generateMock: vi.fn(),
@@ -16,25 +21,42 @@ vi.mock("openai", () => ({
   toFile: toFileMock
 }));
 
-function instruction(overrides: Record<string, unknown> = {}) {
+function instruction(overrides: Partial<CompiledImageInstruction> = {}): CompiledImageInstruction {
   return {
-    mode: "generate" as const,
+    mode: "generate",
     imagePrompt: "poster of Seoul at dusk",
     negativePrompt: "",
     assistantText: "",
-    aspectRatio: "1:1" as const,
+    aspectRatio: "1:1",
     count: 1,
     ...overrides
   };
 }
 
-function referenceImage(overrides: Record<string, unknown> = {}) {
+function referenceImage(
+  overrides: Partial<ImageGenerationReferenceImage> = {}
+): ImageGenerationReferenceImage {
   return {
     bytes: Buffer.from("reference-bytes"),
     mimeType: "image/png",
     filename: "reference.png",
+    role: "canvas",
+    label: "base image",
     ...overrides
   };
+}
+
+function mask(overrides: Partial<ImageGenerationEditMask> = {}): ImageGenerationEditMask {
+  return {
+    bytes: Buffer.from("mask-bytes"),
+    mimeType: "image/png",
+    filename: "edit-mask.png",
+    ...overrides
+  };
+}
+
+function editParams() {
+  return editMock.mock.calls[0][0];
 }
 
 describe("generateOpenAiGptImages", () => {
@@ -124,7 +146,10 @@ describe("generateOpenAiGptImages", () => {
         imagePrompt: "change the hat color to red",
         count: 2
       }),
-      inputImages: [referenceImage(), referenceImage({ filename: "second.jpg", mimeType: "image/jpeg" })],
+      inputImages: [
+        referenceImage(),
+        referenceImage({ filename: "second.jpg", mimeType: "image/jpeg", role: "content", label: "the logo" })
+      ],
       abortSignal: abortController.signal
     });
 
@@ -136,17 +161,61 @@ describe("generateOpenAiGptImages", () => {
       "reference.png",
       { type: "image/png" }
     );
-    expect(editMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "gpt-image-2.5-flare",
-        prompt: "Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: change the hat color to red",
-        n: 2,
-        quality: "high"
-      }),
-      { signal: abortController.signal }
-    );
-    expect(editMock.mock.calls[0][0]).not.toHaveProperty("size");
+    expect(editParams()).toMatchObject({
+      model: "gpt-image-2.5-flare",
+      n: 2,
+      quality: "high"
+    });
+    expect(editParams().prompt).toContain("Image 1 (base image) — the canvas.");
+    expect(editParams().prompt).toContain("Change requested: change the hat color to red");
+    expect(editParams()).not.toHaveProperty("size");
     expect(result.images[0].bytes).toEqual(Buffer.from("edited-bytes"));
+  });
+
+  it("orders input images canvas-first regardless of the order they arrive in", async () => {
+    await generateOpenAiGptImages({
+      apiKey: "openai-secret",
+      instruction: instruction({ mode: "edit", imagePrompt: "add the logo" }),
+      inputImages: [
+        referenceImage({ filename: "logo.png", role: "content", label: "the logo" }),
+        referenceImage({ filename: "base.png", role: "canvas", label: "base photo" })
+      ]
+    });
+
+    expect(toFileMock).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      "base.png",
+      { type: "image/png" }
+    );
+    expect(toFileMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "logo.png",
+      { type: "image/png" }
+    );
+  });
+
+  it("forwards the preserve mask to the edit endpoint", async () => {
+    await generateOpenAiGptImages({
+      apiKey: "openai-secret",
+      instruction: instruction({ mode: "edit", imagePrompt: "make the photo moodier" }),
+      inputImages: [referenceImage()],
+      mask: mask()
+    });
+
+    expect(toFileMock).toHaveBeenCalledTimes(2);
+    expect(editParams().mask).toMatchObject({ name: "edit-mask.png", options: { type: "image/png" } });
+
+    editMock.mockClear();
+    toFileMock.mockClear();
+    await generateOpenAiGptImages({
+      apiKey: "openai-secret",
+      instruction: instruction({ mode: "edit", imagePrompt: "make the photo moodier" }),
+      inputImages: [referenceImage()]
+    });
+
+    expect(editParams()).not.toHaveProperty("mask");
   });
 
   it("falls back to generation when edit mode resolves no reference images", async () => {

@@ -55,6 +55,7 @@ describe("image generation provider", () => {
       apiKey: "image-key",
       model: "gemini-2.5-flash-image",
       instruction,
+      inputImages: undefined,
       abortSignal: abortController.signal
     });
   });
@@ -64,7 +65,9 @@ describe("image generation provider", () => {
     const inputImages = [{
       bytes: Buffer.from("reference-bytes"),
       mimeType: "image/png",
-      filename: "reference.png"
+      filename: "reference.png",
+      role: "canvas" as const,
+      label: "base image"
     }];
     await generateImages({
       settings: createRuntimeAppSettings({
@@ -85,6 +88,7 @@ describe("image generation provider", () => {
       quality: "high",
       instruction: { ...instruction, mode: "edit" },
       inputImages,
+      mask: undefined,
       abortSignal: abortController.signal
     });
   });
