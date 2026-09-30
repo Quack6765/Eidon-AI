@@ -224,7 +224,7 @@ describe("onboarding flow", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic \(/ }));
     const model = screen.getByLabelText("Model") as HTMLInputElement;
-    expect(model.value).toBe("claude-opus-4-8");
+    expect(model.value).toBe("claude-sonnet-5-5");
 
     // Switching preset swaps in that preset's suggestion.
     fireEvent.click(screen.getByRole("radio", { name: /^OpenAI \(/ }));

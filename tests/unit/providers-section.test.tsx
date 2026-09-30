@@ -381,7 +381,7 @@ describe("providers section", () => {
     });
 
     expect(apiBaseUrlInput).toHaveValue("https://api.commandcode.ai/provider/v1");
-    expect(modelInput).toHaveValue("deepseek/deepseek-v4-flash");
+    expect(modelInput).toHaveValue("deepseek/deepseek-v4.1-flash");
     expect(
       container.querySelector('input[name="provider-model-context-limit"]')
     ).toHaveValue(1000000);

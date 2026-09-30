@@ -112,7 +112,7 @@ describe("buildProviderCatalogPayload", () => {
     expect(payload.providerProfiles).toHaveLength(1);
     const [profile] = payload.providerProfiles;
     expect(profile.providerKind).toBe("anthropic");
-    expect(profile.model).toBe("claude-opus-4-8");
+    expect(profile.model).toBe("claude-sonnet-5-5");
     expect(profile.name).toBe("Anthropic");
     expect(profile.providerConfig).toEqual({ apiBaseUrl: "https://api.anthropic.com" });
     expect(profile.credential).toBe("sk-test");
