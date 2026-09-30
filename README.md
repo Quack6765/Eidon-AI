@@ -123,7 +123,7 @@ export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
 export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
 
 docker run -d --name eidon --restart unless-stopped \
-  -p 3000:3000 -v eidon-data:/app/data \
+  -p 3000:3000 -v eidon-data:/app/data --shm-size=1g \
   -e EIDON_ADMIN_USERNAME=admin \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
@@ -133,6 +133,10 @@ docker run -d --name eidon --restart unless-stopped \
 ```
 
 `EIDON_BASE_URL` is required in production: it is the externally reachable address of your instance and is used for share links, notification deep links, and OAuth redirect URLs.
+
+`--shm-size=1g` is required for the built-in browser. Containers give `/dev/shm` 64 MB by default, and Chromium crashes on heavy pages with an out-of-memory error. See [Running in a container](./docs/configuration.md#running-in-a-container) for Compose, rootless Podman, Kubernetes, and the PaaS equivalents.
+
+Mounting `/app/data` is what keeps your database, attachments, browser profiles, and downloaded local models across restarts. Everything else is disposable.
 
 Open your Eidon URL, sign in, go to **Settings → Providers**, add a key, and start chatting.
 
@@ -145,6 +149,7 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    shm_size: "1gb"
     environment:
       EIDON_ADMIN_USERNAME: "admin"
       EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
