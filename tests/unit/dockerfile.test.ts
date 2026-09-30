@@ -48,6 +48,7 @@ describe("Dockerfile", () => {
   it("installs Python 3 and symlinks the python command to python3", () => {
     expect(dockerfile).toContain("apt-get install -y --no-install-recommends chromium python3 tini");
     expect(dockerfile).toContain("ln -s /usr/bin/python3 /usr/local/bin/python");
+    expect(dockerfile).toContain("--no-install-recommends chromium python3 tini curl ca-certificates");
   });
 
   it("bundles the scoped native integration seeder in the production image", () => {
