@@ -903,13 +903,13 @@ describe("lossless compaction", () => {
 
   it("keeps the fresh completed-turn tail un-compacted when leaf compaction runs", async () => {
     updateDefaultProfile({
-      modelContextLimit: 4352,
-      maxOutputTokens: 2000,
+      modelContextLimit: 16384,
+      maxOutputTokens: 4096,
       compactionThreshold: 0.6
     });
     getDb()
-      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
-      .run(2, "profile_default");
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ?, leaf_source_token_limit = ? WHERE id = ?")
+      .run(2, 30000, "profile_default");
 
     const conversation = createConversation();
     const messageIds: string[] = [];
@@ -918,7 +918,7 @@ describe("lossless compaction", () => {
       const message = createMessage({
         conversationId: conversation.id,
         role: index % 2 === 0 ? "user" : "assistant",
-        content: `Turn ${Math.floor(index / 2)} ${index % 2 === 0 ? "user" : "assistant"} ${"dense context ".repeat(240)}`,
+        content: `Turn ${Math.floor(index / 2)} ${index % 2 === 0 ? "user" : "assistant"} ${"dense context ".repeat(900)}`,
         thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
       });
       messageIds.push(message.id);
