@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync
 } from "node:fs";
-import { homedir, hostname, tmpdir, totalmem } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { getBotHomeDir, getBotWorkspaceDir, getSharedBotWorkspaceDir } from "@/lib/bot-sandbox";
@@ -18,6 +18,7 @@ import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
 import { env } from "@/lib/env";
 import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
 import { isolateCommand } from "@/lib/shell-isolation";
+import { availableMemoryMb } from "@/lib/system-memory";
 
 const REGISTRY_KEY = Symbol.for("eidon.agent-computer");
 const MB = 1024 * 1024;
@@ -33,6 +34,8 @@ const STOP_GRACE_MS = 5_000;
 const DISK_CACHE_BYTES = 64 * MB;
 const SESSION_NAME = "tab";
 const PROFILE_LOCK_FILES = ["SingletonLock", "SingletonSocket", "SingletonCookie"];
+
+const CONTAINER_BROWSER_ARGS = ["--no-sandbox", "--disable-dev-shm-usage"];
 
 const BROWSER_CANDIDATES = [
   "/usr/bin/chromium",
@@ -136,6 +139,7 @@ export function browserSessionEnv(target: BrowserSessionTarget, port?: number | 
   return {
     AGENT_BROWSER_SOCKET_DIR: target.socketDir,
     AGENT_BROWSER_SESSION: target.sessionName,
+    ...(process.platform === "linux" ? { AGENT_BROWSER_ARGS: CONTAINER_BROWSER_ARGS.join(",") } : {}),
     ...(port ? { AGENT_BROWSER_CDP: String(port), AGENT_BROWSER_PIN_TAB: "1" } : {})
   };
 }
@@ -182,7 +186,7 @@ export function resolveBrowserExecutable() {
 function capacityMb() {
   const configured = env.EIDON_BROWSER_MEMORY_BUDGET_MB;
   if (configured) return configured;
-  return Math.max(BROWSER_MEMORY_MB, Math.floor(totalmem() / MB) - RESERVED_SYSTEM_MB);
+  return Math.max(BROWSER_MEMORY_MB, availableMemoryMb() - RESERVED_SYSTEM_MB);
 }
 
 function hostCostMb(host: BrowserHost) {
@@ -313,7 +317,7 @@ function browserArgs(profileDir: string, proxyPort: number) {
     "--no-default-browser-check",
     "--window-size=1280,800",
     `--disk-cache-size=${DISK_CACHE_BYTES}`,
-    ...(process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
+    ...(process.platform === "linux" ? CONTAINER_BROWSER_ARGS : []),
     "about:blank"
   ];
 }

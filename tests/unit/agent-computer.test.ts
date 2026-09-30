@@ -13,6 +13,8 @@ const { spawnMock, spawnSyncMock, sockets, fetchMock, cdp } = vi.hoisted(() => (
 
 vi.mock("node:child_process", () => ({ spawn: spawnMock, spawnSync: spawnSyncMock }));
 
+vi.mock("@/lib/system-memory", () => ({ availableMemoryMb: () => availableMemoryMbMock() }));
+
 vi.mock("ws", async () => {
   const { EventEmitter: Emitter } = await import("node:events");
   class FakeSocket extends Emitter {
@@ -60,6 +62,7 @@ class FakeProcess extends EventEmitter {
 }
 
 const browserByUrl = new Map<string, FakeProcess>();
+let availableMemoryMbMock = () => 1024 * 1024;
 const sandboxed: Array<{ command: string; rules: string[]; env: Record<string, string>; cwd?: string }> = [];
 const browsers: Array<{ child: FakeProcess; args: string[]; port: number }> = [];
 const agentBrowserCalls: Array<{ args: string[]; env: Record<string, string> }> = [];
@@ -124,6 +127,9 @@ async function loadModule() {
   return import("@/lib/agent-computer");
 }
 
+const containerLaunchArgs =
+  process.platform === "linux" ? { AGENT_BROWSER_ARGS: "--no-sandbox,--disable-dev-shm-usage" } : {};
+
 describe("agent computer browser host", () => {
   let fakeBrowser: string;
 
@@ -139,6 +145,7 @@ describe("agent computer browser host", () => {
     sockets.length = 0;
     browserByUrl.clear();
     agentBrowserFailure = null;
+    availableMemoryMbMock = () => 1024 * 1024;
     cdp.refuseNewWindows = false;
     const dir = mkdtempSync(join(tmpdir(), "eidon-fake-browser-"));
     fakeBrowser = join(dir, "chromium");
@@ -170,6 +177,7 @@ describe("agent computer browser host", () => {
     expect(browsers[0].args).toContain(`--user-data-dir=${getAgentComputerProfileDir("user_a")}`);
     expect(browsers[0].args).toContain("--remote-debugging-port=0");
     expect(first).toEqual({
+      ...containerLaunchArgs,
       AGENT_BROWSER_SOCKET_DIR: research.socketDir,
       AGENT_BROWSER_SESSION: "tab",
       AGENT_BROWSER_CDP: String(browsers[0].port),
@@ -255,8 +263,21 @@ describe("agent computer browser host", () => {
 
     expect(resolveBrowserExecutable()).toBeNull();
     expect(browsers).toHaveLength(0);
-    expect(opened).toEqual({ AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "tab" });
+    expect(opened).toEqual({ ...containerLaunchArgs, AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "tab" });
     expect(target.ownerKey).toBe("shared");
+  });
+
+  it("keeps every Chromium in the container off the tiny default /dev/shm", async () => {
+    const { botBrowserTarget, openBrowserSession } = await loadModule();
+    const target = botBrowserTarget({ id: "bot-a", userId: "user_a" });
+
+    await openBrowserSession(target);
+
+    const isLinux = process.platform === "linux";
+    expect(browsers[0].args.includes("--disable-dev-shm-usage")).toBe(isLinux);
+    expect(agentBrowserCalls[0].env.AGENT_BROWSER_ARGS).toBe(
+      isLinux ? "--no-sandbox,--disable-dev-shm-usage" : undefined
+    );
   });
 
   it("finds a well-known Chromium when no path is configured", async () => {
@@ -314,6 +335,26 @@ describe("agent computer browser host", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("budgets against the memory the container is limited to, not the host's", async () => {
+    availableMemoryMbMock = () => 640;
+    const { BROWSER_BUSY_MESSAGE, botBrowserTarget, openBrowserSession } = await loadModule();
+    const first = botBrowserTarget({ id: "bot-a", userId: "user_a" });
+    const second = botBrowserTarget({ id: "bot-b", userId: "user_a" });
+
+    await openBrowserSession(first);
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const waiting = openBrowserSession(second);
+      const rejection = expect(waiting).rejects.toThrow(BROWSER_BUSY_MESSAGE);
+      await vi.advanceTimersByTimeAsync(61_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(browsers).toHaveLength(1);
   });
 
   it("closes idle tabs and stops the browser gracefully once none are left", async () => {

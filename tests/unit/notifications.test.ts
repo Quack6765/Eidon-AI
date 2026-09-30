@@ -18,8 +18,19 @@ import {
   renderRunNotificationTitle,
   setPushoverCredentials
 } from "@/lib/notifications";
+import { savePushSubscription, setVapidKeys } from "@/lib/push-notifications";
 import { getExternalBaseUrl } from "@/lib/request-url";
+import type { NotifyConfig } from "@/lib/types";
 import { createLocalUser } from "@/lib/users";
+
+vi.mock("web-push", () => ({
+  default: {
+    generateVAPIDKeys: vi.fn(() => ({ publicKey: "generated-public", privateKey: "generated-private" })),
+    sendNotification: vi.fn()
+  }
+}));
+
+import webpush from "web-push";
 
 function jsonResponse(status = 200) {
   return {
@@ -41,6 +52,41 @@ function baseAutomationInput() {
     timeOfDay: null,
     daysOfWeek: []
   };
+}
+
+async function completeRunWithSummary(userId: string, config: NotifyConfig, content: string) {
+  const conversationId = `conv_${crypto.randomUUID()}`;
+  getDb()
+    .prepare(
+      `INSERT INTO conversations (id, user_id, title, created_at, updated_at)
+       VALUES (?, ?, 'Run conversation', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+    )
+    .run(conversationId, userId);
+  getDb()
+    .prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, thinking_content, status, created_at)
+       VALUES (?, ?, 'assistant', ?, '', 'completed', '2026-01-01T00:00:30.000Z')`
+    )
+    .run(`msg_${crypto.randomUUID()}`, conversationId, content);
+
+  const automation = createAutomation({ ...baseAutomationInput() }, userId);
+  getDb()
+    .prepare("UPDATE automations SET notify_config_json = ? WHERE id = ?")
+    .run(buildStoredNotifyConfig(config, "{}"), automation.id);
+  const run = createAutomationRun({
+    automationId: automation.id,
+    scheduledFor: "2026-01-01T00:00:00.000Z",
+    triggerSource: "schedule"
+  });
+  getDb()
+    .prepare("UPDATE automation_runs SET conversation_id = ? WHERE id = ?")
+    .run(conversationId, run.id);
+
+  updateAutomationRunStatus(run.id, {
+    status: "completed",
+    finishedAt: "2026-01-01T00:05:00.000Z"
+  });
+  return { automation, run };
 }
 
 describe("notify config storage", () => {
@@ -376,8 +422,65 @@ describe("channel delivery request shapes", () => {
     expect(form.get("user")).toBe("user-key");
     expect(form.get("title")).toBe('Eidon: "Daily digest" completed');
     expect(form.get("message")).toBe('Eidon: "Daily digest" completed');
+    expect(form.get("html")).toBeNull();
     expect(form.get("device")).toBe("phone");
     expect(form.get("priority")).toBe("1");
+  });
+
+  it("renders the same summary per channel capability: html, markdown, plain text", async () => {
+    const summary = [
+      "## Status",
+      "",
+      "- **api** is up",
+      "- db is *degraded*",
+      "",
+      "[details](https://eidon.example.com/runs/1)"
+    ].join("\n");
+
+    const user = await createLocalUser({ username: "channels-user", password: "Password123!", role: "user" });
+    setPushoverCredentials(user.id, { userKey: "user-key", appToken: "app-token" });
+    setVapidKeys({ publicKey: "pub", privateKey: "priv" });
+    savePushSubscription(user.id, {
+      endpoint: "https://push.example.com/a",
+      keys: { p256dh: "k1", auth: "a1" }
+    });
+    vi.mocked(webpush.sendNotification).mockResolvedValue({ statusCode: 201 } as never);
+
+    await completeRunWithSummary(user.id, {
+      channels: [
+        { kind: "pushover", includeSummary: true },
+        { kind: "ntfy", topic: "alerts", includeSummary: true },
+        { kind: "push", includeSummary: true }
+      ]
+    }, summary);
+
+    await vi.waitFor(() => expect(webpush.sendNotification).toHaveBeenCalled());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
+    const pushoverForm = new URLSearchParams(
+      String(calls.find(([url]) => url === "https://api.pushover.net/1/messages.json")![1].body)
+    );
+    expect(pushoverForm.get("html")).toBe("1");
+    expect(pushoverForm.get("message")).toBe(
+      [
+        "<b>Status</b>",
+        "<br><br>",
+        "• <b>api</b> is up",
+        "<br>• db is <i>degraded</i>",
+        "<br><br>",
+        '<a href="https://eidon.example.com/runs/1">details</a>'
+      ].join("")
+    );
+
+    const ntfyCall = calls.find(([url]) => url === "https://ntfy.sh")!;
+    expect(ntfyCall[1].headers).toMatchObject({ "x-markdown": "yes" });
+    expect(JSON.parse(String(ntfyCall[1].body)).message).toBe(summary);
+
+    const pushPayload = JSON.parse(vi.mocked(webpush.sendNotification).mock.calls[0][1] as string);
+    expect(pushPayload.body).toBe(
+      ["Status", "", "• api is up", "• db is degraded", "", "details"].join("\n")
+    );
   });
 
   it("stores Pushover credentials encrypted and clears them", async () => {
