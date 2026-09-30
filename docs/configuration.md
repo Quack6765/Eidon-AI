@@ -65,6 +65,36 @@ Everything Eidon persists lives under `EIDON_DATA_DIR` (`/app/data` in the image
 
 There is no external datastore, cache, or queue. One volume holds the whole workspace.
 
+## Running in a container
+
+Eidon runs a real Chromium for its built-in browser, which is the part of the app most sensitive to how a container is configured. Two things have to be right: shared memory, and a volume that persists.
+
+### Shared memory
+
+Docker gives a container a 64 MB `/dev/shm` unless told otherwise. Chromium writes its shared memory segments there, so on a default container a heavy page — a large web app, a video site, a long-running agent tab — dies with a tab crash or `Out of memory`. The error looks like a page failing to load, not like a memory problem, which makes it hard to diagnose.
+
+Eidon already passes `--disable-dev-shm-usage` and `--no-sandbox` to every Chromium it starts, on both the shared per-user browser and the ones the `agent-browser` CLI launches itself. That keeps Chromium working on a stock container, but it redirects those buffers to `TMPDIR`, which is `/app/data/tmp` — on the volume, and therefore on disk. A large page is then noticeably slower, and the page's scratch data counts against your volume.
+
+Give the container a real `/dev/shm` as well. It is cheap: it is tmpfs, not disk, and it is capped, so it cannot eat your disk.
+
+| Platform | How to set it |
+| --- | --- |
+| `docker run` | `--shm-size=1g` |
+| Docker Compose | `shm_size: "1gb"` in the service |
+| Rootless Podman | `--shm-size=1g`, or `podman run --shm-size=1g`; rootless Podman also ignores the AppArmor profile below |
+| Fly.io | Set a shared memory size on the machine or the app; on the LiteFS-backed default it is configured per app |
+| Railway, Render, Coolify, Dokploy, Portainer | A "shared memory" / "shm size" field on the service; if your provider exposes none, the shipped flags still keep the browser working, just on disk |
+| Kubernetes | Mount an `emptyDir` with `medium: Memory` and `sizeLimit: 1Gi` at `/dev/shm` |
+
+Nothing else needs relaxing. Chromium's setuid sandbox does not work as a non-root user in a container, which is why Eidon passes `--no-sandbox` rather than asking you to grant capabilities. The default Docker seccomp profile and AppArmor profile are both fine for a `--no-sandbox` Chromium; the commonly cited `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined` workarounds are only needed if you have re-enabled a sandboxed Chromium, and Eidon does not ask you to disable either profile.
+
+### Persistent models
+
+The first time you use semantic recall, conversation titles, or offline speech-to-text, Eidon downloads those models into `model-cache/` inside the data directory — roughly 210 MB of ONNX runtime, 270 MB for the title model, and 207 MB for speech. That is under `EIDON_DATA_DIR`, so mounting `/app/data` is all it takes: restarts and container recreates reuse what was already downloaded, and the files never re-download.
+
+If your platform gives you an ephemeral filesystem with a separate volume, or you deploy without a volume at all, that ~690 MB is re-fetched from `huggingface.co` on every cold start. Mount a volume at `/app/data` before the first start, not after, or you pay the download once anyway.
+
+
 ## Security and storage notes
 
 **Container user.** The image creates a system `eidon` user and group and runs as that user. The data directories are created with mode `700` and owned by `eidon`.

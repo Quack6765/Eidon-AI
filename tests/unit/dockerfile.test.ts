@@ -20,9 +20,15 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("ENV XDG_RUNTIME_DIR=/app/data/runtime");
     expect(dockerfile).toContain("ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser");
     expect(dockerfile).toContain(
-      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data-workspaces"
+      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces"
     );
     expect(dockerfile).toContain("--chown=eidon:eidon");
+  });
+
+  it("keeps the downloaded models and the data directory inside the one declared volume", () => {
+    expect(dockerfile).toContain("ENV EIDON_DATA_DIR=/app/data");
+    expect(dockerfile).toContain("VOLUME [\"/app/data\"]");
+    expect(dockerfile).toContain("/app/data/model-cache");
   });
 
   it("runs on Node 24 with a pinned agent-browser that finds Chromium through its environment", () => {

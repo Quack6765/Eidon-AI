@@ -34,6 +34,8 @@ const DISK_CACHE_BYTES = 64 * MB;
 const SESSION_NAME = "tab";
 const PROFILE_LOCK_FILES = ["SingletonLock", "SingletonSocket", "SingletonCookie"];
 
+const CONTAINER_BROWSER_ARGS = ["--no-sandbox", "--disable-dev-shm-usage"];
+
 const BROWSER_CANDIDATES = [
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
@@ -136,6 +138,7 @@ export function browserSessionEnv(target: BrowserSessionTarget, port?: number | 
   return {
     AGENT_BROWSER_SOCKET_DIR: target.socketDir,
     AGENT_BROWSER_SESSION: target.sessionName,
+    ...(process.platform === "linux" ? { AGENT_BROWSER_ARGS: CONTAINER_BROWSER_ARGS.join(",") } : {}),
     ...(port ? { AGENT_BROWSER_CDP: String(port), AGENT_BROWSER_PIN_TAB: "1" } : {})
   };
 }
@@ -313,7 +316,7 @@ function browserArgs(profileDir: string, proxyPort: number) {
     "--no-default-browser-check",
     "--window-size=1280,800",
     `--disk-cache-size=${DISK_CACHE_BYTES}`,
-    ...(process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
+    ...(process.platform === "linux" ? CONTAINER_BROWSER_ARGS : []),
     "about:blank"
   ];
 }

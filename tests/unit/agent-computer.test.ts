@@ -124,6 +124,9 @@ async function loadModule() {
   return import("@/lib/agent-computer");
 }
 
+const containerLaunchArgs =
+  process.platform === "linux" ? { AGENT_BROWSER_ARGS: "--no-sandbox,--disable-dev-shm-usage" } : {};
+
 describe("agent computer browser host", () => {
   let fakeBrowser: string;
 
@@ -170,6 +173,7 @@ describe("agent computer browser host", () => {
     expect(browsers[0].args).toContain(`--user-data-dir=${getAgentComputerProfileDir("user_a")}`);
     expect(browsers[0].args).toContain("--remote-debugging-port=0");
     expect(first).toEqual({
+      ...containerLaunchArgs,
       AGENT_BROWSER_SOCKET_DIR: research.socketDir,
       AGENT_BROWSER_SESSION: "tab",
       AGENT_BROWSER_CDP: String(browsers[0].port),
@@ -255,8 +259,21 @@ describe("agent computer browser host", () => {
 
     expect(resolveBrowserExecutable()).toBeNull();
     expect(browsers).toHaveLength(0);
-    expect(opened).toEqual({ AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "tab" });
+    expect(opened).toEqual({ ...containerLaunchArgs, AGENT_BROWSER_SOCKET_DIR: target.socketDir, AGENT_BROWSER_SESSION: "tab" });
     expect(target.ownerKey).toBe("shared");
+  });
+
+  it("keeps every Chromium in the container off the tiny default /dev/shm", async () => {
+    const { botBrowserTarget, openBrowserSession } = await loadModule();
+    const target = botBrowserTarget({ id: "bot-a", userId: "user_a" });
+
+    await openBrowserSession(target);
+
+    const isLinux = process.platform === "linux";
+    expect(browsers[0].args.includes("--disable-dev-shm-usage")).toBe(isLinux);
+    expect(agentBrowserCalls[0].env.AGENT_BROWSER_ARGS).toBe(
+      isLinux ? "--no-sandbox,--disable-dev-shm-usage" : undefined
+    );
   });
 
   it("finds a well-known Chromium when no path is configured", async () => {
