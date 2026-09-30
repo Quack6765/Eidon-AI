@@ -798,6 +798,71 @@ describe("chat view", () => {
     });
   });
 
+  it("pairs a bot reply chip with the delegation action it answers", () => {
+    const startedAt = new Date().toISOString();
+    const payload = createPayload({
+      messages: [
+        {
+          id: "msg_chief",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "I messaged Researcher and will report back.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: startedAt,
+          timeline: [
+            {
+              id: "act_delegate",
+              messageId: "msg_chief",
+              timelineKind: "action" as const,
+              kind: "message_bot" as const,
+              status: "completed" as const,
+              serverId: null,
+              skillId: null,
+              toolName: "message_bot",
+              label: "Messaged Researcher",
+              detail: "→ Researcher: find sources",
+              arguments: { bot: "Researcher", message: "find sources" },
+              resultSummary: "Found 3 sources.",
+              sortOrder: 0,
+              startedAt,
+              completedAt: startedAt,
+              proposalState: null,
+              proposalPayload: null,
+              proposalUpdatedAt: null
+            }
+          ]
+        },
+        {
+          id: "msg_wake",
+          conversationId: "conv_1",
+          role: "user",
+          content: "[Message from Researcher]\nFound 3 sources.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: startedAt
+        }
+      ]
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    expect(screen.getByTestId("delegate-action-line")).toHaveAttribute("data-replied", "true");
+    expect(screen.getByTestId("delegation-wake-message")).toHaveAttribute(
+      "data-reply-to-action-id",
+      "act_delegate"
+    );
+    expect(screen.getByTestId("delegation-wake-message").className).toBe(
+      "flex w-full min-w-0 flex-col items-stretch gap-2"
+    );
+  });
+
   it("focuses the composer textarea when the conversation loads", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
