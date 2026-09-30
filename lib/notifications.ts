@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getExternalBaseUrl } from "@/lib/request-url";
 import { sendWebPush } from "@/lib/push-notifications";
+import { renderNotifyMessage } from "@/lib/notification-message";
 import type {
   AutomationRunStatus,
   NotifyChannel,
@@ -624,7 +625,10 @@ async function sendNtfy(channel: Extract<ResolvedNotifyChannel, { kind: "ntfy" }
   }
   const response = await fetchWithRetry(server, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(delivery.summary ? { "x-markdown": "yes" } : {})
+    },
     body: JSON.stringify({
       topic: channel.topic,
       title: delivery.title,
@@ -675,12 +679,18 @@ async function sendPushover(
     logDeliveryFailure(channel.kind, delivery, "pushover credentials not configured");
     return;
   }
+  const summary = delivery.summary;
   const form = new URLSearchParams({
     token: credentials.appToken,
     user: credentials.userKey,
     title: capText(delivery.title, NOTIFY_TITLE_MAX_CHARS),
-    message: capText(delivery.summary || delivery.title, PUSHOVER_MESSAGE_MAX_CHARS)
+    message: summary
+      ? renderNotifyMessage(summary, "html", PUSHOVER_MESSAGE_MAX_CHARS)
+      : capText(delivery.title, PUSHOVER_MESSAGE_MAX_CHARS)
   });
+  if (summary) {
+    form.set("html", "1");
+  }
   if (channel.device) {
     form.set("device", channel.device);
   }
@@ -709,7 +719,7 @@ async function sendPush(delivery: ChannelDelivery) {
   await sendWebPush({
     userId: delivery.ownerUserId,
     title: delivery.title,
-    body: delivery.summary || "",
+    body: renderNotifyMessage(delivery.summary || "", "text"),
     url: delivery.runUrl ?? "/"
   });
 }
