@@ -60,7 +60,7 @@ export function buildToolDefinitions(input: {
           type: "function" as const,
           function: {
             name: "generate_image",
-            description: "Generate an image from a text prompt, or restyle/modify an image generated earlier in this conversation. Use it when: the user asks for an image, picture, photo, illustration, render, poster, or similar visual; or when the user follows up on an image you generated to revise it (e.g. 'add a hat', 'make it 16:9', 'No, use a pixel theme.', 'another one'). Do NOT use it when: the user is only discussing, asking about, or complaining about images; when the output is a diagram or chart (use a mermaid code block instead); or when nobody asked for an image — never produce decorative, celebratory, or summary images of completed work. If the user has told you not to generate images, obey that until they ask. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
+            description: "Generate an image from a text prompt, or restyle/modify an image generated earlier in this conversation. Use it when: the user asks for an image, picture, photo, illustration, render, poster, or similar visual; or when the user follows up on an image you generated to revise it (e.g. 'add a hat', 'make it 16:9', 'No, use a pixel theme.', 'another one'). Do NOT use it when: the user is only discussing, asking about, or complaining about images; when the output is a diagram or chart (use a mermaid code block instead); or when nobody asked for an image — never produce decorative, celebratory, or summary images of completed work. If the user has told you not to generate images, obey that until they ask. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. When the request involves more than one attached image, always pass images naming each one's role — say which attachment is the base image to modify (role \"canvas\") and which is content to place into it (role \"content\", e.g. a logo or product) — so the placement is unambiguous. Returns generated images as attachments on the response.",
             parameters: {
               type: "object" as const,
               properties: {
@@ -71,7 +71,24 @@ export function buildToolDefinitions(input: {
                   enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
                   description: "Desired aspect ratio (default 1:1)"
                 },
-                count: { type: "number", description: "Number of images to generate (1-4, default 1)" }
+                count: { type: "number", description: "Number of images to generate (1-4, default 1)" },
+                images: {
+                  type: "array",
+                  description: "Role of each attached input image. Required when more than one image is attached and one of them is being placed onto another.",
+                  items: {
+                    type: "object" as const,
+                    properties: {
+                      filename: { type: "string", description: "Filename of the attached image, exactly as shown in the request" },
+                      role: {
+                        type: "string",
+                        enum: ["canvas", "content", "style", "character"],
+                        description: "canvas = the image to modify; content = an element to place into the canvas (logo, product, sticker); style = a style reference only; character = a person or character to keep consistent"
+                      },
+                      label: { type: "string", description: "Short human phrase for this image, e.g. \"the logo\" or \"base photo\"" }
+                    },
+                    required: ["filename", "role"]
+                  }
+                }
               },
               required: ["prompt"]
             }

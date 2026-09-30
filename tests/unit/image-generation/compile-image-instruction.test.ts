@@ -232,6 +232,88 @@ describe("compileImageInstruction", () => {
       })
     ).rejects.toThrow("Provider returned invalid image instruction JSON");
   });
+  it("parses typed input slots and anchor placement with defaults", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"inputs":[{"filename":"base.png","role":"canvas","label":"base photo"},{"filename":"logo.png","role":"content","label":"the logo"}],"placement":{"kind":"anchor","anchor":"bottom-right","widthPercent":22}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo in the bottom-right" }],
+      callProviderText
+    });
+
+    expect(instruction.inputs).toEqual([
+      { filename: "base.png", role: "canvas", label: "base photo" },
+      { filename: "logo.png", role: "content", label: "the logo" }
+    ]);
+    expect(instruction.placement).toEqual({
+      kind: "anchor",
+      anchor: "bottom-right",
+      widthPercent: 22,
+      opacity: 1,
+      rotationDeg: 0,
+      marginPercent: 3,
+      restyle: true
+    });
+  });
+
+  it("parses semantic placement hints", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"placement":{"kind":"semantic","hint":"onto the black t-shirt"}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo on her jacket" }],
+      callProviderText
+    });
+
+    expect(instruction.placement).toEqual({ kind: "semantic", hint: "onto the black t-shirt" });
+  });
+
+  it("drops malformed inputs and placement instead of failing the whole instruction", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"inputs":"oops","placement":{"kind":"anchor"}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo somewhere" }],
+      callProviderText
+    });
+
+    expect(instruction.inputs).toBeUndefined();
+    expect(instruction.placement).toBeUndefined();
+    expect(instruction.imagePrompt).toBe("add the logo");
+  });
+
+  it("documents the slot and placement fields in the compiler prompt", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"make a poster","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "make a poster" }],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("- inputs: optional array");
+    expect(prompt).toContain("- placement: optional");
+    expect(prompt).toContain('\"kind\": \"anchor\"');
+    expect(prompt).toContain('\"kind\": \"semantic\"');
+    expect(prompt).toContain("never where the element is placed");
+  });
 });
 
 describe("extractJsonObject", () => {

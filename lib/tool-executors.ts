@@ -340,6 +340,9 @@ export async function executeImageGeneration(
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateImages } = await import("@/lib/image-generation/provider");
     const { resolveEditInputImages } = await import("@/lib/image-generation/edit-inputs");
+    const { parseImageSlotOverrides } = await import("@/lib/image-generation/slots");
+    const { prepareCompositeStage } = await import("@/lib/image-generation/composite");
+    const { renameGeneratedImages } = await import("@/lib/image-generation/generated-filenames");
     const { createAttachments } = await import("@/lib/attachments");
     const { bindAttachmentsToMessage } = await import("@/lib/attachments");
     const instruction = await compileImageInstruction({
@@ -350,20 +353,35 @@ export async function executeImageGeneration(
     });
     throwIfAborted(context.input.abortSignal);
 
-    const inputImages = instruction.mode === "edit"
-      ? resolveEditInputImages(context.promptMessages, conversationId)
+    const imageOverrides = parseImageSlotOverrides(args.images);
+    const needsInputImages = instruction.mode === "edit"
+      || Boolean(instruction.placement)
+      || Boolean(imageOverrides?.length);
+    const inputImages = needsInputImages
+      ? resolveEditInputImages(context.promptMessages, conversationId, imageOverrides)
       : undefined;
     throwIfAborted(context.input.abortSignal);
-    if (instruction.mode === "edit" && (!inputImages || !inputImages.length)) {
+    if (needsInputImages && (!inputImages || !inputImages.length)) {
       throw new Error("No reference image was available to edit");
     }
 
-    const backendResult = await generateImages({
-      settings: appSettings,
-      instruction,
-      inputImages,
-      abortSignal: context.input.abortSignal
-    });
+    const compositeStage = inputImages?.length
+      ? await prepareCompositeStage({ slots: inputImages, placement: instruction.placement })
+      : undefined;
+    throwIfAborted(context.input.abortSignal);
+
+    const backendResult = compositeStage?.directResult
+      ? {
+          assistantText: instruction.assistantText || "",
+          images: renameGeneratedImages([compositeStage.directResult])
+        }
+      : await generateImages({
+          settings: appSettings,
+          instruction,
+          inputImages: compositeStage?.slots ?? inputImages,
+          mask: compositeStage?.mask,
+          abortSignal: context.input.abortSignal
+        });
     throwIfAborted(context.input.abortSignal);
 
     const attachments = await createAttachments(
@@ -384,7 +402,11 @@ export async function executeImageGeneration(
     );
 
     const editedImageCount = inputImages?.length ?? 0;
-    const resultSummary = `${editedImageCount ? "Edited" : "Generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}: ${attachments.map((a) => a.filename).join(", ")}`;
+    const roleSummary = (compositeStage?.slots ?? inputImages ?? [])
+      .map((image) => image.label)
+      .filter(Boolean)
+      .join(" + ");
+    const resultSummary = `${editedImageCount ? "Edited" : "Generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}${roleSummary ? ` using ${roleSummary}` : ""}: ${attachments.map((a) => a.filename).join(", ")}`;
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
