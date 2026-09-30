@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync
 } from "node:fs";
-import { homedir, hostname, tmpdir, totalmem } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { getBotHomeDir, getBotWorkspaceDir, getSharedBotWorkspaceDir } from "@/lib/bot-sandbox";
@@ -18,6 +18,7 @@ import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
 import { env } from "@/lib/env";
 import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
 import { isolateCommand } from "@/lib/shell-isolation";
+import { availableMemoryMb } from "@/lib/system-memory";
 
 const REGISTRY_KEY = Symbol.for("eidon.agent-computer");
 const MB = 1024 * 1024;
@@ -182,7 +183,7 @@ export function resolveBrowserExecutable() {
 function capacityMb() {
   const configured = env.EIDON_BROWSER_MEMORY_BUDGET_MB;
   if (configured) return configured;
-  return Math.max(BROWSER_MEMORY_MB, Math.floor(totalmem() / MB) - RESERVED_SYSTEM_MB);
+  return Math.max(BROWSER_MEMORY_MB, availableMemoryMb() - RESERVED_SYSTEM_MB);
 }
 
 function hostCostMb(host: BrowserHost) {
