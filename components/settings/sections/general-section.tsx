@@ -29,7 +29,7 @@ import { Toast } from "@/components/ui/toast";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";

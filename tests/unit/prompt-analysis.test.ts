@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { BUILTIN_AGENT_BROWSER_SKILL } from "@/lib/db-builtin-skills";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { filterSkillsForTurn } from "@/lib/prompt-analysis";
 import type { PromptMessage, Skill } from "@/lib/types";
 
