@@ -1,11 +1,13 @@
 "use client";
 
 import { ChevronDown, Globe, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { ComputerLiveOverlay } from "@/components/computer-live-overlay";
 import { ComputerStage } from "@/components/computer-stage";
 import { displayComputerUrl, requestComputerControl, useComputerStream } from "@/hooks/use-computer-stream";
+import { useElementOutOfView } from "@/hooks/use-element-out-of-view";
 import type { MessageTimelineItem } from "@/lib/types";
 
 type ActionItem = Extract<MessageTimelineItem, { timelineKind: "action" }>;
@@ -46,8 +48,12 @@ export function ComputerSessionCard({
   const [stageOpen, setStageOpen] = useState(false);
   const [pendingControl, setPendingControl] = useState<"take" | "return" | null>(null);
   const [controlError, setControlError] = useState("");
+  const [overlayContainer, setOverlayContainer] = useState<HTMLElement | null>(null);
+  const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const liveFrameRef = useRef<HTMLDivElement | null>(null);
   const { view } = useComputerStream(liveConversationId);
   const isLive = Boolean(liveConversationId);
+  const liveFrameOutOfView = useElementOutOfView(liveFrameRef, isLive);
   const url = displayComputerUrl(view.url ?? (isLive ? null : lastOpenedUrl(actions)));
   const userHasControl = isLive && view.controlOwner === "user";
   const runningAction = [...actions].reverse().find((action) => action.status === "running");
@@ -55,6 +61,23 @@ export function ComputerSessionCard({
   const width = view.viewport?.width ?? 16;
   const height = view.viewport?.height ?? 9;
   const stepLabel = `${actions.length} ${actions.length === 1 ? "step" : "steps"}`;
+
+  useEffect(() => {
+    if (!isLive) {
+      setOverlayContainer(null);
+      setOverlayDismissed(false);
+      return;
+    }
+    setOverlayContainer(liveFrameRef.current?.closest(".conversation-scroller")?.parentElement ?? null);
+  }, [isLive]);
+
+  function returnToLiveView() {
+    const frame = liveFrameRef.current;
+    if (!frame) return;
+    const reduceMotion =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    frame.scrollIntoView({ block: "center", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }
 
   async function changeControl(action: "take" | "return") {
     if (!liveConversationId) return;
@@ -112,6 +135,7 @@ export function ComputerSessionCard({
       {isLive ? (
         <div className="mt-2.5">
           <div
+            ref={liveFrameRef}
             className="relative mx-auto overflow-hidden rounded-md border border-white/6 bg-black/40"
             style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, ${view.viewport ? `${width}px` : "100%"}, calc(60vh * ${width} / ${height}))` }}
           >
@@ -175,6 +199,16 @@ export function ComputerSessionCard({
       {stepsOpen && children ? <div className="mt-2 flex flex-col gap-1.5">{children}</div> : null}
       {stageOpen && liveConversationId ? (
         <ComputerStage conversationId={liveConversationId} askForNote={handoffPending} onClose={() => setStageOpen(false)} />
+      ) : null}
+      {isLive && liveFrameOutOfView && !overlayDismissed ? (
+        <ComputerLiveOverlay
+          container={overlayContainer}
+          frameUrl={view.frameUrl}
+          viewport={view.viewport}
+          url={url}
+          onReturn={returnToLiveView}
+          onDismiss={() => setOverlayDismissed(true)}
+        />
       ) : null}
     </div>
   );
