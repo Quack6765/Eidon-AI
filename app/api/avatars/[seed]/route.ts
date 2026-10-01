@@ -15,14 +15,15 @@ const paramsSchema = z.object({
 });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ seed: string }> }
 ) {
   await requireUser();
   const params = await parseRouteParams(context, paramsSchema, "avatar seed");
   if (params instanceof NextResponse) return params;
 
-  const svg = await ensureBotAvatarSvg(params.seed);
+  const animated = new URL(request.url).searchParams.get("animated") === "1";
+  const svg = await ensureBotAvatarSvg(params.seed, animated);
   if (!svg) {
     return new Response("Avatar generation unavailable", {
       status: 503,

@@ -36,6 +36,29 @@ const COMPACTION_EVENTS_TABLE_SQL = `
   )
 `;
 
+const BOT_AVATARS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS bot_avatars (
+    seed TEXT NOT NULL,
+    style TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    svg TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (seed, style, variant)
+  );
+`;
+
+function migrateBotAvatarsTable(db: Database.Database) {
+  if (tableExists(db, "bot_avatars")) {
+    const columns = db.prepare("PRAGMA table_info(bot_avatars)").all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === "variant")) {
+      return;
+    }
+    db.exec("DROP TABLE bot_avatars");
+  }
+
+  db.exec(BOT_AVATARS_TABLE_SQL);
+}
+
 function tableExists(db: Database.Database, tableName: string) {
   return Boolean(
     db
@@ -1214,11 +1237,6 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
     );
-    CREATE TABLE IF NOT EXISTS bot_avatars (
-      seed TEXT PRIMARY KEY,
-      svg TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
   `);
 
   if (needsLegacySettingsMigration) {
@@ -1709,6 +1727,7 @@ export function migrate(db: Database.Database) {
   }
 
   migrateCompactionEventsTable(db);
+  migrateBotAvatarsTable(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);

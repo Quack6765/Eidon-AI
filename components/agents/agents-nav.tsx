@@ -128,7 +128,7 @@ export function AgentsNav({
                       : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
                 }`}
               >
-                <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
+                <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" status={bot.status} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-sm">{bot.name}</span>
