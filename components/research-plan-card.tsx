@@ -35,7 +35,7 @@ export function ResearchPlanCard({
   onStart,
   className
 }: ResearchPlanCardProps) {
-  const isLoading = draft.status === "loading";
+  const isLoading = draft.status === "loading" || draft.status === "updating";
   const isValid = parseResearchPlan(draft.plan) !== null;
   const canStart = !isLoading && isValid;
 
@@ -57,7 +57,7 @@ export function ResearchPlanCard({
             {isLoading ? (
               <span className="flex items-center gap-1 text-[11px] text-white/45">
                 <LoaderCircle className="h-3 w-3 animate-spin" />
-                Drafting
+                {draft.status === "updating" ? "Updating" : "Drafting"}
               </span>
             ) : null}
           </div>
@@ -73,6 +73,16 @@ export function ResearchPlanCard({
           <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
         </button>
       </div>
+
+      {draft.updates.length ? (
+        <ul aria-label="Plan updates" className="mt-2 space-y-1">
+          {draft.updates.map((instruction, index) => (
+            <li key={index} className="line-clamp-1 text-xs text-white/45">
+              You: {instruction}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {draft.error ? (
         <p className="mt-3 rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/80">

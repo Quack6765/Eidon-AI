@@ -60,7 +60,7 @@ Bots use the provider profiles and settings already configured in the workspace.
 
 A toggle in the composer switches a turn into deep research mode.
 
-**Plan first.** Eidon drafts a research plan for your request, then shows it to you as an editable card before any searching starts. You can rewrite each step, reorder them, add or remove steps, or regenerate the whole plan, then press **Start research**. A plan holds 1 to 12 steps of up to 500 characters each. If plan generation fails or times out, a sensible generic four-step plan is substituted.
+**Plan first.** Eidon drafts a research plan for your request, then shows it to you as an editable card before any searching starts. You can rewrite each step, reorder them, add or remove steps, or regenerate the whole plan, then press **Start research**. A plan holds 1 to 12 steps of up to 500 characters each. If plan generation fails or times out, a sensible generic four-step plan is substituted. You can also send follow-up messages from the composer while the card is open — Eidon revises the plan to match, lists each instruction on the card, and only the final plan runs when you press **Start research**.
 
 **Execution.** The model works the plan in rounds: one `web_search` call carrying several distinct queries that run in parallel, then several `read_page` calls in the same step to read the most relevant results in full rather than relying on snippets. After each round it writes a short findings digest — key facts with their source URLs, what remains open, what it will search next. It finishes with a self-contained Markdown report: title, executive summary, findings organized by plan section with inline citations, gaps and open questions, and a sources list.
 

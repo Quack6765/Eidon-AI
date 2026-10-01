@@ -143,6 +143,19 @@ describe("ChatComposer responsive controls", () => {
     expect(screen.getByPlaceholderText("Redirect the current run")).toBeInTheDocument();
   });
 
+  it("switches the send affordance to plan refinement mode", () => {
+    const { rerenderComposer } = renderComposer({ input: "Narrow it down" });
+
+    rerenderComposer({ input: "Narrow it down", planRefinementActive: true });
+
+    expect(screen.getByPlaceholderText("Suggest changes to the research plan…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update research plan" })).toBeEnabled();
+
+    rerenderComposer({ input: "Narrow it down", planRefinementActive: true, planRefinementBusy: true });
+
+    expect(screen.getByRole("button", { name: "Update research plan" })).toBeDisabled();
+  });
+
   it("keeps the text entry surface visually distinct from the composer shell", () => {
     renderComposer();
 
