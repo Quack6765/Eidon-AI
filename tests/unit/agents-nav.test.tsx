@@ -93,6 +93,23 @@ describe("AgentsNav", () => {
     expect(row.querySelector("span.bg-\\[var\\(--accent\\)\\]")).toBeNull();
   });
 
+  it("marks the chief with a crown glyph and leaves other bots unmarked", () => {
+    render(
+      <AgentsNav
+        bots={[buildBot({ id: "bot_chief", name: "Chief of Staff", isChief: true }), buildBot({ id: "bot_worker" })]}
+        onCloseAction={() => {}}
+      />
+    );
+
+    const chiefRow = screen.getByRole("link", { name: /Chief of Staff/ });
+    const crown = chiefRow.querySelector("svg[aria-label='Chief']");
+    expect(crown).not.toBeNull();
+    expect(crown?.getAttribute("class")).toContain("text-[var(--accent)]");
+
+    const workerRow = screen.getByRole("link", { name: /Research Bot/ });
+    expect(workerRow.querySelector("svg[aria-label='Chief']")).toBeNull();
+  });
+
   it("refetches bot statuses after the live connection comes back", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
