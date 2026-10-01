@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { MessageBubble, parseDelegationWakeMessage } from "@/components/message-bubble";
 import { ingestBotsPayload, resetDelegationStatusForTests } from "@/hooks/use-delegation-status";
+import { buildBotAvatarUrl } from "@/lib/bot-avatar";
 import type { Message } from "@/lib/types";
 
 function createAssistantMessage(): Message {
@@ -741,7 +742,7 @@ describe("delegation event lines", () => {
     });
     const avatar = line.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/inbox-seed.svg");
+    expect(avatar?.getAttribute("src")).toBe(buildBotAvatarUrl("inbox-seed"));
     expect(line.querySelector("[data-inline-avatar]")?.className).toContain("ml-1.5 mr-1.5");
     expect(line).toHaveTextContent("Messaged Inbox Bot");
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -806,7 +807,7 @@ describe("delegation event lines", () => {
     });
     const avatar = wake.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/research-seed.svg");
+    expect(avatar?.getAttribute("src")).toBe(buildBotAvatarUrl("research-seed"));
   });
 
   it("expands a chief-to-worker marker to the message the bot received", () => {
