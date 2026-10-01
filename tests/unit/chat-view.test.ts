@@ -2046,7 +2046,7 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
   });
 
-  it("shows a provisional generate image row immediately after message_start for image requests", async () => {
+  it("does not fabricate an image generation row after message_start for an image-looking request", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByRole("textbox");
@@ -2062,15 +2062,11 @@ describe("chat view", () => {
       wsMock.onMessage!({
         type: "delta",
         conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_streaming_image_local" }
+        event: { type: "message_start", messageId: "msg_streaming_no_image" }
       });
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("Generate image")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
+    expect(screen.queryByText("Generate image")).toBeNull();
   });
 
   it("updates the header title when a conversation_title_updated WebSocket message arrives", async () => {
