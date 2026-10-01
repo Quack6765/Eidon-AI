@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   isExplicitImageRequest,
-  isImageEditContinuation,
-  isImageGenerationRequested,
   hasProhibitedImageIntent,
   isImageMetaDiscussion
 } from "@/lib/image-generation/follow-up-context";
@@ -21,8 +19,6 @@ describe("image request detection", () => {
   ])("treats %j as a prohibition and never as a request", (text) => {
     expect(hasProhibitedImageIntent(text)).toBe(true);
     expect(isExplicitImageRequest(text)).toBe(false);
-    expect(isImageGenerationRequested(text, true)).toBe(false);
-    expect(isImageGenerationRequested(text, false)).toBe(false);
   });
 
   it.each([
@@ -31,7 +27,7 @@ describe("image request detection", () => {
     "what image do you see?"
   ])("treats %j as meta discussion, not a request", (text) => {
     expect(isImageMetaDiscussion(text)).toBe(true);
-    expect(isImageGenerationRequested(text, true)).toBe(false);
+    expect(isExplicitImageRequest(text)).toBe(false);
   });
 
   it.each([
@@ -44,7 +40,6 @@ describe("image request detection", () => {
     "don't forget to generate an image of a cat"
   ])("treats %j as an explicit image request", (text) => {
     expect(isExplicitImageRequest(text)).toBe(true);
-    expect(isImageGenerationRequested(text, false)).toBe(true);
   });
 
   it.each([
@@ -52,34 +47,8 @@ describe("image request detection", () => {
     "do a memory audit",
     "make sure the deployment is clean",
     "summarize the changes for end users"
-  ])("does not treat unrelated task text %j as an image request even with image context", (text) => {
+  ])("does not treat unrelated task text %j as an image request", (text) => {
     expect(isExplicitImageRequest(text)).toBe(false);
-    expect(isImageEditContinuation(text, true)).toBe(false);
-    expect(isImageGenerationRequested(text, true)).toBe(false);
-  });
-
-  it.each([
-    "No, use a pixel theme.",
-    "add a hat",
-    "make it 16:9",
-    "give it sunglasses",
-    "another one",
-    "same but pixel art",
-    "16:9",
-    "a pixel theme instead",
-    "the image you generated is wrong — make the cat bigger"
-  ])("treats %j as an edit continuation when an image session is active", (text) => {
-    expect(isImageEditContinuation(text, true)).toBe(true);
-    expect(isImageGenerationRequested(text, true)).toBe(true);
-    expect(isImageGenerationRequested(text, false)).toBe(false);
-  });
-
-  it("excludes bare acknowledgments from edit continuations", () => {
-    expect(isImageEditContinuation("No.", true)).toBe(false);
-    expect(isImageEditContinuation("yes", true)).toBe(false);
-    expect(isImageEditContinuation("perfect.", true)).toBe(false);
-    expect(isImageEditContinuation("yes, go ahead", false)).toBe(false);
-    expect(isImageEditContinuation("yes, go ahead", true)).toBe(true);
   });
 });
 

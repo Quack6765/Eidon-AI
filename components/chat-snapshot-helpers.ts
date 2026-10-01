@@ -1,4 +1,3 @@
-import { isImageGenerationRequested } from "@/lib/image-generation/follow-up-context";
 import type {
   Message,
   MessageAction,
@@ -19,70 +18,8 @@ export type PendingLocalSubmission = {
   serverMessageId: string | null;
 };
 
-export function isLooseImageActionMatch(
-  left: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">,
-  right: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">
-) {
-  return (
-    left.kind === "image_generation" &&
-    right.kind === "image_generation" &&
-    left.label === right.label &&
-    (left.toolName ?? "") === (right.toolName ?? "") &&
-    (!left.detail || !right.detail)
-  );
-}
-
 export function getAttachmentIdSignature(attachments: MessageAttachment[] | undefined) {
   return [...(attachments ?? []).map((attachment) => attachment.id)].sort().join("\u0000");
-}
-
-export function getLatestUserMessageContent(messages: Message[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role === "user" && message.content.trim()) {
-      return message.content.trim();
-    }
-  }
-
-  return "";
-}
-
-function hasPriorAssistantImageContext(messages: Message[]) {
-  const latestUserIndex = [...messages].map((message) => message.role).lastIndexOf("user");
-
-  if (latestUserIndex <= 0) {
-    return false;
-  }
-
-  for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "assistant") {
-      continue;
-    }
-
-    if (message.attachments?.some((attachment) => attachment.kind === "image")) {
-      return true;
-    }
-
-    if (/\b(generated|created|made|rendered)\b[\s\S]{0,40}\b(image|images|picture|pictures|photo|photos|render|renders)\b/i.test(message.content)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function shouldShowProvisionalImageAction(messages: Message[]) {
-  const latestUserContent = getLatestUserMessageContent(messages);
-
-  if (!latestUserContent) {
-    return false;
-  }
-
-  return isImageGenerationRequested(
-    latestUserContent,
-    hasPriorAssistantImageContext(messages)
-  );
 }
 
 export function matchesPendingLocalSubmission(
@@ -107,18 +44,6 @@ function attachmentsAreSubset(
   );
 }
 
-export function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
-  for (let index = timeline.length - 1; index >= 0; index -= 1) {
-    const item = timeline[index];
-
-    if (item.timelineKind === "action" && isLooseImageActionMatch(item, action)) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
 export function appendStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
@@ -127,50 +52,20 @@ export function appendStreamingAction(
     (item) => item.timelineKind === "action" && item.id === action.id
   );
 
-  if (existingIndex !== -1) {
-    return timeline.map((item, index) =>
-      index === existingIndex ? { ...action, timelineKind: "action" } : item
-    );
+  if (existingIndex === -1) {
+    return [...timeline, { ...action, timelineKind: "action" }];
   }
 
-  const matchingIndex = findMatchingActionIndex(timeline, action);
-
-  if (matchingIndex !== -1) {
-    return timeline.map((item, index) =>
-      index === matchingIndex ? { ...action, timelineKind: "action" } : item
-    );
-  }
-
-  return [...timeline, { ...action, timelineKind: "action" }];
+  return timeline.map((item, index) =>
+    index === existingIndex ? { ...action, timelineKind: "action" } : item
+  );
 }
 
 export function updateStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
 ): MessageTimelineItem[] {
-  let found = false;
-  const nextTimeline = timeline.map((item): MessageTimelineItem => {
-    if (item.timelineKind === "action" && item.id === action.id) {
-      found = true;
-      return { ...action, timelineKind: "action" };
-    }
-
-    return item;
-  });
-
-  if (found) {
-    return nextTimeline;
-  }
-
-  const matchingIndex = findMatchingActionIndex(timeline, action);
-
-  if (matchingIndex !== -1) {
-    return timeline.map((item, index) =>
-      index === matchingIndex ? { ...action, timelineKind: "action" } : item
-    );
-  }
-
-  return [...timeline, { ...action, timelineKind: "action" }];
+  return appendStreamingAction(timeline, action);
 }
 
 export function ensureStreamingThinkingPhase(

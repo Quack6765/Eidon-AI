@@ -38,7 +38,6 @@ import {
   reconcileSnapshotMessages,
   replaceMessageAction,
   sanitizeMessages,
-  shouldShowProvisionalImageAction,
   updateStreamingAction
 } from "@/components/chat-snapshot-helpers";
 import {
@@ -752,32 +751,7 @@ export function ChatView({
       setHasReceivedFirstToken(false);
       finalizePendingRef.current = false;
       streamBuffer.reset();
-      updateStreamTimeline(
-        shouldShowProvisionalImageAction(messagesRef.current)
-          ? [
-              {
-                id: `local_image_generation_${event.messageId}`,
-                messageId: event.messageId,
-                timelineKind: "action",
-                kind: "image_generation",
-                status: "running",
-                serverId: null,
-                skillId: null,
-                toolName: null,
-                label: "Generate image",
-                detail: "",
-                arguments: null,
-                resultSummary: "",
-                sortOrder: 0,
-                startedAt: new Date().toISOString(),
-                completedAt: null,
-                proposalState: null,
-                proposalPayload: null,
-                proposalUpdatedAt: null
-              }
-            ]
-          : []
-      );
+      updateStreamTimeline([]);
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: true
