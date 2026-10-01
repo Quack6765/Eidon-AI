@@ -24,6 +24,32 @@ class FakeWebSocket {
   }
 }
 
+class FakeIntersectionObserver {
+  static instances: FakeIntersectionObserver[] = [];
+  observed: Element[] = [];
+  disconnected = false;
+  constructor(
+    private callback: IntersectionObserverCallback,
+    public options?: IntersectionObserverInit
+  ) {
+    FakeIntersectionObserver.instances.push(this);
+  }
+  observe(element: Element) {
+    this.observed.push(element);
+  }
+  unobserve() {}
+  disconnect() {
+    this.disconnected = true;
+  }
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+  trigger(isIntersecting: boolean) {
+    const entry = { isIntersecting, target: this.observed[0] } as unknown as IntersectionObserverEntry;
+    act(() => this.callback([entry], this as unknown as IntersectionObserver));
+  }
+}
+
 function browserAction(id: string, detail: string, status = "completed"): Extract<MessageTimelineItem, { timelineKind: "action" }> {
   return {
     id,
@@ -171,5 +197,117 @@ describe("ComputerSessionCard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ComputerSessionCard floating live tile", () => {
+  const actions = [browserAction("a1", "agent-browser open https://example.com", "running")];
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+
+  function cardTree(liveConversationId?: string) {
+    return (
+      <div className="relative" data-testid="conversation-viewport">
+        <div className="conversation-scroller">
+          <ComputerSessionCard
+            actions={actions}
+            liveConversationId={liveConversationId}
+            stepsOpen={false}
+            onToggleSteps={() => {}}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  beforeEach(() => {
+    let objectUrls = 0;
+    FakeWebSocket.instances = [];
+    FakeIntersectionObserver.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    URL.createObjectURL = vi.fn(() => `blob:frame-${++objectUrls}`);
+    URL.revokeObjectURL = vi.fn();
+    scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as Element["scrollIntoView"];
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function observer() {
+    return FakeIntersectionObserver.instances[FakeIntersectionObserver.instances.length - 1];
+  }
+
+  it("watches the inline live frame inside the conversation scroller only while live", () => {
+    const { rerender } = render(cardTree("conv_1"));
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(1);
+    expect(observer().options?.root).toBe(document.querySelector(".conversation-scroller"));
+    expect(observer().options?.threshold).toBe(0);
+    expect(observer().observed[0]).toContainElement(screen.getByText("Waiting for the browser…"));
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
+
+    rerender(cardTree());
+    expect(FakeIntersectionObserver.instances).toHaveLength(1);
+    expect(observer().disconnected).toBe(true);
+  });
+
+  it("floats the live frame in the conversation viewport once it scrolls out of sight", () => {
+    render(cardTree("conv_1"));
+    FakeWebSocket.instances[0].receive(new Blob([new Uint8Array([0xff])]));
+
+    observer().trigger(false);
+    const overlay = screen.getByTestId("computer-live-overlay");
+    expect(screen.getByTestId("conversation-viewport")).toContainElement(overlay);
+    expect(overlay.querySelector("img")).toHaveAttribute("src", "blob:frame-1");
+
+    observer().trigger(true);
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
+  });
+
+  it("scrolls the conversation back to the inline live frame on click", () => {
+    render(cardTree("conv_1"));
+    observer().trigger(false);
+
+    fireEvent.click(screen.getByTestId("computer-live-overlay-frame"));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "center", inline: "nearest" })
+    );
+    expect(scrollIntoView.mock.instances[0]).toBe(observer().observed[0]);
+  });
+
+  it("stays hidden for the rest of the run after a dismiss and returns for the next run", () => {
+    const { rerender } = render(cardTree("conv_1"));
+    observer().trigger(false);
+    fireEvent.click(screen.getByTestId("computer-live-overlay-dismiss"));
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
+
+    observer().trigger(true);
+    observer().trigger(false);
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
+
+    rerender(cardTree());
+    rerender(cardTree("conv_1"));
+    observer().trigger(false);
+    expect(screen.getByTestId("computer-live-overlay")).toBeInTheDocument();
+  });
+
+  it("never floats a tile without an IntersectionObserver", () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+
+    render(cardTree("conv_1"));
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
+  });
+
+  it("shows no tile when the browser session is not live", () => {
+    render(cardTree());
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+    expect(screen.queryByTestId("computer-live-overlay")).not.toBeInTheDocument();
   });
 });

@@ -257,6 +257,20 @@ Cards exist for repeated records, settings groups, menus, and framed tools. Do n
 - **Border:** Hairline Faint for containment, Hairline Strong for hover and selected states.
 - **Internal Padding:** 16px for compact panels, 24px for settings cards, 8px for dense list shells.
 
+### Floating Live Tile
+
+When a bot drives the shared browser, the live view sits inline in the streaming message. Once that frame scrolls out of the conversation viewport it continues as a floating tile in the conversation's top-right corner, so a run is never out of sight while the user reads back through the transcript.
+
+- **Placement:** Anchored to the conversation viewport rather than the window, so split-pane surfaces (bot threads, automation runs) never push it over an adjacent panel. 12px from the top of the conversation area, 24px from its right edge on fine pointers and 16px on coarse so the tile hugs a phone's right edge — it may cover the top of the invisible touch-scrollbar track, which stays reachable below the tile. It stays below the composer and the Latest button in stacking order.
+- **Size:** At most 260px wide, with the frame never taller than 26vh and always at the live page's own aspect ratio, so the frame letterboxes instead of cropping. On narrow screens the 44vw cap binds first.
+- **Surface:** 14px radius, hairline border brightening on hover, near-black fill behind the frame, and the Workspace Shadow. It floats because it is temporarily above the transcript, never as decoration.
+- **Header Bar:** A 32px strip repeats the conversation card's anatomy at thumbnail scale — globe icon and the word Browser, the emerald live dot with the word Live, and the 24px close chip (28px on coarse pointers) that hides the tile for the rest of the run. The bar is opaque near-black chrome (Panel Zinc Strong) so nothing ghosts through it from the transcript behind, and it keeps the frame below it unobstructed.
+- **Motion:** Appear with the shared fade only; no scale or transform over live media.
+
+**The Way Back Rule.** Tapping the tile returns the conversation to the inline live view and does nothing else; the tile is a way back to the work, not a second control surface. It clears itself the moment the inline frame is visible again.
+
+Craft details here follow the video mini-player family: small dark chips floating over the media, a softly rounded floating surface, and a soft shadow. References: [Loom](https://mobbin.com/screens/b4e36320-5d6e-4643-ad42-bbdc305f8238) · [YouTube](https://mobbin.com/screens/9b947143-8317-4e43-a9c1-2b876daa2c1c) · [TikTok](https://mobbin.com/screens/a166d67a-287e-4196-90e7-43ff332ba9d7).
+
 ### Inputs / Fields
 
 Inputs should feel integrated with the dark surface rather than pasted on top.
