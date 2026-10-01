@@ -1,5 +1,5 @@
 export const AVATAR_DICEBEAR_STYLE = "voxel-bot";
-export const AVATAR_ART = "voxel-bot-head-v3";
+export const AVATAR_ART = "voxel-bot-head-v2";
 export const AVATAR_ANIMATION_VARIANT = "medium";
 export const AVATAR_SOURCE_SIZE = 512;
 export const AVATAR_BACKGROUND_COLOR = "00000000";
