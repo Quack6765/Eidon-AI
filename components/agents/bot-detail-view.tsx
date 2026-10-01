@@ -32,9 +32,13 @@ import { Badge } from "@/components/settings/badge";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import { getSkillState, getSkillUsage, isSkillPinned } from "@/lib/skill-runtime";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
+import { formatAutomationRunAt } from "@/lib/automation-display";
 import type { Automation, BotRun, BotSummary, Skill, UserMemory } from "@/lib/types";
 
 function scheduleSummary(automation: Automation) {
+  if (automation.scheduleKind === "once") {
+    return `Once on ${formatAutomationRunAt(automation.runAt)}`;
+  }
   if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
     return `Every ${automation.intervalMinutes} min`;
   }
@@ -375,15 +379,25 @@ export function BotDetailView({
         body.providerProfileId = values.providerProfileId;
       }
 
-      const response = await fetch(`/api/bots/${bot.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
+      let response: Response;
+      try {
+        response = await fetch(`/api/bots/${bot.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      } catch {
+        return "Lost the connection to the server. Check that it is still running, then try again.";
+      }
+
       const payload = (await response.json().catch(() => null)) as { bot?: BotSummary; error?: string } | null;
 
-      if (!response.ok || !payload?.bot) {
-        return payload?.error ?? "Unable to save bot";
+      if (!response.ok) {
+        return payload?.error ?? `Unable to save bot (server error ${response.status})`;
+      }
+
+      if (!payload?.bot) {
+        return "The server did not return the saved bot. Try again.";
       }
 
       setBot(payload.bot);

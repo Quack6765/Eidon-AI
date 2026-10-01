@@ -24,14 +24,19 @@ import {
   removeBotWorkspace
 } from "@/lib/bot-sandbox";
 import { botBrowserTarget, closeBrowserSession } from "@/lib/agent-computer";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import {
+  CHIEF_BOT_NAME,
+  DEFAULT_BOT_BASE_SYSTEM_PROMPT,
+  DEFAULT_CHIEF_DESCRIPTION,
+  DEFAULT_CHIEF_SYSTEM_PROMPT,
+  DEFAULT_CHIEF_TITLE
+} from "@/lib/bot-defaults";
 import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
 import type { Bot, BotStatus, BotSummary, PendingBotApproval } from "@/lib/types";
 
-export { DEFAULT_BOT_BASE_SYSTEM_PROMPT };
+export { CHIEF_BOT_NAME, DEFAULT_BOT_BASE_SYSTEM_PROMPT };
 
 export const MAX_BOTS_PER_USER = 25;
-export const CHIEF_BOT_NAME = "Chief of Staff";
 
 type BotRow = {
   id: string;
@@ -155,7 +160,7 @@ function buildWorkerCommunicationBlock(bot: Bot) {
 function buildChiefIdentityBlock(bot: Bot) {
   return [
     `You are ${bot.name}, the user's primary assistant coordinating a team of specialist bots.`,
-    bot.systemPrompt.trim()
+    bot.systemPrompt.trim() || DEFAULT_CHIEF_SYSTEM_PROMPT
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -343,8 +348,8 @@ export function ensureChiefBot(userId?: string): Bot {
   return createBot(
     {
       name: CHIEF_BOT_NAME,
-      title: "Coordinates your team of bots",
-      description: "Answers directly or delegates work to specialist bots.",
+      title: DEFAULT_CHIEF_TITLE,
+      description: DEFAULT_CHIEF_DESCRIPTION,
       isChief: true
     },
     userId

@@ -51,11 +51,12 @@ type AutomationFormState = {
   providerProfileId: string;
   personaId: string | null;
   botId: string | null;
-  scheduleKind: "interval" | "calendar";
+  scheduleKind: "interval" | "calendar" | "once";
   intervalMinutes: number;
   calendarFrequency: "daily" | "weekly";
   timeOfDay: string;
   daysOfWeek: number[];
+  runAt: string;
   continuePreviousConversation: boolean;
   enabled: boolean;
   research: boolean;
@@ -217,6 +218,23 @@ function buildNotifyConfig(channels: NotifyChannelDraft[]): { config: NotifyConf
 
 const WEEKDAYS = AUTOMATION_WEEKDAYS;
 
+function defaultRunAt() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(9, 0, 0, 0);
+  return toLocalDateTimeInputValue(date);
+}
+
+function toLocalDateTimeInputValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toRunAtIso(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function createDefaultForm(providerProfileId = ""): AutomationFormState {
   return {
     name: "",
@@ -229,6 +247,7 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     calendarFrequency: "daily",
     timeOfDay: "09:00",
     daysOfWeek: [1],
+    runAt: defaultRunAt(),
     continuePreviousConversation: false,
     enabled: true,
     research: false,
@@ -250,6 +269,9 @@ function automationToForm(automation: Automation): AutomationFormState {
     calendarFrequency: automation.calendarFrequency ?? "daily",
     timeOfDay: automation.timeOfDay ?? "09:00",
     daysOfWeek: automation.daysOfWeek.length ? automation.daysOfWeek : [1],
+    runAt: automation.runAt
+      ? toLocalDateTimeInputValue(new Date(automation.runAt))
+      : defaultRunAt(),
     continuePreviousConversation: automation.continuePreviousConversation,
     enabled: automation.enabled,
     research: automation.research,
@@ -518,6 +540,22 @@ export function AutomationsSection() {
       return false;
     }
 
+    let runAt: string | null = null;
+    if (form.scheduleKind === "once") {
+      const parsed = toRunAtIso(form.runAt);
+      if (!parsed) {
+        toast.showToast("error", "Choose when the one-time automation should run");
+        return false;
+      }
+
+      if (new Date(parsed).getTime() <= Date.now()) {
+        toast.showToast("error", "One-time automations must be scheduled in the future");
+        return false;
+      }
+
+      runAt = parsed;
+    }
+
     let notifyConfig: NotifyConfig | null = null;
     if (form.notifyTouched) {
       const notifyResult = buildNotifyConfig(form.notifyChannels);
@@ -541,6 +579,7 @@ export function AutomationsSection() {
       calendarFrequency: form.scheduleKind === "calendar" ? form.calendarFrequency : null,
       timeOfDay: form.scheduleKind === "calendar" ? form.timeOfDay : null,
       daysOfWeek: form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" ? form.daysOfWeek : [],
+      runAt,
       continuePreviousConversation: form.botId ? false : form.continuePreviousConversation,
       enabled: form.enabled,
       research: form.research,
@@ -832,12 +871,13 @@ export function AutomationsSection() {
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              scheduleKind: event.target.value as "interval" | "calendar"
+                              scheduleKind: event.target.value as "interval" | "calendar" | "once"
                             }))
                           }
                         >
                           <option value="interval">Every X minutes</option>
                           <option value="calendar">Specific local time</option>
+                          <option value="once">One time</option>
                         </select>
                       </div>
 
@@ -906,6 +946,27 @@ export function AutomationsSection() {
                         </div>
                         <p className="pb-3 text-sm text-[var(--muted)]">
                           Minimum interval is 5 minutes.
+                        </p>
+                      </div>
+                    ) : form.scheduleKind === "once" ? (
+                      <div className="grid gap-5 md:grid-cols-[260px_1fr] md:items-end">
+                        <div>
+                          <label className={fieldLabel}>Run at</label>
+                          <Input
+                            aria-label="Run at"
+                            type="datetime-local"
+                            value={form.runAt}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                runAt: event.target.value
+                              }))
+                            }
+                            className={isFieldDirty("runAt") ? "!border-amber-500/40" : ""}
+                          />
+                        </div>
+                        <p className="pb-3 text-sm text-[var(--muted)]">
+                          In your browser&apos;s local time. It runs once and then deletes itself.
                         </p>
                       </div>
                     ) : (

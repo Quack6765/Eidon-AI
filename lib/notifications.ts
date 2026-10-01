@@ -36,6 +36,7 @@ export type AutomationRunDoneEvent = {
   runId: string;
   finishedAt: string;
   errorMessage?: string | null;
+  url?: string | null;
 };
 
 export type NotificationEvent = AutomationRunDoneEvent;
@@ -431,6 +432,11 @@ export function buildRunUrl(automationId: string, runId: string): string | null 
   return base ? `${base}/automations/${automationId}/runs/${runId}` : null;
 }
 
+export function buildConversationUrl(conversationId: string | null): string | null {
+  const base = getExternalBaseUrl();
+  return base && conversationId ? `${base}/conversations/${conversationId}` : null;
+}
+
 export function capText(value: string, max: number): string {
   const trimmed = value.trim();
   if (trimmed.length <= max) {
@@ -750,7 +756,7 @@ export async function dispatchRunNotification(event: NotificationEvent): Promise
         errorMessage: event.errorMessage
       }),
       summary: null,
-      runUrl: buildRunUrl(event.automationId, event.runId),
+      runUrl: event.url ?? buildRunUrl(event.automationId, event.runId),
       ownerUserId: automation.user_id
     };
 

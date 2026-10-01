@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 
 import {
   AttachmentPreviewModal,
@@ -16,6 +16,7 @@ import {
 import { MessageBubble } from "@/components/message-bubble";
 import { Message as AiMessage } from "@/components/ai-elements/message";
 import { Wordmark } from "@/components/ui/wordmark";
+import { matchDelegationReplies } from "@/lib/delegation-marker";
 import type {
   MessageAttachment,
   PublicConversationSummary,
@@ -72,6 +73,7 @@ function SharedConversationTranscript({
   messages: PublicMessage[];
 }) {
   const previewController = useAttachmentPreviewController();
+  const delegationReplies = useMemo(() => matchDelegationReplies(messages), [messages]);
 
   return (
     <main className="relative flex min-h-[100dvh] w-full flex-col bg-[var(--background)] text-[var(--text)]">
@@ -109,6 +111,7 @@ function SharedConversationTranscript({
                   <MessageBubble
                     message={message}
                     onPreviewAttachment={previewController.openAttachmentPreview}
+                    delegationReplies={delegationReplies}
                     readOnly
                   />
                 </div>

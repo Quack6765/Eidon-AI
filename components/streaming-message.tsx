@@ -3,6 +3,7 @@
 import React, { useSyncExternalStore } from "react";
 import { MessageBubble } from "@/components/message-bubble";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
+import type { DelegationReplyIndex } from "@/lib/delegation-marker";
 import type { ReferenceCandidate } from "@/lib/reference-tokens";
 import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
@@ -53,7 +54,8 @@ function StreamingMessageImpl({
   isRetrying,
   isRegenerating,
   referenceCandidates,
-  computerConversationId
+  computerConversationId,
+  delegationReplies
 }: {
   active: boolean;
   buffer: StreamBuffer;
@@ -93,6 +95,7 @@ function StreamingMessageImpl({
   isRegenerating?: boolean;
   referenceCandidates?: ReferenceCandidate[];
   computerConversationId?: string;
+  delegationReplies?: DelegationReplyIndex;
 }) {
   const snapshot = useSyncExternalStore(
     active ? buffer.subscribe : noopSubscribe,
@@ -145,6 +148,7 @@ function StreamingMessageImpl({
       referenceCandidates={referenceCandidates}
       computerConversationId={computerConversationId}
       computerLive={active}
+      delegationReplies={delegationReplies}
     />
   );
 }

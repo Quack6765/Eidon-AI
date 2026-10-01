@@ -1424,6 +1424,9 @@ export function migrate(db: Database.Database) {
   if (!automationCols.some((col) => col.name === "notify_config_json")) {
     db.exec("ALTER TABLE automations ADD COLUMN notify_config_json TEXT NOT NULL DEFAULT '{}'");
   }
+  if (!automationCols.some((col) => col.name === "run_at")) {
+    db.exec("ALTER TABLE automations ADD COLUMN run_at TEXT");
+  }
 
   const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
   if (!botCols.some((col) => col.name === "last_read_at")) {
