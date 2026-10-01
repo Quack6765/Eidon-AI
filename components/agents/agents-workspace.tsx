@@ -35,7 +35,7 @@ function BotCard({ bot }: { bot: BotSummary }) {
       }`}
     >
       <div className="flex items-start gap-3">
-        <BotAvatar seed={bot.avatarSeed} size={40} />
+        <BotAvatar seed={bot.avatarSeed} size={40} status={bot.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-semibold text-[#f4f4f5]">{bot.name}</span>

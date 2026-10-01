@@ -1,19 +1,17 @@
+import {
+  AVATAR_ANIMATION_VARIANT,
+  AVATAR_ART,
+  AVATAR_BACKGROUND_COLOR,
+  AVATAR_BODY_COLORS,
+  AVATAR_DICEBEAR_STYLE,
+  AVATAR_SOURCE_SIZE,
+  AVATAR_TOP_VARIANTS,
+  applyAvatarViewBox,
+  stripAvatarAnimationStyle,
+  wrapAvatarEyes
+} from "@/lib/bot-avatar";
 import { getDb } from "@/lib/db";
 
-const DICEBEAR_BOTTTS_URL = "https://api.dicebear.com/10.x/bottts/svg";
-const AVATAR_SOURCE_SIZE = 512;
-const AVATAR_BASE_COLORS = [
-  "8b5cf6",
-  "a78bfa",
-  "818cf8",
-  "6366f1",
-  "22d3ee",
-  "14b8a6",
-  "10b981",
-  "f59e0b",
-  "f472b6"
-];
-const AVATAR_TEXTURE_VARIANTS = ["circuits", "dots"];
 const DICEBEAR_TIMEOUT_MS = 10_000;
 const MAX_AVATAR_SVG_LENGTH = 1_000_000;
 
@@ -26,19 +24,21 @@ function hashSeed(seed: string) {
   return hash >>> 0;
 }
 
-function buildDiceBearUrl(seed: string) {
+function buildDiceBearUrl(seed: string, animated: boolean) {
   const hash = hashSeed(seed);
   const params = new URLSearchParams({
     seed,
     size: String(AVATAR_SOURCE_SIZE),
-    baseColor: AVATAR_BASE_COLORS[hash % AVATAR_BASE_COLORS.length],
-    textureVariant: AVATAR_TEXTURE_VARIANTS[(hash >>> 16) % AVATAR_TEXTURE_VARIANTS.length]
+    animationVariant: animated ? AVATAR_ANIMATION_VARIANT : "none",
+    backgroundColor: AVATAR_BACKGROUND_COLOR,
+    bodyColor: AVATAR_BODY_COLORS[hash % AVATAR_BODY_COLORS.length],
+    topVariant: AVATAR_TOP_VARIANTS[(hash >>> 16) % AVATAR_TOP_VARIANTS.length]
   });
-  return `${DICEBEAR_BOTTTS_URL}?${params.toString()}`;
+  return `https://api.dicebear.com/10.x/${AVATAR_DICEBEAR_STYLE}/svg?${params.toString()}`;
 }
 
-async function fetchBotAvatarSvg(seed: string) {
-  const response = await fetch(buildDiceBearUrl(seed), {
+async function fetchBotAvatarSvg(seed: string, animated: boolean) {
+  const response = await fetch(buildDiceBearUrl(seed, animated), {
     headers: { Accept: "image/svg+xml" },
     signal: AbortSignal.timeout(DICEBEAR_TIMEOUT_MS)
   });
@@ -50,21 +50,24 @@ async function fetchBotAvatarSvg(seed: string) {
   if (!body.startsWith("<svg") || body.length > MAX_AVATAR_SVG_LENGTH) {
     return null;
   }
-  return body;
+  return animated
+    ? wrapAvatarEyes(stripAvatarAnimationStyle(applyAvatarViewBox(body)))
+    : stripAvatarAnimationStyle(applyAvatarViewBox(body));
 }
 
-export async function ensureBotAvatarSvg(seed: string) {
+export async function ensureBotAvatarSvg(seed: string, animated = false) {
+  const variant = animated ? "animated" : "static";
   const db = getDb();
   const stored = db
-    .prepare("SELECT svg FROM bot_avatars WHERE seed = ?")
-    .get(seed) as { svg: string } | undefined;
+    .prepare("SELECT svg FROM bot_avatars WHERE seed = ? AND style = ? AND variant = ?")
+    .get(seed, AVATAR_ART, variant) as { svg: string } | undefined;
   if (stored) {
     return stored.svg;
   }
 
   let svg: string | null = null;
   try {
-    svg = await fetchBotAvatarSvg(seed);
+    svg = await fetchBotAvatarSvg(seed, animated);
   } catch {
     return null;
   }
@@ -72,14 +75,14 @@ export async function ensureBotAvatarSvg(seed: string) {
     return null;
   }
 
-  db.prepare("INSERT OR REPLACE INTO bot_avatars (seed, svg, created_at) VALUES (?, ?, ?)").run(
-    seed,
-    svg,
-    new Date().toISOString()
-  );
+  db.prepare(
+    "INSERT OR REPLACE INTO bot_avatars (seed, style, variant, svg, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(seed, AVATAR_ART, variant, svg, new Date().toISOString());
   return svg;
 }
 
 export function deleteBotAvatarSvg(seed: string) {
-  getDb().prepare("DELETE FROM bot_avatars WHERE seed = ?").run(seed);
+  getDb()
+    .prepare("DELETE FROM bot_avatars WHERE seed = ? AND style = ?")
+    .run(seed, AVATAR_ART);
 }

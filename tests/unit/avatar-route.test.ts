@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET as avatarRoute } from "@/app/api/avatars/[seed]/route";
-import { buildBotAvatarUrl } from "@/lib/bot-avatar";
+import { buildAnimatedBotAvatarUrl, buildBotAvatarUrl } from "@/lib/bot-avatar";
 
 vi.mock("@/lib/auth", () => ({
   requireUser: vi.fn().mockResolvedValue({
@@ -24,6 +24,13 @@ function avatarRequest(seed: string) {
   });
 }
 
+function avatarRequestFor(path: string) {
+  const segment = path.split("/").pop()?.split("?")[0] ?? "";
+  return avatarRoute(new Request(`http://localhost${path}`), {
+    params: Promise.resolve({ seed: segment })
+  });
+}
+
 beforeEach(() => {
   ensureBotAvatarSvg.mockReset();
 });
@@ -38,20 +45,46 @@ describe("avatar route", () => {
     expect(response.headers.get("content-type")).toBe("image/svg+xml");
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     await expect(response.text()).resolves.toBe("<svg>robot</svg>");
-    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x");
+    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x", false);
+  });
+
+  it("serves a still portrait by default so plain img tags never animate", async () => {
+    ensureBotAvatarSvg.mockResolvedValueOnce("<svg>still</svg>");
+
+    const response = await avatarRequest("seed_x");
+
+    expect(response.status).toBe(200);
+    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x", false);
+  });
+
+  it("serves the animated variant only when the url asks for it", async () => {
+    ensureBotAvatarSvg.mockResolvedValueOnce("<svg>moving</svg>");
+
+    const path = buildAnimatedBotAvatarUrl("seed_x");
+    const response = await avatarRequestFor(path);
+
+    expect(response.status).toBe(200);
+    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x", true);
   });
 
   it("accepts the .svg-suffixed segment produced by the url builder", async () => {
     ensureBotAvatarSvg.mockResolvedValueOnce("<svg>robot</svg>");
 
-    const path = buildBotAvatarUrl("seed_x");
-    const segment = path.split("/").pop() ?? "";
-    const response = await avatarRoute(new Request(`http://localhost${path}`), {
-      params: Promise.resolve({ seed: segment })
-    });
+    const response = await avatarRequestFor(buildBotAvatarUrl("seed_x"));
 
     expect(response.status).toBe(200);
-    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x");
+    expect(ensureBotAvatarSvg).toHaveBeenCalledWith("seed_x", false);
+  });
+
+  it("ignores the cache-busting style version rather than rejecting it as a seed", async () => {
+    ensureBotAvatarSvg.mockResolvedValueOnce("<svg>robot</svg>");
+
+    const response = await avatarRoute(
+      new Request("http://localhost/api/avatars/seed_x.svg?v=some-other-style"),
+      { params: Promise.resolve({ seed: "seed_x.svg" }) }
+    );
+
+    expect(response.status).toBe(200);
   });
 
   it("rejects seeds outside the allowed alphabet", async () => {

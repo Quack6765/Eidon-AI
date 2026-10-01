@@ -528,7 +528,7 @@ export function BotDetailView({
       <div className="border-b border-white/4 px-4 py-3 md:px-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <BotAvatar seed={bot.avatarSeed} size={40} />
+            <BotAvatar seed={bot.avatarSeed} size={40} status={bot.status} />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold text-[var(--text)]">{bot.name}</span>

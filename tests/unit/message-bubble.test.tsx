@@ -647,7 +647,7 @@ describe("delegation event lines", () => {
     });
     const avatar = line.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/inbox-seed.svg");
+    expect(avatar?.getAttribute("src")).toBe("/api/avatars/inbox-seed.svg?v=voxel-bot");
     expect(line.querySelector("[data-inline-avatar]")?.className).toContain("ml-1.5 mr-1.5");
     expect(line).toHaveTextContent("Messaged Inbox Bot");
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -695,7 +695,7 @@ describe("delegation event lines", () => {
     });
     const avatar = wake.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/research-seed.svg");
+    expect(avatar?.getAttribute("src")).toBe("/api/avatars/research-seed.svg?v=voxel-bot");
     expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Regenerate response" })).toBeNull();
