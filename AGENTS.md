@@ -1,5 +1,37 @@
 # Project Instructions
 
+### Let the Model Decide, Constrain in Code
+
+The model owns every tool decision — whether to call a tool, which tool, and
+with what arguments. Do not reimplement that decision in surrounding code by
+matching the user's words.
+
+- **Steer through the prompt, not through code.** Tool behaviour is shaped by
+  tool descriptions, parameter schemas, and system directives. Vendor guidance
+  is explicit that tool choice belongs to the model, and that forcing it is the
+  exception rather than the default.
+- **Never predict the model's decision.** No regexes, keyword lists, or intent
+  heuristics that guess what the model will do. Never fabricate, force, or
+  pre-render a tool call the runtime has not actually started.
+- **Code constrains and validates; it does not decide.** Allowed in code:
+  permission and allow/deny gates, approval checkpoints for sensitive or
+  irreversible actions, argument schema validation, sandboxing, rate and cost
+  limits. Not allowed: inferring intent from message text to route, force, or
+  display a tool call.
+- **Render only what happened.** A surface may show work the runtime has
+  started. Optimistic state is acceptable only when the value is the user's own
+  known input, is scoped to the pending operation, and is reconciled or rolled
+  back against authoritative state.
+- **Text matching is for syntax, not intent.** Regex is fine for strict,
+  author-controlled syntax — slash commands, fixed tokens, file extensions,
+  protocol lines. It is not fine for deciding what a natural-language request
+  means: every synonym and paraphrase must be hand-enumerated, and the space of
+  phrasings is unbounded.
+- **The carve-outs are not violations.** Safety filters, prompt-injection and
+  tool-poisoning defence, authorization, and cost or latency routing are
+  mandated deterministic components. Security and authorization must be
+  enforced in deterministic, auditable code — never delegated to the model.
+
 ### Dev Server
 
 - You may start the dev server (`npm run dev`) when needed.
