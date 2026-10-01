@@ -8,6 +8,7 @@ import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
+import { CHIEF_BOT_NAME, DEFAULT_CHIEF_DESCRIPTION, DEFAULT_CHIEF_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import type { BotSummary, ProviderProfileSummary } from "@/lib/types";
 
@@ -57,6 +58,7 @@ export function BotFormModal({
   onSubmit: (values: BotFormValues) => Promise<string | null>;
 }) {
   const defaultProfile = providerProfiles?.find((profile) => profile.id === defaultProviderProfileId) ?? null;
+  const isChief = bot?.isChief === true;
   const [values, setValues] = useState<BotFormValues>(() => valuesFromBot(bot, currentSystemPrompt));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,6 +73,16 @@ export function BotFormModal({
 
   function update<K extends keyof BotFormValues>(key: K, value: BotFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetToDefaults() {
+    setValues((current) => ({
+      ...current,
+      name: CHIEF_BOT_NAME,
+      description: DEFAULT_CHIEF_DESCRIPTION,
+      systemPrompt: DEFAULT_CHIEF_SYSTEM_PROMPT
+    }));
+    setError(null);
   }
 
   async function handleSubmit() {
@@ -118,24 +130,37 @@ export function BotFormModal({
       }
       footer={
         <>
-          <Button
-            type="button"
-            variant="ghost"
-            autoFocus
-            className="px-4 py-2 text-xs"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            className="px-4 py-2 text-xs"
-            onClick={() => void handleSubmit()}
-            disabled={isSubmitting || !values.name.trim()}
-          >
-            {isSubmitting ? "Saving…" : submitLabel}
-          </Button>
+          {isChief ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="mr-auto px-4 py-2 text-xs"
+              onClick={resetToDefaults}
+              disabled={isSubmitting}
+            >
+              Reset default
+            </Button>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              autoFocus
+              className="px-4 py-2 text-xs"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="px-4 py-2 text-xs"
+              onClick={() => void handleSubmit()}
+              disabled={isSubmitting || !values.name.trim()}
+            >
+              {isSubmitting ? "Saving…" : submitLabel}
+            </Button>
+          </div>
         </>
       }
     >
@@ -198,6 +223,9 @@ export function BotFormModal({
         <div>
           <label className={fieldLabel}>System prompt</label>
           <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Defines the bot&apos;s role and specialty. Its environment and team-communication context are added automatically.</p>
+          {isChief && !values.systemPrompt.trim() ? (
+            <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Using the built-in default instructions.</p>
+          ) : null}
           <Textarea
             aria-label="System prompt"
             value={values.systemPrompt}

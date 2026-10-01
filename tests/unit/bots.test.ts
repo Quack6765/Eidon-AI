@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createLocalUser } from "@/lib/users";
+import {
+  CHIEF_BOT_NAME,
+  DEFAULT_CHIEF_DESCRIPTION,
+  DEFAULT_CHIEF_SYSTEM_PROMPT,
+  DEFAULT_CHIEF_TITLE
+} from "@/lib/bot-defaults";
 import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots, toBotSummary } from "@/lib/bots";
 import {
   getConversation,
@@ -112,15 +118,51 @@ describe("bots", () => {
 
     const defaultPrompt = buildBotSystemPrompt(chief);
     expect(defaultPrompt).toContain("You are Chief of Staff, the user's primary assistant");
-    expect(defaultPrompt).toContain("the user's primary assistant coordinating a team of specialist bots.\n\nHow you work:");
+    expect(defaultPrompt).toContain("the user's primary assistant coordinating a team of specialist bots.\n\n");
+    expect(defaultPrompt).toContain(DEFAULT_CHIEF_SYSTEM_PROMPT);
+    expect(defaultPrompt.indexOf(DEFAULT_CHIEF_SYSTEM_PROMPT)).toBeLessThan(defaultPrompt.indexOf("How you work:"));
 
     const customized = updateBot(chief.id, { name: "Jarvis", systemPrompt: "Always answer in English." }, user.id)!;
     const prompt = buildBotSystemPrompt(customized);
     expect(prompt).toContain("You are Jarvis, the user's primary assistant");
     expect(prompt).not.toContain("Chief of Staff");
     expect(prompt).toContain("Always answer in English.");
+    expect(prompt).not.toContain(DEFAULT_CHIEF_SYSTEM_PROMPT);
     expect(prompt.indexOf("Always answer in English.")).toBeLessThan(prompt.indexOf("How you work:"));
     expect(prompt).toContain("wait for their explicit confirmation");
+  });
+
+  it("provisions the chief with the shared defaults and falls back to the default prompt", async () => {
+    const user = await createLocalUser({ username: "chiefdefaults", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+
+    expect(chief.name).toBe(CHIEF_BOT_NAME);
+    expect(chief.title).toBe(DEFAULT_CHIEF_TITLE);
+    expect(chief.description).toBe(DEFAULT_CHIEF_DESCRIPTION);
+    expect(chief.systemPrompt).toBe("");
+
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    expect(buildBotSystemPrompt(chief)).toContain("By default:\n- Lead with the answer");
+  });
+
+  it("tells every bot to check the available bots before starting a task", async () => {
+    const user = await createLocalUser({ username: "teamfirst", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher", title: "Web research" }, user.id);
+
+    for (const bot of [chief, worker]) {
+      const prompt = buildBotSystemPrompt(bot);
+      expect(prompt).toContain("Before you start any task, look at the bots available to you");
+      expect(prompt).toContain("hand it to them with message_bot instead of doing it yourself");
+    }
+
+    expect(buildBotSystemPrompt(chief).indexOf("Before you start any task")).toBeLessThan(
+      buildBotSystemPrompt(chief).indexOf("How you work:")
+    );
+    expect(buildBotSystemPrompt(worker).indexOf("Before you start any task")).toBeLessThan(
+      buildBotSystemPrompt(worker).indexOf("You are Researcher")
+    );
   });
 
   it("composes worker prompts from the base, identity, and communication context", async () => {
