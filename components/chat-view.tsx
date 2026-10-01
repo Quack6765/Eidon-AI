@@ -2143,6 +2143,17 @@ export function ChatView({
       return;
     }
 
+    if (nextResearch === undefined && researchPlan.draft) {
+      if (!value) {
+        return;
+      }
+      setError("");
+      setInput("");
+      dismissComposerKeyboardOnTouch();
+      researchPlan.refine(value);
+      return;
+    }
+
     const researchRequest =
       typeof nextResearch === "object" && nextResearch.plan?.length
         ? nextResearch
@@ -2189,6 +2200,17 @@ export function ChatView({
           });
           if (!response.ok) {
             throw new Error("The research plan could not be generated");
+          }
+          return ((await response.json()) as { plan?: unknown }).plan;
+        },
+        refine: async ({ plan, instruction }) => {
+          const response = await fetch("/api/research/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: value, currentPlan: plan, instruction, providerProfileId })
+          });
+          if (!response.ok) {
+            throw new Error("The plan could not be updated");
           }
           return ((await response.json()) as { plan?: unknown }).plan;
         }
@@ -2609,6 +2631,10 @@ export function ChatView({
             redirectsWhileBusy={redirectsWhileBusy}
             isResearch={isResearchToggled}
             onResearchChange={setIsResearchToggled}
+            planRefinementActive={Boolean(researchPlan.draft)}
+            planRefinementBusy={
+              researchPlan.draft?.status === "loading" || researchPlan.draft?.status === "updating"
+            }
             isTemporary={isTemporaryToggled}
             showTemporaryToggle={messages.length === 0 && payload.conversation.conversationOrigin === "manual"}
             onTemporaryChange={(value: boolean) => {

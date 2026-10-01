@@ -2,15 +2,31 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
-import { MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
+import {
+  MAX_CHAT_MESSAGE_CHARS,
+  MAX_CHAT_REQUEST_BYTES,
+  MAX_RESEARCH_PLAN_STEPS,
+  MAX_RESEARCH_PLAN_STEP_CHARS
+} from "@/lib/constants";
 import { badRequest, ok, payloadTooLarge } from "@/lib/http";
 import { generateResearchPlan } from "@/lib/research-plan";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile } from "@/lib/settings";
 
-const bodySchema = z.object({
-  message: z.string().trim().min(1).max(MAX_CHAT_MESSAGE_CHARS),
-  providerProfileId: z.string().min(1).optional()
-});
+const bodySchema = z
+  .object({
+    message: z.string().trim().min(1).max(MAX_CHAT_MESSAGE_CHARS),
+    providerProfileId: z.string().min(1).optional(),
+    currentPlan: z
+      .array(z.string().trim().min(1).max(MAX_RESEARCH_PLAN_STEP_CHARS))
+      .min(1)
+      .max(MAX_RESEARCH_PLAN_STEPS)
+      .optional(),
+    instruction: z.string().trim().min(1).max(MAX_CHAT_MESSAGE_CHARS).optional()
+  })
+  .refine(
+    (body) => (body.currentPlan === undefined) === (body.instruction === undefined),
+    { message: "currentPlan and instruction must be provided together" }
+  );
 
 export async function POST(request: Request) {
   const user = await requireUser(false);
@@ -33,10 +49,16 @@ export async function POST(request: Request) {
     getDefaultRuntimeProviderProfile();
   if (!settings) return badRequest("No provider profile configured");
 
-  const plan = await generateResearchPlan({
-    message: payload.data.message,
-    settings,
-    abortSignal: request.signal
-  });
-  return ok({ plan });
+  try {
+    const plan = await generateResearchPlan({
+      message: payload.data.message,
+      settings,
+      abortSignal: request.signal,
+      currentPlan: payload.data.currentPlan,
+      instruction: payload.data.instruction
+    });
+    return ok({ plan });
+  } catch {
+    return badRequest("The research plan could not be updated", 502);
+  }
 }

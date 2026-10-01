@@ -3869,6 +3869,73 @@ describe("chat view", () => {
     expect(screen.getByRole("button", { name: "Deep research" })).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("refines the research plan from follow-up messages before starting the turn", async () => {
+    mockResearchFetch();
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const textarea = screen.getByRole("textbox");
+
+    await flushAnimationFrame();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deep research" }));
+    fireEvent.change(textarea, { target: { value: "Compare heat pump subsidies" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 2")).toHaveValue("Compare amounts");
+    });
+
+    expect(screen.getByPlaceholderText("Suggest changes to the research plan…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update research plan" })).toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: "Focus on EU programs only" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/research/plan",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            message: "Compare heat pump subsidies",
+            currentPlan: ["Find official pages", "Compare amounts"],
+            instruction: "Focus on EU programs only",
+            providerProfileId: "profile_default"
+          })
+        })
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 1")).toHaveValue("Regenerated step");
+    });
+    expect(screen.getByRole("list", { name: "Plan updates" })).toHaveTextContent("You: Focus on EU programs only");
+    expect(textarea).toHaveValue("");
+    expect(
+      vi.mocked(global.fetch).mock.calls.filter(
+        ([url, init]) => url === "/api/conversations/conv_1/research" && init?.method === "POST"
+      )
+    ).toHaveLength(1);
+    expect(wsMock.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "message" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start research" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/research",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            userMessageId: "msg_research_user",
+            plan: ["Regenerated step"],
+            personaId: undefined
+          })
+        })
+      );
+    });
+    expect(screen.queryByRole("region", { name: "Research plan" })).toBeNull();
+    expect(screen.getByPlaceholderText("Queue a message")).toBeInTheDocument();
+  });
+
   it("removes the pending question when the research plan is cancelled", async () => {
     mockResearchFetch();
 

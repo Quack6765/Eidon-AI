@@ -87,6 +87,8 @@ type ChatComposerProps = {
   onTemporaryChange?: (value: boolean) => void;
   isResearch?: boolean;
   onResearchChange?: (value: boolean) => void;
+  planRefinementActive?: boolean;
+  planRefinementBusy?: boolean;
   compactOnMobile?: boolean;
   references?: ComposerReferences;
   onReferencesOpen?: () => void;
@@ -310,6 +312,8 @@ export function ChatComposer({
   onTemporaryChange,
   isResearch = false,
   onResearchChange,
+  planRefinementActive = false,
+  planRefinementBusy = false,
   compactOnMobile = false,
   references,
   onReferencesOpen
@@ -473,15 +477,18 @@ export function ChatComposer({
   const hasTextDraft = input.trim().length > 0;
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
-  const composerPlaceholder = !queueingEnabled
-    ? "Message Eidon"
-    : redirectsWhileBusy
-      ? "Redirect the current run"
-      : "Queue a message";
+  const composerPlaceholder = planRefinementActive
+    ? "Suggest changes to the research plan…"
+    : !queueingEnabled
+      ? "Message Eidon"
+      : redirectsWhileBusy
+        ? "Redirect the current run"
+        : "Queue a message";
   const showStopButton = canStop && !isUploadingAttachments;
   const isSubmitDisabled =
     !mounted ||
     isUploadingAttachments ||
+    planRefinementBusy ||
     speechPhase === "listening" ||
     speechPhase === "transcribing" ||
     speechPhase === "cleaning" ||
@@ -1071,11 +1078,13 @@ export function ChatComposer({
             aria-label={
               primaryActionStops
                 ? "Stop response"
-                : canQueueDraft
-                  ? redirectsWhileBusy
-                    ? "Redirect run"
-                    : "Queue follow-up"
-                  : "Send message"
+                : planRefinementActive
+                  ? "Update research plan"
+                  : canQueueDraft
+                    ? redirectsWhileBusy
+                      ? "Redirect run"
+                      : "Queue follow-up"
+                    : "Send message"
             }
           >
             {primaryActionStops && !isStopPending ? (
@@ -1083,8 +1092,10 @@ export function ChatComposer({
             ) : null}
             {primaryActionStops ? (
               <Square className="h-4 w-4 fill-current" />
-            ) : isUploadingAttachments || (isSending && !canQueueDraft) ? (
+            ) : isUploadingAttachments || planRefinementBusy || (isSending && !canQueueDraft) ? (
               <LoaderCircle className="h-5 w-5 animate-spin" />
+            ) : planRefinementActive ? (
+              <Telescope className="h-5 w-5" />
             ) : (
               <ArrowUp className="h-5 w-5 stroke-[2.5px]" />
             )}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildFallbackResearchPlan,
   buildResearchPlanningPrompt,
+  buildResearchPlanRevisionPrompt,
   generateResearchPlan,
   parseResearchPlanResponse
 } from "@/lib/research-plan";
@@ -81,5 +82,64 @@ describe("research plan generation", () => {
     await expect(generateResearchPlan({ message: "Compare subsidies", settings })).resolves.toEqual(
       buildFallbackResearchPlan("Compare subsidies")
     );
+  });
+
+  it("builds a revision prompt around the request, current plan, and instruction", () => {
+    const prompt = buildResearchPlanRevisionPrompt({
+      message: "  Compare heat pump subsidies  ",
+      plan: ["Find official pages", "Compare amounts"],
+      instruction: "  Focus on EU programs only  "
+    });
+
+    expect(prompt).toContain("JSON array of strings");
+    expect(prompt).toContain("Compare heat pump subsidies");
+    expect(prompt).toContain("1. Find official pages\n2. Compare amounts");
+    expect(prompt.endsWith("Focus on EU programs only")).toBe(true);
+  });
+
+  it("revises the current plan from the follow-up instruction", async () => {
+    callProviderTextMock.mockResolvedValue('["Find EU subsidy pages", "Compare amounts"]');
+    const settings = createRuntimeProviderProfile();
+
+    await expect(
+      generateResearchPlan({
+        message: "Compare subsidies",
+        settings,
+        currentPlan: ["Find official pages"],
+        instruction: "Focus on EU programs only"
+      })
+    ).resolves.toEqual(["Find EU subsidy pages", "Compare amounts"]);
+    expect(callProviderTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings,
+        purpose: "research_planning",
+        prompt: expect.stringContaining("Follow-up instruction:"),
+        abortSignal: expect.any(AbortSignal)
+      })
+    );
+  });
+
+  it("throws instead of falling back when a revision fails", async () => {
+    const settings = createRuntimeProviderProfile();
+
+    callProviderTextMock.mockRejectedValueOnce(new Error("provider down"));
+    await expect(
+      generateResearchPlan({
+        message: "Compare subsidies",
+        settings,
+        currentPlan: ["Find official pages"],
+        instruction: "Focus on EU programs only"
+      })
+    ).rejects.toThrow("provider down");
+
+    callProviderTextMock.mockResolvedValueOnce("no plan here");
+    await expect(
+      generateResearchPlan({
+        message: "Compare subsidies",
+        settings,
+        currentPlan: ["Find official pages"],
+        instruction: "Focus on EU programs only"
+      })
+    ).rejects.toThrow("The research plan could not be updated");
   });
 });
