@@ -1,5 +1,38 @@
 # Project Instructions
 
+## Prime Directives
+
+### Always Apply Occam's Razor
+
+- Prefer the simplest design and implementation that fully satisfies the
+  current, demonstrated requirements.
+- Do not add abstractions, layers, configuration, extension points, dependencies,
+  or infrastructure for hypothetical future needs. Introduce them only when
+  concrete requirements or repeated patterns justify their cost.
+- Before adding code, consider whether the goal can be met by deleting,
+  consolidating, or reusing existing code.
+- When multiple approaches are correct, choose the one with fewer concepts,
+  moving parts, and maintenance obligations, unless evidence shows that a more
+  complex approach is necessary.
+- Treat patterns and principles as tools, not goals. Do not apply SOLID, design
+  patterns, or architectural boundaries in ways that make a small solution more
+  complicated than the problem requires.
+
+### Make Implementations Reusable by Default
+
+- Treat reusability as a current requirement, not a hypothetical future need.
+- Design shared code around stable domain concepts rather than the first
+  provider, vendor, platform, integration, or use case.
+- Use generic names for shared code, variables, functions, and data structures.
+  Use a provider or vendor name only when the code is genuinely specific to it.
+- Isolate provider-specific configuration and behavior behind the smallest
+  practical boundary so additional providers can reuse the core flow without a
+  rewrite.
+- Prefer extending or consolidating existing code when it can serve the same
+  purpose. Create only the minimum abstraction needed for reuse; do not turn
+  reusability into speculative frameworks, unused extension points, or needless
+  complexity.
+
 ### Let the Model Decide, Constrain in Code
 
 The model owns every tool decision — whether to call a tool, which tool, and
