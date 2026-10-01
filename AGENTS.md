@@ -1,5 +1,70 @@
 # Project Instructions
 
+## Prime Directives
+
+### Always Apply Occam's Razor
+
+- Prefer the simplest design and implementation that fully satisfies the
+  current, demonstrated requirements.
+- Do not add abstractions, layers, configuration, extension points, dependencies,
+  or infrastructure for hypothetical future needs. Introduce them only when
+  concrete requirements or repeated patterns justify their cost.
+- Before adding code, consider whether the goal can be met by deleting,
+  consolidating, or reusing existing code.
+- When multiple approaches are correct, choose the one with fewer concepts,
+  moving parts, and maintenance obligations, unless evidence shows that a more
+  complex approach is necessary.
+- Treat patterns and principles as tools, not goals. Do not apply SOLID, design
+  patterns, or architectural boundaries in ways that make a small solution more
+  complicated than the problem requires.
+
+### Make Implementations Reusable by Default
+
+- Treat reusability as a current requirement, not a hypothetical future need.
+- Design shared code around stable domain concepts rather than the first
+  provider, vendor, platform, integration, or use case.
+- Use generic names for shared code, variables, functions, and data structures.
+  Use a provider or vendor name only when the code is genuinely specific to it.
+- Isolate provider-specific configuration and behavior behind the smallest
+  practical boundary so additional providers can reuse the core flow without a
+  rewrite.
+- Prefer extending or consolidating existing code when it can serve the same
+  purpose. Create only the minimum abstraction needed for reuse; do not turn
+  reusability into speculative frameworks, unused extension points, or needless
+  complexity.
+
+### Let the Model Decide, Constrain in Code
+
+The model owns every tool decision — whether to call a tool, which tool, and
+with what arguments. Do not reimplement that decision in surrounding code by
+matching the user's words.
+
+- **Steer through the prompt, not through code.** Tool behaviour is shaped by
+  tool descriptions, parameter schemas, and system directives. Vendor guidance
+  is explicit that tool choice belongs to the model, and that forcing it is the
+  exception rather than the default.
+- **Never predict the model's decision.** No regexes, keyword lists, or intent
+  heuristics that guess what the model will do. Never fabricate, force, or
+  pre-render a tool call the runtime has not actually started.
+- **Code constrains and validates; it does not decide.** Allowed in code:
+  permission and allow/deny gates, approval checkpoints for sensitive or
+  irreversible actions, argument schema validation, sandboxing, rate and cost
+  limits. Not allowed: inferring intent from message text to route, force, or
+  display a tool call.
+- **Render only what happened.** A surface may show work the runtime has
+  started. Optimistic state is acceptable only when the value is the user's own
+  known input, is scoped to the pending operation, and is reconciled or rolled
+  back against authoritative state.
+- **Text matching is for syntax, not intent.** Regex is fine for strict,
+  author-controlled syntax — slash commands, fixed tokens, file extensions,
+  protocol lines. It is not fine for deciding what a natural-language request
+  means: every synonym and paraphrase must be hand-enumerated, and the space of
+  phrasings is unbounded.
+- **The carve-outs are not violations.** Safety filters, prompt-injection and
+  tool-poisoning defence, authorization, and cost or latency routing are
+  mandated deterministic components. Security and authorization must be
+  enforced in deterministic, auditable code — never delegated to the model.
+
 ### Dev Server
 
 - You may start the dev server (`npm run dev`) when needed.
