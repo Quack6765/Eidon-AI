@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bot } from "lucide-react";
+import { Bot, Crown } from "lucide-react";
 
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusDot, botAttentionLabel } from "@/components/agents/bot-status";
@@ -130,7 +130,12 @@ export function AgentsNav({
               >
                 <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{bot.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm">{bot.name}</span>
+                    {bot.isChief ? (
+                      <Crown role="img" aria-label="Chief" className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+                    ) : null}
+                  </div>
                   {attentionLabel ? (
                     <div className="truncate text-[11px] text-[#71717a]">{attentionLabel}</div>
                   ) : null}
