@@ -1360,6 +1360,105 @@ describe("automation scheduler", () => {
     }
   });
 
+  function buildOneTimeAutomation(overrides: Record<string, unknown> = {}) {
+    return createAutomation({
+      name: "Standup reminder",
+      prompt: "Send the standup note",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "once",
+      intervalMinutes: null,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      runAt: "2027-04-10T14:00:00.000Z",
+      notifyConfig: { channels: [] },
+      ...overrides
+    } as Parameters<typeof createAutomation>[0]);
+  }
+
+  function buildOneTimeStartChatTurn() {
+    return vi
+      .fn<
+        (
+          manager: ReturnType<typeof createConversationManager>,
+          conversationId: string,
+          content: string,
+          attachmentIds: string[],
+          personaId?: string
+        ) => Promise<ChatTurnResult>
+      >()
+      .mockResolvedValue({ status: "completed" });
+  }
+
+  it("fires a one-time automation exactly once and never re-arms it", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = buildOneTimeStartChatTurn();
+    const automation = buildOneTimeAutomation();
+
+    expect(automation.runAt).toBe("2027-04-10T14:00:00.000Z");
+    expect(automation.nextRunAt).toBe("2027-04-10T14:00:00.000Z");
+
+    const dueSlot = "2026-04-10T14:00:00.000Z";
+    updateAutomation(automation.id, { runAt: dueSlot, nextRunAt: dueSlot });
+
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T14:00:05.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+
+    await scheduler.runOnce();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(getAutomation(automation.id)).toBeNull();
+    });
+
+    await scheduler.runOnce();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    expect(getAutomation(automation.id)).toBeNull();
+  });
+
+  it("still runs a one-time automation whose slot passed while the scheduler was down", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = buildOneTimeStartChatTurn();
+    const automation = buildOneTimeAutomation({ name: "Missed reminder" });
+
+    const dueSlot = "2026-04-10T14:00:00.000Z";
+    updateAutomation(automation.id, { runAt: dueSlot, nextRunAt: dueSlot });
+
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T18:00:00.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+
+    await scheduler.runOnce();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(getAutomation(automation.id)).toBeNull();
+    });
+  });
+
   it("does not schedule another timer after being stopped mid-cycle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));

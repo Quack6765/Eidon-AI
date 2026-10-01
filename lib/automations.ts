@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import { getNextAutomationRunAt } from "@/lib/automation-schedule";
 import {
+  buildConversationUrl,
   buildStoredNotifyConfig,
   dispatchRunNotification,
   isNotifiableRunStatus,
@@ -33,6 +34,7 @@ type AutomationRow = {
   calendar_frequency: AutomationCalendarFrequency | null;
   time_of_day: string | null;
   days_of_week: string;
+  run_at: string | null;
   continue_previous_conversation: number;
   enabled: number;
   next_run_at: string | null;
@@ -64,6 +66,7 @@ type ScheduleInput = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt?: string | null;
 };
 
 export type CreateAutomationInput = {
@@ -77,6 +80,7 @@ export type CreateAutomationInput = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt?: string | null;
   continuePreviousConversation?: boolean;
   enabled?: boolean;
   research?: boolean;
@@ -117,6 +121,16 @@ function normalizeDaysOfWeek(daysOfWeek: number[]) {
 
 function normalizeAutomationSchedule(input: Automation): Automation {
   const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
+
+  if (input.scheduleKind === "once") {
+    return {
+      ...input,
+      intervalMinutes: null,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    };
+  }
 
   if (input.scheduleKind === "interval") {
     return {
@@ -188,6 +202,18 @@ function assertValidDaysOfWeek(daysOfWeek: number[]) {
 export function assertValidSchedule(input: ScheduleInput) {
   const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
 
+  if (input.scheduleKind === "once") {
+    if (!input.runAt) {
+      throw new Error("One-time automations require a run time");
+    }
+
+    if (Number.isNaN(new Date(input.runAt).getTime())) {
+      throw new Error("One-time automations require a valid run time");
+    }
+
+    return;
+  }
+
   if (input.scheduleKind === "interval") {
     if (!input.intervalMinutes || input.intervalMinutes < 5) {
       throw new Error("Interval automations must be at least 5 minutes");
@@ -211,6 +237,20 @@ export function assertValidSchedule(input: ScheduleInput) {
   }
 }
 
+export function assertFutureRunAt(
+  scheduleKind: AutomationScheduleKind,
+  runAt: string | null | undefined,
+  nowMs = Date.now()
+) {
+  if (scheduleKind !== "once" || !runAt) {
+    return;
+  }
+
+  if (new Date(runAt).getTime() <= nowMs) {
+    throw new Error("One-time automations must be scheduled in the future");
+  }
+}
+
 function rowToAutomation(row: AutomationRow): Automation {
   return {
     id: row.id,
@@ -224,6 +264,7 @@ function rowToAutomation(row: AutomationRow): Automation {
     calendarFrequency: row.calendar_frequency,
     timeOfDay: row.time_of_day,
     daysOfWeek: parseDaysOfWeek(row.days_of_week),
+    runAt: row.run_at,
     continuePreviousConversation: row.continue_previous_conversation === 1,
     enabled: row.enabled === 1,
     research: row.research === 1,
@@ -416,7 +457,9 @@ function getStoredNotifyConfigJson(id: string): string {
 
 export function createAutomation(input: CreateAutomationInput, userId?: string) {
   const timestamp = nowIso();
-  const notifyConfigJson = buildStoredNotifyConfig(input.notifyConfig ?? { channels: [] }, "{}");
+  const notifyConfig = input.notifyConfig ??
+    (input.scheduleKind === "once" ? { channels: [{ kind: "push" as const }] } : { channels: [] });
+  const notifyConfigJson = buildStoredNotifyConfig(notifyConfig, "{}");
   const automation = normalizeAutomationSchedule({
     id: createId("auto"),
     name: input.name.trim(),
@@ -429,6 +472,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     calendarFrequency: input.calendarFrequency,
     timeOfDay: input.timeOfDay,
     daysOfWeek: input.daysOfWeek,
+    runAt: input.runAt ?? null,
     continuePreviousConversation: input.continuePreviousConversation ?? false,
     enabled: input.enabled ?? true,
     research: input.research ?? false,
@@ -438,7 +482,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     lastStartedAt: null,
     lastFinishedAt: null,
     lastStatus: null,
-    notifyConfig: input.notifyConfig ?? { channels: [] },
+    notifyConfig,
     createdAt: timestamp,
     updatedAt: timestamp
   });
@@ -448,12 +492,16 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     intervalMinutes: automation.intervalMinutes,
     calendarFrequency: automation.calendarFrequency,
     timeOfDay: automation.timeOfDay,
-    daysOfWeek: automation.daysOfWeek
+    daysOfWeek: automation.daysOfWeek,
+    runAt: automation.runAt
   });
+  assertFutureRunAt(automation.scheduleKind, automation.runAt, Date.parse(timestamp));
 
-  const nextRunAt = automation.enabled
-    ? getNextAutomationRunAt(automation, timestamp, env.TZ)
-    : null;
+  const nextRunAt = !automation.enabled
+    ? null
+    : automation.scheduleKind === "once"
+      ? automation.runAt && automation.runAt > timestamp ? automation.runAt : null
+      : getNextAutomationRunAt(automation, timestamp, env.TZ);
 
   getDb()
     .prepare(
@@ -472,6 +520,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         calendar_frequency,
         time_of_day,
         days_of_week,
+        run_at,
         continue_previous_conversation,
         enabled,
         next_run_at,
@@ -482,7 +531,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         notify_config_json,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       automation.id,
@@ -499,6 +548,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
       automation.calendarFrequency,
       automation.timeOfDay,
       JSON.stringify(automation.daysOfWeek),
+      automation.runAt,
       automation.continuePreviousConversation ? 1 : 0,
       automation.enabled ? 1 : 0,
       nextRunAt,
@@ -614,7 +664,7 @@ export function commitScheduledAutomationSlots(input: {
   automationId: string;
   missedSlots: string[];
   latestDueSlot: string;
-  nextRunAt: string;
+  nextRunAt: string | null;
   timestamp: string;
 }) {
   const db = getDb();
@@ -691,6 +741,105 @@ export function commitScheduledAutomationSlots(input: {
   return transaction.immediate();
 }
 
+function findScheduledAutomationRun(automationId: string, scheduledFor: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT id
+       FROM automation_runs
+       WHERE automation_id = ?
+         AND scheduled_for = ?
+         AND trigger_source = 'schedule'
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`
+    )
+    .get(automationId, scheduledFor) as { id: string } | undefined;
+
+  return row?.id ?? null;
+}
+
+function hasRunningAutomationRun(automationId: string) {
+  return Boolean(
+    getDb()
+      .prepare(
+        `SELECT 1
+         FROM automation_runs
+         WHERE automation_id = ? AND status = 'running'
+         LIMIT 1`
+      )
+      .get(automationId)
+  );
+}
+
+export function commitOneTimeAutomationSlot(input: {
+  automationId: string;
+  runAt: string;
+  timestamp: string;
+}) {
+  const db = getDb();
+  const transaction = db.transaction(() => {
+    if (findScheduledAutomationRun(input.automationId, input.runAt)) {
+      db.prepare(
+        `UPDATE automations
+         SET next_run_at = NULL,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(input.timestamp, input.automationId);
+      return null;
+    }
+
+    if (hasRunningAutomationRun(input.automationId)) {
+      return null;
+    }
+
+    const run = createAutomationRun({
+      automationId: input.automationId,
+      scheduledFor: input.runAt,
+      triggerSource: "schedule"
+    });
+
+    db.prepare(
+      `UPDATE automations
+       SET next_run_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(input.timestamp, input.automationId);
+
+    return run;
+  });
+
+  return transaction.immediate();
+}
+
+export function pruneExpiredOneTimeAutomations(nowIsoString: string) {
+  const db = getDb();
+  const expired = db
+    .prepare(
+      `SELECT id, run_at
+       FROM automations
+       WHERE schedule_kind = 'once'
+         AND run_at IS NOT NULL
+         AND run_at <= ?`
+    )
+    .all(nowIsoString) as Array<{ id: string; run_at: string }>;
+
+  const deleted: string[] = [];
+
+  for (const automation of expired) {
+    if (findScheduledAutomationRun(automation.id, automation.run_at)) {
+      continue;
+    }
+
+    if (hasRunningAutomationRun(automation.id)) {
+      continue;
+    }
+
+    db.prepare("DELETE FROM automations WHERE id = ?").run(automation.id);
+    deleted.push(automation.id);
+  }
+
+  return deleted;
+}
+
 export function triggerAutomationNow(
   automationId: string,
   triggerSource: Extract<AutomationTriggerSource, "manual_run" | "manual_retry"> = "manual_run",
@@ -730,6 +879,7 @@ export function listAutomations(userId?: string): Automation[] {
             calendar_frequency,
             time_of_day,
             days_of_week,
+            run_at,
             continue_previous_conversation,
             enabled,
             next_run_at,
@@ -761,6 +911,7 @@ export function listAutomations(userId?: string): Automation[] {
             calendar_frequency,
             time_of_day,
             days_of_week,
+            run_at,
             continue_previous_conversation,
             enabled,
             next_run_at,
@@ -797,6 +948,7 @@ export function getAutomation(id: string, userId?: string) {
             calendar_frequency,
             time_of_day,
             days_of_week,
+            run_at,
             continue_previous_conversation,
             enabled,
             next_run_at,
@@ -827,6 +979,7 @@ export function getAutomation(id: string, userId?: string) {
             calendar_frequency,
             time_of_day,
             days_of_week,
+            run_at,
             continue_previous_conversation,
             enabled,
             next_run_at,
@@ -878,11 +1031,14 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
     intervalMinutes: next.intervalMinutes,
     calendarFrequency: next.calendarFrequency,
     timeOfDay: next.timeOfDay,
-    daysOfWeek: next.daysOfWeek
+    daysOfWeek: next.daysOfWeek,
+    runAt: next.runAt
   });
 
   if (!next.enabled) {
     next.nextRunAt = null;
+  } else if (!("nextRunAt" in patch) && next.scheduleKind === "once") {
+    next.nextRunAt = next.runAt && next.runAt > next.updatedAt ? next.runAt : null;
   } else if (shouldRecomputeNextRunAt(current, next, patch)) {
     next.nextRunAt = getNextAutomationRunAt(next, next.updatedAt, env.TZ);
   }
@@ -903,6 +1059,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              calendar_frequency = ?,
              time_of_day = ?,
              days_of_week = ?,
+             run_at = ?,
              continue_previous_conversation = ?,
              enabled = ?,
              next_run_at = ?,
@@ -927,6 +1084,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.calendarFrequency,
         next.timeOfDay,
         JSON.stringify(next.daysOfWeek),
+        next.runAt,
         next.continuePreviousConversation ? 1 : 0,
         next.enabled ? 1 : 0,
         next.nextRunAt,
@@ -955,6 +1113,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              calendar_frequency = ?,
              time_of_day = ?,
              days_of_week = ?,
+             run_at = ?,
              continue_previous_conversation = ?,
              enabled = ?,
              next_run_at = ?,
@@ -979,6 +1138,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.calendarFrequency,
         next.timeOfDay,
         JSON.stringify(next.daysOfWeek),
+        next.runAt,
         next.continuePreviousConversation ? 1 : 0,
         next.enabled ? 1 : 0,
         next.nextRunAt,
@@ -1163,17 +1323,31 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
     isNotifiableRunStatus(input.status) &&
     !isNotifiableRunStatus(previousStatus)
   ) {
+    const automation = getAutomation(currentRun.automationId);
+    const consumesOneShot =
+      automation?.scheduleKind === "once" && currentRun.triggerSource === "schedule";
     const event = {
       kind: "automation_run_done" as const,
       status: input.status,
       automationId: currentRun.automationId,
       runId,
       finishedAt: nextFinishedAt ?? updatedAt,
-      errorMessage: nextErrorMessage
+      errorMessage: nextErrorMessage,
+      url: consumesOneShot ? buildConversationUrl(currentRun.conversationId) : undefined
     };
-    queueMicrotask(() => {
-      void dispatchRunNotification(event);
-    });
+
+    if (consumesOneShot) {
+      void dispatchRunNotification(event).finally(() => {
+        deleteAutomation(currentRun.automationId);
+        void import("@/lib/automation-scheduler")
+          .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
+          .catch(() => {});
+      });
+    } else {
+      queueMicrotask(() => {
+        void dispatchRunNotification(event);
+      });
+    }
   }
 
   return getAutomationRun(runId);
@@ -1223,6 +1397,7 @@ export function listDueAutomations(nowIsoString: string): Automation[] {
         calendar_frequency,
         time_of_day,
         days_of_week,
+        run_at,
         continue_previous_conversation,
         enabled,
         next_run_at,

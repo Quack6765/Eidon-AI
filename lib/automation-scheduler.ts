@@ -8,6 +8,7 @@ import {
   attachConversationToRun,
   attachResultMessageToRun,
   claimAutomationRun,
+  commitOneTimeAutomationSlot,
   commitScheduledAutomationSlots,
   countAutomationRuns,
   createAutomationRun,
@@ -20,6 +21,7 @@ import {
   listDueAutomations,
   listQueuedAutomationRuns,
   MAX_AUTOMATION_CATCH_UP_RUNS,
+  pruneExpiredOneTimeAutomations,
   updateAutomation,
   updateAutomationRunStatus
 } from "@/lib/automations";
@@ -378,6 +380,10 @@ function ensureNextRunAt(timeZone: string, nowIsoString: string) {
       continue;
     }
 
+    if (automation.scheduleKind === "once") {
+      continue;
+    }
+
     if (automation.nextRunAt && automation.nextRunAt <= nowIsoString) {
       continue;
     }
@@ -399,6 +405,14 @@ function processDueAutomation(
 ) {
   if (!automation.nextRunAt) {
     return;
+  }
+
+  if (automation.scheduleKind === "once") {
+    return commitOneTimeAutomationSlot({
+      automationId: automation.id,
+      runAt: automation.runAt ?? automation.nextRunAt,
+      timestamp: nowIsoString
+    });
   }
 
   const catchUp = getAutomationCatchUpWindow(
@@ -616,6 +630,12 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
             error
           );
         }
+      }
+
+      try {
+        pruneExpiredOneTimeAutomations(nowIsoString);
+      } catch (error) {
+        console.error("Failed to prune expired one-time automations", error);
       }
 
       if (waitForExecutions) {

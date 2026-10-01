@@ -80,6 +80,19 @@ export function getAutomationProposalHeading(action: TimelineAction) {
 
 function formatNextRun(schedule: AutomationProposalPayload) {
   try {
+    if (schedule.scheduleKind === "once") {
+      const runAt = schedule.runAt ? new Date(schedule.runAt) : null;
+      if (!runAt || Number.isNaN(runAt.getTime())) {
+        return null;
+      }
+      return runAt.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    }
+
     const nextRunAt = getNextAutomationRunAt(
       schedule,
       new Date().toISOString(),

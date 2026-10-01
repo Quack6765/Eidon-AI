@@ -32,9 +32,13 @@ import { Badge } from "@/components/settings/badge";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import { getSkillState, getSkillUsage, isSkillPinned } from "@/lib/skill-runtime";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
+import { formatAutomationRunAt } from "@/lib/automation-display";
 import type { Automation, BotRun, BotSummary, Skill, UserMemory } from "@/lib/types";
 
 function scheduleSummary(automation: Automation) {
+  if (automation.scheduleKind === "once") {
+    return `Once on ${formatAutomationRunAt(automation.runAt)}`;
+  }
   if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
     return `Every ${automation.intervalMinutes} min`;
   }

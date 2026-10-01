@@ -4,6 +4,7 @@ import { listMemoriesForPrompt } from "@/lib/memories";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
 import { buildAutomationProposalGuidance } from "@/lib/automation-guidance";
+import { env } from "@/lib/env";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
@@ -333,7 +334,7 @@ export function buildPromptMessages(input: {
     systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
 
-  systemParts.push(buildAutomationProposalGuidance());
+  systemParts.push(buildAutomationProposalGuidance(env.TZ));
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(

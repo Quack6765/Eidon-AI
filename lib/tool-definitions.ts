@@ -306,8 +306,8 @@ export function buildToolDefinitions(input: {
           },
           schedule_kind: {
             type: "string",
-            enum: ["interval", "calendar"],
-            description: "interval = every N minutes; calendar = daily or weekly at a local time"
+            enum: ["interval", "calendar", "once"],
+            description: "interval = every N minutes; calendar = daily or weekly at a local time; once = a single run at an absolute instant, after which the automation deletes itself"
           },
           interval_minutes: {
             type: "number",
@@ -326,6 +326,11 @@ export function buildToolDefinitions(input: {
             type: "array",
             items: { type: "number" },
             description: "Weekdays for weekly schedules, 0=Sunday through 6=Saturday"
+          },
+          run_at: {
+            type: "string",
+            description:
+              "Absolute ISO 8601 instant the single run fires at, with a UTC offset, for example 2026-03-05T09:00:00-05:00 (required for schedule_kind 'once', and it must be in the future)"
           },
           continue_previous_conversation: {
             type: "boolean",
