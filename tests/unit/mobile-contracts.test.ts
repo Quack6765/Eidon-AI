@@ -13,7 +13,7 @@ import {
   exportedMethods,
   mobileApiOperations,
   mobileApiRoutePatterns
-} from "@/app/api/v1/[...path]/route";
+} from "@/app/api/v1/mobile-route-table";
 import {
   MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_BYTES,
