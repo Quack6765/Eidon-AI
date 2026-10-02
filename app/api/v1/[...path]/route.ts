@@ -17,20 +17,25 @@ import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-sess
 import * as botRunStopRoute from "@/app/api/bots/[botId]/runs/[runId]/stop/route";
 import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
 import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
+import * as botSkillsMaintenanceRoute from "@/app/api/bots/[botId]/skills/maintenance/route";
 import * as botStopRoute from "@/app/api/bots/[botId]/stop/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
 import * as botWorkspaceFileRoute from "@/app/api/bots/[botId]/workspace/file/route";
 import * as botsRoute from "@/app/api/bots/route";
+import * as composerReferencesRoute from "@/app/api/composer/references/route";
 import * as conversationRoute from "@/app/api/conversations/[conversationId]/route";
 import * as conversationChatRoute from "@/app/api/conversations/[conversationId]/chat/route";
 import * as conversationComputerRoute from "@/app/api/conversations/[conversationId]/computer/route";
 import * as conversationComputerControlRoute from "@/app/api/conversations/[conversationId]/computer/control/route";
+import * as conversationResearchRoute from "@/app/api/conversations/[conversationId]/research/route";
 import * as conversationShareRoute from "@/app/api/conversations/[conversationId]/share/route";
 import * as conversationsRoute from "@/app/api/conversations/route";
 import * as conversationSearchRoute from "@/app/api/conversations/search/route";
 import * as folderRoute from "@/app/api/folders/[folderId]/route";
 import * as foldersRoute from "@/app/api/folders/route";
 import * as mcpServerRoute from "@/app/api/mcp-servers/[serverId]/route";
+import * as mcpServerOAuthRoute from "@/app/api/mcp-servers/[serverId]/oauth/route";
+import * as mcpServerOAuthFlowsRoute from "@/app/api/mcp-servers/[serverId]/oauth/flows/route";
 import * as mcpServersRoute from "@/app/api/mcp-servers/route";
 import * as mcpServersTestRoute from "@/app/api/mcp-servers/test/route";
 import * as memoryRoute from "@/app/api/memories/[memoryId]/route";
@@ -51,6 +56,8 @@ import * as personaRoute from "@/app/api/personas/[personaId]/route";
 import * as personasRoute from "@/app/api/personas/route";
 import * as pushSubscribeRoute from "@/app/api/push/subscribe/route";
 import * as pushVapidRoute from "@/app/api/push/vapid/route";
+import * as pushoverRoute from "@/app/api/pushover/route";
+import * as researchPlanRoute from "@/app/api/research/plan/route";
 import * as providerConnectionRoute from "@/app/api/providers/[profileId]/connection/route";
 import * as providerConnectionFlowsRoute from "@/app/api/providers/[profileId]/connection/flows/route";
 import * as providerConnectionFlowRoute from "@/app/api/providers/[profileId]/connection/flows/[flowId]/route";
@@ -59,10 +66,15 @@ import * as generalSettingsRoute from "@/app/api/settings/general/route";
 import * as providerDuplicateRoute from "@/app/api/settings/providers/duplicate/route";
 import * as providerSettingsRoute from "@/app/api/settings/providers/route";
 import * as settingsRoute from "@/app/api/settings/route";
+import * as semanticRecallSettingsRoute from "@/app/api/settings/semantic-recall/route";
 import * as settingsTestRoute from "@/app/api/settings/test/route";
 import * as titleGenerationSettingsRoute from "@/app/api/settings/title-generation/route";
 import * as skillRoute from "@/app/api/skills/[skillId]/route";
 import * as skillsRoute from "@/app/api/skills/route";
+import * as skillsMaintenanceRoute from "@/app/api/skills/maintenance/route";
+import * as skillCuratorLedgerRoute from "@/app/api/skills/curator/ledger/route";
+import * as skillCuratorPurgeRoute from "@/app/api/skills/curator/purge/route";
+import * as skillCuratorRollbackRoute from "@/app/api/skills/curator/rollback/route";
 import * as speechCleanupRoute from "@/app/api/speech/transcription/cleanup/route";
 import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/route";
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
@@ -101,11 +113,14 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["auth", "account"], module: accountRoute },
   { pattern: ["conversations", "search"], module: conversationSearchRoute },
   { pattern: ["conversations"], module: conversationsRoute },
+  { pattern: ["composer", "references"], module: composerReferencesRoute },
   { pattern: ["conversations", ":conversationId", "chat"], module: conversationChatRoute },
   { pattern: ["conversations", ":conversationId", "computer", "control"], module: conversationComputerControlRoute },
   { pattern: ["conversations", ":conversationId", "computer"], module: conversationComputerRoute },
+  { pattern: ["conversations", ":conversationId", "research"], module: conversationResearchRoute },
   { pattern: ["conversations", ":conversationId", "share"], module: conversationShareRoute },
   { pattern: ["conversations", ":conversationId"], module: conversationRoute },
+  { pattern: ["research", "plan"], module: researchPlanRoute },
   { pattern: ["folders"], module: foldersRoute },
   { pattern: ["folders", ":folderId"], module: folderRoute },
   { pattern: ["attachments"], module: attachmentsRoute },
@@ -118,6 +133,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
   { pattern: ["bots", ":botId", "runs", ":runId", "stop"], module: botRunStopRoute },
   { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
+  { pattern: ["bots", ":botId", "skills", "maintenance"], module: botSkillsMaintenanceRoute },
   { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
   { pattern: ["bots", ":botId", "stop"], module: botStopRoute },
   { pattern: ["bots", ":botId", "workspace", "file"], module: botWorkspaceFileRoute },
@@ -141,6 +157,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["message-actions", ":actionId", "secret"], module: messageActionSecretRoute },
   { pattern: ["onboarding"], module: onboardingRoute },
   { pattern: ["settings", "general"], module: generalSettingsRoute },
+  { pattern: ["settings", "semantic-recall"], module: semanticRecallSettingsRoute },
   { pattern: ["settings", "title-generation"], module: titleGenerationSettingsRoute },
   { pattern: ["settings", "providers", "duplicate"], module: providerDuplicateRoute },
   { pattern: ["settings", "providers"], module: providerSettingsRoute },
@@ -150,6 +167,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["personas", ":personaId"], module: personaRoute },
   { pattern: ["push", "subscribe"], module: pushSubscribeRoute },
   { pattern: ["push", "vapid"], module: pushVapidRoute },
+  { pattern: ["pushover"], module: pushoverRoute },
   { pattern: ["memories"], module: memoriesRoute },
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
   { pattern: ["tool-approvals"], module: toolApprovalsRoute },
@@ -159,7 +177,13 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },
   { pattern: ["mcp-servers"], module: mcpServersRoute },
   { pattern: ["mcp-servers", ":serverId"], module: mcpServerRoute },
+  { pattern: ["mcp-servers", ":serverId", "oauth"], module: mcpServerOAuthRoute },
+  { pattern: ["mcp-servers", ":serverId", "oauth", "flows"], module: mcpServerOAuthFlowsRoute },
   { pattern: ["skills"], module: skillsRoute },
+  { pattern: ["skills", "maintenance"], module: skillsMaintenanceRoute },
+  { pattern: ["skills", "curator", "ledger"], module: skillCuratorLedgerRoute },
+  { pattern: ["skills", "curator", "purge"], module: skillCuratorPurgeRoute },
+  { pattern: ["skills", "curator", "rollback"], module: skillCuratorRollbackRoute },
   { pattern: ["skills", ":skillId"], module: skillRoute },
   { pattern: ["users"], module: usersRoute },
   { pattern: ["users", ":userId"], module: userRoute },
@@ -172,6 +196,38 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute },
   { pattern: ["whats-new"], module: whatsNewRoute }
 ];
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+
+export function exportedMethods(module: RouteModule) {
+  return HTTP_METHODS.filter((method) => typeof module[method] === "function").map((method) =>
+    method.toLowerCase()
+  );
+}
+
+function patternToContractPath(pattern: string[]) {
+  return `/${pattern
+    .map((segment) => (segment.startsWith(":") ? `{${segment.slice(1)}}` : segment))
+    .join("/")}`;
+}
+
+const queueOperations: Array<{ path: string; methods: string[] }> = [
+  { path: "/conversations/{conversationId}/stop", methods: ["post"] },
+  { path: "/conversations/{conversationId}/queue", methods: ["get", "post"] },
+  { path: "/conversations/{conversationId}/queue/order", methods: ["put"] },
+  { path: "/conversations/{conversationId}/queue/{queuedMessageId}", methods: ["patch", "delete"] },
+  { path: "/conversations/{conversationId}/queue/{queuedMessageId}/send-now", methods: ["post"] }
+];
+
+export const mobileApiOperations: Array<{ path: string; methods: string[] }> = [
+  ...routes.map(({ pattern, module }) => ({
+    path: patternToContractPath(pattern),
+    methods: exportedMethods(module)
+  })),
+  ...queueOperations
+];
+
+export const mobileApiRoutePatterns = routes.map(({ pattern }) => pattern);
 
 function matchPattern(pattern: string[], path: string[]) {
   if (pattern.length !== path.length) return null;
@@ -334,7 +390,7 @@ async function dispatch(
       const handler = route.module[request.method] as RouteHandler | undefined;
       if (!handler) {
         return mobileApiError("unsupported_method", "Method not allowed", 405, {
-          headers: { allow: Object.keys(route.module).filter((key) => /^(GET|POST|PUT|PATCH|DELETE)$/.test(key)).join(", ") }
+          headers: { allow: exportedMethods(route.module).map((method) => method.toUpperCase()).join(", ") }
         });
       }
 

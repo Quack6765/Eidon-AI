@@ -169,6 +169,10 @@ Published contracts live in [`contracts/`](../contracts):
 
 They are attached to stable GitHub releases as assets, and a unit test checks the implementation against them.
 
+The mobile surface is defined by the gateway route table in [`app/api/v1/[...path]/route.ts`](../app/api/v1/[...path]/route.ts), plus the separately routed files under `app/api/v1/` (`auth/*` and `server-info`). `tests/unit/mobile-contracts.test.ts` asserts that this set and the contract's set of paths and methods are equal in both directions, so a mounted operation cannot go undocumented and the contract cannot document an operation that is not mounted. `tests/unit/mobile-routes.test.ts` asserts every documented operation against the contract, with an explicit exemption list for the few operations that stream or need a live model provider.
+
+Some `app/api` routes are deliberately outside the mobile surface and are never mounted on `/api/v1`: the public conversation share links under `app/api/share/*` (unauthenticated and token-scoped), the browser cookie-session routes `app/api/auth/login` and `app/api/auth/logout` (mobile clients sign in through `/api/v1/auth/login` and get their own bearer session), and the external OAuth redirect receivers `app/api/mcp-servers/oauth/callback` and `app/api/providers/github/callback`.
+
 Mobile sessions are distinct from browser sessions: they use their own JWT audience (`eidon-mobile-v1`), last **30 days**, and are individually listable and revocable through `/api/v1/auth/sessions`. A minimum server version is declared in the contract so a client can refuse to talk to a server that is too old.
 
 ## Reference documents
