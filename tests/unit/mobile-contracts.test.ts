@@ -4,6 +4,16 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GET as getServerInfo } from "@/app/api/v1/server-info/route";
+import * as mobileLoginRoute from "@/app/api/v1/auth/login/route";
+import * as mobileLogoutRoute from "@/app/api/v1/auth/logout/route";
+import * as mobileSessionRoute from "@/app/api/v1/auth/session/route";
+import * as mobileSessionsRoute from "@/app/api/v1/auth/sessions/route";
+import * as mobileSessionRevokeRoute from "@/app/api/v1/auth/sessions/[sessionId]/route";
+import {
+  exportedMethods,
+  mobileApiOperations,
+  mobileApiRoutePatterns
+} from "@/app/api/v1/mobile-route-table";
 import {
   MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_BYTES,
@@ -27,6 +37,42 @@ const websocketSchemaPath = path.join(
   process.cwd(),
   "contracts/mobile-api-v1.websocket.schema.json"
 );
+
+const HTTP_VERBS = ["get", "post", "put", "patch", "delete"];
+
+const directlyRoutedOperations: Array<{ path: string; methods: string[] }> = [
+  { path: "/auth/login", methods: exportedMethods(mobileLoginRoute) },
+  { path: "/auth/session", methods: exportedMethods(mobileSessionRoute) },
+  { path: "/auth/logout", methods: exportedMethods(mobileLogoutRoute) },
+  { path: "/auth/sessions", methods: exportedMethods(mobileSessionsRoute) },
+  { path: "/auth/sessions/{sessionId}", methods: exportedMethods(mobileSessionRevokeRoute) },
+  { path: "/server-info", methods: exportedMethods({ GET: getServerInfo }) }
+];
+
+function mountedOperations() {
+  return [...mobileApiOperations, ...directlyRoutedOperations];
+}
+
+function contractOperations(contract: { paths: Record<string, Record<string, unknown>> }) {
+  return Object.entries(contract.paths).map(([pathname, pathValue]) => ({
+    path: pathname,
+    methods: Object.keys(pathValue)
+      .filter((key) => HTTP_VERBS.includes(key))
+      .sort()
+  }));
+}
+
+function describeOperation(operation: { path: string; methods: string[] }) {
+  return `${operation.methods.map((method) => method.toUpperCase()).join(",")} ${operation.path}`;
+}
+
+function canBothMatch(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  return left.every((segment, index) => {
+    const other = right[index];
+    return segment.startsWith(":") || other.startsWith(":") || segment === other;
+  });
+}
 
 function readJson(filePath: string) {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as Record<string, unknown>;
@@ -131,11 +177,21 @@ describe("Mobile API v1 contracts", () => {
       openapi: string;
       info: { version: string };
       security: unknown[];
+      tags: Array<{ name: string }>;
       paths: Record<string, Record<string, unknown>>;
       components: {
         securitySchemes: Record<string, unknown>;
+        parameters: Record<string, Record<string, unknown>>;
         requestBodies: Record<string, unknown>;
-        schemas: Record<string, { properties?: Record<string, unknown> }>;
+        responses: Record<string, Record<string, unknown>>;
+        schemas: Record<
+          string,
+          {
+            properties?: Record<string, unknown>;
+            required?: string[];
+            [key: string]: unknown;
+          }
+        >;
       };
     };
 
@@ -148,52 +204,143 @@ describe("Mobile API v1 contracts", () => {
       bearerFormat: "Eidon mobile session JWT"
     });
 
-    expect(Object.keys(contract.paths)).toEqual(expect.arrayContaining([
-      "/server-info",
-      "/whats-new",
-      "/auth/login",
-      "/auth/session",
-      "/auth/sessions/{sessionId}",
-      "/conversations",
-      "/conversations/search",
-      "/conversations/{conversationId}/queue/order",
-      "/conversations/{conversationId}/computer",
-      "/conversations/{conversationId}/computer/control",
-      "/folders/{folderId}",
-      "/attachments/{attachmentId}",
-      "/speech/transcription/prepare",
-      "/speech/transcription/transcribe",
-      "/speech/transcription/cleanup",
-      "/automations/{automationId}/runs",
-      "/automation-runs/{runId}",
-      "/bots",
-      "/bots/approvals",
-      "/bots/{botId}",
-      "/bots/{botId}/clear-context",
-      "/bots/{botId}/memories",
-      "/bots/{botId}/reset-browser-session",
-      "/bots/{botId}/workspace",
-      "/bots/{botId}/workspace/file",
-      "/avatars/{seed}",
-      "/messages/{messageId}/edit-restart",
-      "/messages/{messageId}/fork",
-      "/messages/{messageId}/rewind",
-      "/message-actions/{actionId}/approve",
-      "/message-actions/{actionId}/secret",
-      "/saved-logins",
-      "/saved-logins/{loginId}",
-      "/settings/providers",
-      "/settings/general",
-      "/personas",
-      "/memories",
-      "/mcp-servers",
-      "/skills",
-      "/users",
-      "/providers/{profileId}/connection",
-      "/providers/{profileId}/connection/flows",
-      "/providers/{profileId}/connection/flows/{flowId}",
-      "/providers/{profileId}/models"
-    ]));
+    const contractOperationKeys = new Set(
+      contractOperations(contract).map((operation) => describeOperation(operation))
+    );
+    const mountedOperationKeys = new Set(
+      mountedOperations().map((operation) =>
+        describeOperation({ path: operation.path, methods: [...operation.methods].sort() })
+      )
+    );
+    expect([...mountedOperationKeys].filter((key) => !contractOperationKeys.has(key))).toEqual([]);
+    expect([...contractOperationKeys].filter((key) => !mountedOperationKeys.has(key))).toEqual([]);
+    expect(mountedOperationKeys.size).toBeGreaterThan(90);
+    expect(
+      contractOperations(contract).reduce((total, operation) => total + operation.methods.length, 0)
+    ).toBeGreaterThan(120);
+
+    const shadowedRoutes: string[] = [];
+    for (let index = 0; index < mobileApiRoutePatterns.length; index += 1) {
+      const earlier = mobileApiRoutePatterns[index];
+      for (let other = index + 1; other < mobileApiRoutePatterns.length; other += 1) {
+        const later = mobileApiRoutePatterns[other];
+        if (!canBothMatch(earlier, later)) continue;
+        if (earlier.some((segment, position) => segment.startsWith(":") && !later[position].startsWith(":"))) {
+          shadowedRoutes.push(`${earlier.join("/")} shadows ${later.join("/")}`);
+        }
+      }
+    }
+    expect(shadowedRoutes).toEqual([]);
+
+    for (const pathname of [
+      "/composer/references",
+      "/research/plan",
+      "/conversations/{conversationId}/research",
+      "/settings/semantic-recall",
+      "/pushover",
+      "/skills/maintenance",
+      "/skills/curator/ledger",
+      "/skills/curator/purge",
+      "/skills/curator/rollback",
+      "/bots/{botId}/skills/maintenance",
+      "/mcp-servers/{serverId}/oauth",
+      "/mcp-servers/{serverId}/oauth/flows"
+    ]) {
+      expect(contract.paths[pathname]).toBeDefined();
+    }
+    expect(contract.paths["/settings/semantic-recall"].post).toMatchObject({
+      "x-eidon-role": "admin"
+    });
+    expect(contract.paths["/mcp-servers/{serverId}/oauth"].delete).toMatchObject({
+      "x-eidon-role": "admin"
+    });
+    expect(contract.paths["/mcp-servers/{serverId}/oauth/flows"].post).toMatchObject({
+      "x-eidon-role": "admin"
+    });
+    expect(contract.components.schemas.PushoverCredentialsRequest.properties).toMatchObject({
+      userKey: { writeOnly: true },
+      appToken: { writeOnly: true }
+    });
+    expect(contract.paths["/push/vapid"].get).toMatchObject({
+      responses: { "200": { $ref: "#/components/responses/VapidPublicKey" } }
+    });
+    expect(contract.components.schemas.VapidPublicKeyEnvelope).toMatchObject({
+      properties: { data: { required: ["publicKey"] } }
+    });
+    expect(contract.components.schemas.PushSubscriptionListEnvelope).toMatchObject({
+      properties: { data: { required: ["subscriptions"] } }
+    });
+    expect(contract.components.schemas.PushSubscriptionEnvelope).toMatchObject({
+      properties: { data: { required: ["subscription"] } }
+    });
+    expect(contract.paths["/bots/{botId}/memories"].delete).toMatchObject({
+      responses: { "200": { $ref: "#/components/responses/Deleted" } }
+    });
+    expect(contract.paths["/attachments/{attachmentId}"].get).toMatchObject({
+      responses: {
+        "200": {
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/AttachmentTextPreviewEnvelope" } }
+          }
+        }
+      }
+    });
+    expect(contract.paths["/avatars/{seed}"].get).toMatchObject({
+      parameters: [{ name: "animated" }]
+    });
+    expect(contract.paths["/conversations"].get).toMatchObject({
+      parameters: [{ $ref: "#/components/parameters/cursor" }, { $ref: "#/components/parameters/conversationPageLimit" }]
+    });
+    expect(contract.components.parameters.conversationPageLimit).toMatchObject({
+      schema: { maximum: 50 }
+    });
+    expect(contract.components.schemas.ResearchPlanRequest.properties).toMatchObject({
+      message: { maxLength: 150000 }
+    });
+    expect(contract.components.schemas.ResearchPlanRequest.dependentRequired).toEqual({
+      currentPlan: ["instruction"],
+      instruction: ["currentPlan"]
+    });
+    expect(contract.components.schemas.SettingsBundleUpdateRequest).toMatchObject({
+      minProperties: 1,
+      properties: {
+        botPrompt: { properties: { prompt: { maxLength: 64000 } } },
+        semanticRecall: { properties: { enabled: { type: "boolean" } } }
+      }
+    });
+    expect(contract.components.schemas.AutomationCreateRequest.properties!.scheduleKind).toEqual({
+      type: "string",
+      enum: ["interval", "calendar", "once"]
+    });
+    expect(contract.components.schemas.AutomationProposalPayload).toMatchObject({
+      required: expect.arrayContaining(["runAt"]),
+      properties: { scheduleKind: { enum: ["interval", "calendar", "once"] } }
+    });
+    expect(contract.components.schemas.Action.properties!.kind).toMatchObject({
+      enum: expect.arrayContaining(["skill_review"])
+    });
+    expect(contract.components.schemas.Memory.required).toEqual(
+      expect.arrayContaining(["pinned"])
+    );
+    expect(contract.components.schemas.Settings.required).toEqual(
+      expect.arrayContaining(["semanticRecallEnabled"])
+    );
+    expect(contract.components.schemas.Automation.required).toEqual(
+      expect.arrayContaining(["continuePreviousConversation", "notifyConfig"])
+    );
+    expect(contract.components.schemas.QueuedMessageCreateRequest.properties!.content).toMatchObject({
+      maxLength: 150000
+    });
+    expect(contract.components.schemas.ChatMessageRequest.properties!.message).toMatchObject({
+      maxLength: 150000
+    });
+    expect(contract.components.schemas.UserUpdateRequest.properties!.password).toMatchObject({
+      writeOnly: true,
+      anyOf: [{ const: "" }, { type: "string", minLength: 8 }]
+    });
+    expect(contract.tags.map((tag: { name: string }) => tag.name)).toEqual(
+      expect.arrayContaining(["Speech", "Push", "Research", "Skills"])
+    );
     expect(contract.paths["/server-info"].get).toMatchObject({ security: [] });
     expect(contract.paths["/whats-new"].get).toMatchObject({
       operationId: "getReleaseHighlights",
@@ -331,8 +478,8 @@ describe("Mobile API v1 contracts", () => {
         }
       }
     });
-    expect(compileOpenApiJsonRequestBodies()).toBe(47);
-    expect(compileOpenApiJsonResponses()).toBe(135);
+    expect(compileOpenApiJsonRequestBodies()).toBe(56);
+    expect(compileOpenApiJsonResponses()).toBe(221);
   });
 
   it("widens the image generation enums for GPT Image 2.5", () => {
@@ -445,6 +592,74 @@ describe("Mobile API v1 contracts", () => {
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("extractedText");
+
+    expect(contract.$defs.Attachment.properties!.kind).toMatchObject({
+      enum: ["image", "text", "file"]
+    });
+    expect(contract.$defs.Action.properties!.kind).toMatchObject({
+      enum: expect.arrayContaining(["skill_review"])
+    });
+    expect(contract.$defs.MemoryProposalPayload.properties).toHaveProperty("botId");
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "context_usage",
+        contextTokens: 1200,
+        compactionLimit: 100000,
+        memoriesUsed: 3,
+        memoriesTotal: 12
+      }
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", {
+      type: "message",
+      conversationId: "conv_1",
+      content: "a".repeat(150000)
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", {
+      type: "message",
+      conversationId: "conv_1",
+      content: "a".repeat(150001)
+    })).toThrow(/ClientMessage failed contract validation/);
+    expect(() => assertWebSocketMessage("ComputerClientMessage", {
+      type: "computer_key",
+      action: "down",
+      key: "Enter",
+      code: "Enter",
+      modifiers: 4
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", {
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        {
+          id: "msg_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Result",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 10,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          attachments: [
+            {
+              id: "att_1",
+              conversationId: "conv_1",
+              messageId: "msg_1",
+              filename: "notes.pdf",
+              mimeType: "application/pdf",
+              byteSize: 12,
+              sha256: "abc",
+              kind: "file",
+              createdAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    })).not.toThrow();
   });
 
   it("declares every retry event the assistant runtime streams to clients", () => {
@@ -487,7 +702,9 @@ describe("Mobile API v1 contracts", () => {
       "relativePath",
       "extractedText",
       "shareToken",
-      "debug"
+      "debug",
+      "userKey",
+      "appToken"
     ]) {
       expect([...propertyNames]).not.toContain(forbidden);
     }

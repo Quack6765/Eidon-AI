@@ -10,6 +10,12 @@ import {
   POST as mobilePost,
   PUT as mobilePut
 } from "@/app/api/v1/[...path]/route";
+import { GET as getServerInfo } from "@/app/api/v1/server-info/route";
+import * as mobileLoginRoute from "@/app/api/v1/auth/login/route";
+import * as mobileLogoutRoute from "@/app/api/v1/auth/logout/route";
+import * as mobileSessionRoute from "@/app/api/v1/auth/session/route";
+import * as mobileSessionsRoute from "@/app/api/v1/auth/sessions/route";
+import * as mobileSessionRevokeRoute from "@/app/api/v1/auth/sessions/[sessionId]/route";
 import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomationRun } from "@/lib/automations";
 import { createBotRunRecord } from "@/lib/bot-runs";
@@ -23,13 +29,47 @@ import { createLocalUser } from "@/lib/users";
 import { assertOpenApiResponse } from "@/tests/fixtures/mobile-contract-validator";
 import { createProviderCatalogInput, createProviderProfileInput } from "@/tests/provider-fixtures";
 
+const openApiContractPath = path.join(process.cwd(), "contracts/mobile-api-v1.openapi.json");
+const documentedOperations: string[] = (() => {
+  const contract = JSON.parse(fs.readFileSync(openApiContractPath, "utf8")) as {
+    paths: Record<string, Record<string, unknown>>;
+  };
+  return Object.entries(contract.paths).flatMap(([pathname, pathValue]) =>
+    Object.keys(pathValue)
+      .filter((key) => ["get", "post", "put", "patch", "delete"].includes(key))
+      .map((method) => `${method.toUpperCase()} ${pathname}`)
+  );
+})();
+
 async function assertResponseContract(
   pathname: string,
   method: string,
   response: Response
 ) {
+  recordOperationCoverage(pathname, method);
   assertOpenApiResponse(pathname, method, response.status, await response.clone().json());
 }
+
+const coveredOperations = new Set<string>();
+
+function recordOperationCoverage(pathname: string, method: string) {
+  coveredOperations.add(`${method.toUpperCase()} ${pathname}`);
+}
+
+const operationsWithoutJsonConformance = new Map<string, string>([
+  [
+    "POST /conversations/{conversationId}/chat",
+    "Streams server-sent events rather than a JSON body."
+  ],
+  [
+    "POST /research/plan",
+    "Drafts the plan with the configured model provider, so its 200 path cannot run in a unit test."
+  ],
+  [
+    "POST /conversations/{conversationId}/research",
+    "Drafts the plan with the configured model provider, so its 200 path cannot run in a unit test."
+  ]
+]);
 
 function buildProfile() {
   return createProviderProfileInput({
@@ -66,6 +106,47 @@ function request(
 
 function context(path: string[]) {
   return { params: Promise.resolve({ path }) };
+}
+
+function directRequest(
+  path: string,
+  options: { method?: string; token?: string; body?: unknown } = {}
+) {
+  return new Request(`http://localhost/api/v1/${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      ...(options.body === undefined ? {} : { "content-type": "application/json" })
+    },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
+  });
+}
+
+async function callRoute(
+  token: string,
+  template: string,
+  path: string[],
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  options: { body?: unknown; query?: string } = {}
+) {
+  const mobileRequest = request(path, token, {
+    method,
+    body: options.body,
+    query: options.query
+  });
+  const routeContext = context(path);
+  const response =
+    method === "GET"
+      ? await mobileGet(mobileRequest, routeContext)
+      : method === "POST"
+        ? await mobilePost(mobileRequest, routeContext)
+        : method === "PUT"
+          ? await mobilePut(mobileRequest, routeContext)
+          : method === "PATCH"
+            ? await mobilePatch(mobileRequest, routeContext)
+            : await mobileDelete(mobileRequest, routeContext);
+  await assertResponseContract(template, method, response);
+  return response;
 }
 
 describe("Mobile API v1 REST adapter", () => {
@@ -1075,5 +1156,779 @@ describe("Mobile API v1 REST adapter", () => {
       if (originalVersion === undefined) delete process.env.NEXT_PUBLIC_APP_VERSION;
       else process.env.NEXT_PUBLIC_APP_VERSION = originalVersion;
     }
+  });
+
+  it("conforms the newly exposed research, composer, skill, push and settings operations", async () => {
+    const admin = await createLocalUser({
+      username: "new-surface-admin",
+      password: "NewSurfaceAdminPassword123!",
+      role: "admin"
+    });
+    const member = await createLocalUser({
+      username: "new-surface-member",
+      password: "NewSurfaceMemberPassword123!",
+      role: "user"
+    });
+    const adminSession = await createMobileSession(admin.id, "New surface admin device");
+    const memberSession = await createMobileSession(member.id, "New surface member device");
+    updateProviderCatalog(createProviderCatalogInput([buildProfile()]));
+
+    const conversation = createConversation("New surface conversation", null, {}, admin.id);
+
+    const composer = await callRoute(
+      adminSession.token,
+      "/composer/references",
+      ["composer", "references"],
+      "GET",
+      { query: `?conversationId=${conversation.id}` }
+    );
+    expect(composer.status).toBe(200);
+    await expect(composer.json()).resolves.toMatchObject({
+      data: { bots: [], skills: expect.any(Array) }
+    });
+
+    const cancelledMessage = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Prepare a research turn"
+    });
+    const cancelled = await callRoute(
+      adminSession.token,
+      "/conversations/{conversationId}/research",
+      ["conversations", conversation.id, "research"],
+      "DELETE",
+      { body: { userMessageId: cancelledMessage.id } }
+    );
+    expect(cancelled.status).toBe(200);
+    await expect(cancelled.json()).resolves.toEqual({ data: { deleted: true } });
+
+    const researchMessage = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Run the deep research turn"
+    });
+    const researchStarted = await callRoute(
+      adminSession.token,
+      "/conversations/{conversationId}/research",
+      ["conversations", conversation.id, "research"],
+      "PUT",
+      { body: { userMessageId: researchMessage.id, plan: ["Survey the sources"] } }
+    );
+    expect(researchStarted.status).toBe(200);
+    await expect(researchStarted.json()).resolves.toEqual({ data: { started: true } });
+
+    const curatorConfig = await callRoute(
+      adminSession.token,
+      "/skills/maintenance",
+      ["skills", "maintenance"],
+      "GET"
+    );
+    expect(curatorConfig.status).toBe(200);
+    expect(
+      ((await curatorConfig.json()) as { data: { config: { staleAfterDays: number } } }).data.config
+        .staleAfterDays
+    ).toBeGreaterThan(0);
+
+    const updatedCuratorConfig = await callRoute(
+      adminSession.token,
+      "/skills/maintenance",
+      ["skills", "maintenance"],
+      "PUT",
+      { body: { staleAfterDays: 21 } }
+    );
+    expect(updatedCuratorConfig.status).toBe(200);
+    await expect(updatedCuratorConfig.json()).resolves.toMatchObject({
+      data: { config: { staleAfterDays: 21 } }
+    });
+
+    const createdBot = await callRoute(adminSession.token, "/bots", ["bots"], "POST", {
+      body: { name: "Curator", title: "Library", description: "Keeps the skill library tidy" }
+    });
+    const botId = ((await createdBot.json()) as { data: { bot: { id: string } } }).data.bot.id;
+
+    const botMaintenance = await callRoute(
+      adminSession.token,
+      "/bots/{botId}/skills/maintenance",
+      ["bots", botId, "skills", "maintenance"],
+      "GET"
+    );
+    expect(botMaintenance.status).toBe(200);
+    await expect(botMaintenance.json()).resolves.toMatchObject({
+      data: { archived: [], state: { paused: false } }
+    });
+
+    const paused = await callRoute(
+      adminSession.token,
+      "/bots/{botId}/skills/maintenance",
+      ["bots", botId, "skills", "maintenance"],
+      "POST",
+      { body: { op: "pause" } }
+    );
+    await expect(paused.json()).resolves.toEqual({ data: { paused: true } });
+
+    const resumed = await callRoute(
+      adminSession.token,
+      "/bots/{botId}/skills/maintenance",
+      ["bots", botId, "skills", "maintenance"],
+      "POST",
+      { body: { op: "resume" } }
+    );
+    await expect(resumed.json()).resolves.toEqual({ data: { paused: false } });
+
+    const missingSkill = await callRoute(
+      adminSession.token,
+      "/bots/{botId}/skills/maintenance",
+      ["bots", botId, "skills", "maintenance"],
+      "POST",
+      { body: { op: "pin", ref: "skill_missing" } }
+    );
+    expect(missingSkill.status).toBe(404);
+
+    const ledger = await callRoute(
+      adminSession.token,
+      "/skills/curator/ledger",
+      ["skills", "curator", "ledger"],
+      "GET",
+      { query: `?botId=${botId}` }
+    );
+    expect(ledger.status).toBe(200);
+
+    const purge = await callRoute(
+      adminSession.token,
+      "/skills/curator/purge",
+      ["skills", "curator", "purge"],
+      "POST",
+      { body: { botId } }
+    );
+    expect(purge.status).toBe(400);
+
+    const snapshots = await callRoute(
+      adminSession.token,
+      "/skills/curator/rollback",
+      ["skills", "curator", "rollback"],
+      "GET",
+      { query: `?botId=${botId}` }
+    );
+    expect(snapshots.status).toBe(200);
+    await expect(snapshots.json()).resolves.toEqual({ data: { snapshots: [] } });
+
+    const rollback = await callRoute(
+      adminSession.token,
+      "/skills/curator/rollback",
+      ["skills", "curator", "rollback"],
+      "POST",
+      { body: { botId, snapshot: "missing-snapshot" } }
+    );
+    expect(rollback.status).toBe(400);
+
+    const vapid = await callRoute(adminSession.token, "/push/vapid", ["push", "vapid"], "GET");
+    expect(vapid.status).toBe(200);
+    expect(typeof ((await vapid.json()) as { data: { publicKey: string } }).data.publicKey).toBe(
+      "string"
+    );
+
+    const subscriptions = await callRoute(
+      adminSession.token,
+      "/push/subscribe",
+      ["push", "subscribe"],
+      "GET"
+    );
+    await expect(subscriptions.json()).resolves.toEqual({ data: { subscriptions: [] } });
+
+    const subscribed = await callRoute(
+      adminSession.token,
+      "/push/subscribe",
+      ["push", "subscribe"],
+      "POST",
+      {
+        body: {
+          endpoint: "https://push.example.com/subscription",
+          keys: { p256dh: "public-key", auth: "auth-secret" }
+        }
+      }
+    );
+    expect(subscribed.status).toBe(201);
+    await expect(subscribed.json()).resolves.toMatchObject({
+      data: { subscription: { endpoint: "https://push.example.com/subscription" } }
+    });
+
+    const unsubscribed = await callRoute(
+      adminSession.token,
+      "/push/subscribe",
+      ["push", "subscribe"],
+      "DELETE",
+      { body: { endpoint: "https://push.example.com/subscription" } }
+    );
+    expect(unsubscribed.status).toBe(200);
+
+    const pushoverStatus = await callRoute(adminSession.token, "/pushover", ["pushover"], "GET");
+    await expect(pushoverStatus.json()).resolves.toEqual({ data: { configured: false } });
+
+    const savedPushover = await callRoute(adminSession.token, "/pushover", ["pushover"], "PUT", {
+      body: { userKey: "pushover-user-key", appToken: "pushover-app-token" }
+    });
+    expect(savedPushover.status).toBe(200);
+    await expect(savedPushover.json()).resolves.toEqual({ data: { configured: true } });
+
+    const clearedPushover = await callRoute(
+      adminSession.token,
+      "/pushover",
+      ["pushover"],
+      "DELETE"
+    );
+    await expect(clearedPushover.json()).resolves.toEqual({ data: { configured: false } });
+
+    const semanticStatus = await callRoute(
+      adminSession.token,
+      "/settings/semantic-recall",
+      ["settings", "semantic-recall"],
+      "GET"
+    );
+    expect(semanticStatus.status).toBe(200);
+    await expect(semanticStatus.json()).resolves.toMatchObject({
+      data: { status: { enabled: expect.any(Boolean), modelId: expect.any(String) } }
+    });
+
+    const forbiddenRebuild = await callRoute(
+      memberSession.token,
+      "/settings/semantic-recall",
+      ["settings", "semantic-recall"],
+      "POST"
+    );
+    expect(forbiddenRebuild.status).toBe(403);
+
+    const createdServer = await callRoute(adminSession.token, "/mcp-servers", ["mcp-servers"], "POST", {
+      body: { transport: "stdio", name: "New surface MCP", command: "node" }
+    });
+    const serverId = ((await createdServer.json()) as { data: { server: { id: string } } }).data.server.id;
+
+    const oauthFlows = await callRoute(
+      adminSession.token,
+      "/mcp-servers/{serverId}/oauth/flows",
+      ["mcp-servers", serverId, "oauth", "flows"],
+      "POST"
+    );
+    expect(oauthFlows.status).toBe(400);
+
+    const oauthDisconnect = await callRoute(
+      adminSession.token,
+      "/mcp-servers/{serverId}/oauth",
+      ["mcp-servers", serverId, "oauth"],
+      "DELETE"
+    );
+    expect(oauthDisconnect.status).toBe(200);
+    await expect(oauthDisconnect.json()).resolves.toEqual({ data: { success: true } });
+  });
+
+  it("conforms the remaining documented operations to the OpenAPI contract", async () => {
+    const admin = await createLocalUser({
+      username: "coverage-admin",
+      password: "CoverageAdminPassword123!",
+      role: "admin"
+    });
+    const session = await createMobileSession(admin.id, "Coverage device");
+    updateProviderCatalog(createProviderCatalogInput([buildProfile()]));
+
+    const serverInfo = await getServerInfo();
+    expect(serverInfo.status).toBe(200);
+    await assertResponseContract("/server-info", "get", serverInfo);
+
+    const loginResponse = await mobileLoginRoute.POST(
+      directRequest("auth/login", {
+        method: "POST",
+        body: {
+          username: "coverage-admin",
+          password: "CoverageAdminPassword123!",
+          deviceName: "Coverage login"
+        }
+      })
+    );
+    expect(loginResponse.status).toBe(201);
+    await assertResponseContract("/auth/login", "post", loginResponse);
+    const loginToken = ((await loginResponse.json()) as { data: { accessToken: string } }).data
+      .accessToken;
+
+    const sessionResponse = await mobileSessionRoute.GET(
+      directRequest("auth/session", { token: loginToken })
+    );
+    expect(sessionResponse.status).toBe(200);
+    await assertResponseContract("/auth/session", "get", sessionResponse);
+
+    const sessionsResponse = await mobileSessionsRoute.GET(
+      directRequest("auth/sessions", { token: loginToken })
+    );
+    expect(sessionsResponse.status).toBe(200);
+    await assertResponseContract("/auth/sessions", "get", sessionsResponse);
+
+    const revocableSession = await createMobileSession(admin.id, "Coverage revocable device");
+    const revoked = await mobileSessionRevokeRoute.DELETE(
+      directRequest("auth/sessions/session_x", { method: "DELETE", token: loginToken }),
+      { params: Promise.resolve({ sessionId: "session_x" }) }
+    );
+    expect(revoked.status).toBe(404);
+    await assertResponseContract("/auth/sessions/{sessionId}", "delete", revoked);
+
+    const reallyRevoked = await mobileSessionRevokeRoute.DELETE(
+      directRequest(`auth/sessions/${revocableSession.sessionId}`, {
+        method: "DELETE",
+        token: loginToken
+      }),
+      { params: Promise.resolve({ sessionId: revocableSession.sessionId }) }
+    );
+    expect(reallyRevoked.status).toBe(200);
+    await assertResponseContract("/auth/sessions/{sessionId}", "delete", reallyRevoked);
+
+    const accountUpdate = await callRoute(session.token, "/auth/account", ["auth", "account"], "PUT", {
+      body: { username: "coverage-admin", currentPassword: "CoverageAdminPassword123!" }
+    });
+    expect(accountUpdate.status).toBe(200);
+
+    const logoutResponse = await mobileLogoutRoute.POST(
+      directRequest("auth/logout", { method: "POST", token: loginToken })
+    );
+    expect(logoutResponse.status).toBe(200);
+    await assertResponseContract("/auth/logout", "post", logoutResponse);
+
+    const folder = await callRoute(session.token, "/folders", ["folders"], "POST", {
+      body: { name: "Coverage folder" }
+    });
+    const folderId = ((await folder.json()) as { data: { folder: { id: string } } }).data.folder.id;
+
+    await callRoute(session.token, "/folders", ["folders"], "PUT", { body: [folderId] });
+    await callRoute(session.token, "/folders/{folderId}", ["folders", folderId], "PATCH", {
+      body: { name: "Renamed coverage folder" }
+    });
+
+    const conversation = await callRoute(session.token, "/conversations", ["conversations"], "POST", {
+      body: { title: "Coverage conversation", folderId }
+    });
+    const conversationId = ((await conversation.json()) as {
+      data: { conversation: { id: string } };
+    }).data.conversation.id;
+
+    await callRoute(session.token, "/conversations", ["conversations"], "PUT", {
+      body: [{ id: conversationId, folderId }]
+    });
+    await callRoute(session.token, "/conversations/{conversationId}", ["conversations", conversationId], "PATCH", {
+      body: { title: "Renamed coverage conversation" }
+    });
+    await callRoute(
+      session.token,
+      "/conversations/{conversationId}/share",
+      ["conversations", conversationId, "share"],
+      "GET"
+    );
+    await callRoute(
+      session.token,
+      "/conversations/{conversationId}/stop",
+      ["conversations", conversationId, "stop"],
+      "POST"
+    );
+
+    const queued = await callRoute(
+      session.token,
+      "/conversations/{conversationId}/queue",
+      ["conversations", conversationId, "queue"],
+      "POST",
+      { body: { content: "Queued coverage message" } }
+    );
+    const queuedMessageId = ((await queued.json()) as {
+      data: { queuedMessage: { id: string } };
+    }).data.queuedMessage.id;
+    const patchedQueued = await callRoute(
+      session.token,
+      "/conversations/{conversationId}/queue/{queuedMessageId}",
+      ["conversations", conversationId, "queue", queuedMessageId],
+      "PATCH",
+      { body: { content: "Edited queued coverage message" } }
+    );
+    expect(patchedQueued.status).toBe(200);
+
+    const [textAttachment] = await createAttachments(conversationId, [
+      {
+        filename: "coverage.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("Coverage preview body", "utf8")
+      }
+    ]);
+    const preview = await callRoute(
+      session.token,
+      "/attachments/{attachmentId}",
+      ["attachments", textAttachment.id],
+      "GET",
+      { query: "?format=text" }
+    );
+    expect(preview.status).toBe(200);
+    await expect(preview.json()).resolves.toEqual({
+      data: {
+        id: textAttachment.id,
+        filename: "coverage.txt",
+        mimeType: "text/plain",
+        content: "Coverage preview body"
+      }
+    });
+
+    const persona = await callRoute(session.token, "/personas", ["personas"], "POST", {
+      body: { name: "Coverage persona", content: "Answer briefly." }
+    });
+    const personaId = ((await persona.json()) as { data: { persona: { id: string } } }).data.persona
+      .id;
+    await callRoute(session.token, "/personas/{personaId}", ["personas", personaId], "PATCH", {
+      body: { name: "Renamed coverage persona" }
+    });
+    await callRoute(session.token, "/personas/{personaId}", ["personas", personaId], "DELETE");
+
+    const memory = await callRoute(session.token, "/memories", ["memories"], "POST", {
+      body: { content: "Coverage memory", category: "work" }
+    });
+    const memoryId = ((await memory.json()) as { data: { memory: { id: string } } }).data.memory.id;
+    await callRoute(session.token, "/memories/{memoryId}", ["memories", memoryId], "PATCH", {
+      body: { pinned: true }
+    });
+    await callRoute(session.token, "/memories/{memoryId}", ["memories", memoryId], "DELETE");
+
+    const automation = await callRoute(session.token, "/automations", ["automations"], "POST", {
+      body: {
+        name: "Coverage automation",
+        prompt: "Produce a coverage report.",
+        providerProfileId: "profile_mobile_routes",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 60,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: [],
+        enabled: false
+      }
+    });
+    const automationId = ((await automation.json()) as {
+      data: { automation: { id: string } };
+    }).data.automation.id;
+    await callRoute(
+      session.token,
+      "/automations/{automationId}",
+      ["automations", automationId],
+      "PATCH",
+      { body: { name: "Renamed coverage automation" } }
+    );
+    await callRoute(
+      session.token,
+      "/automations/{automationId}/run-now",
+      ["automations", automationId, "run-now"],
+      "POST"
+    );
+    const automationRun = createAutomationRun({
+      automationId,
+      scheduledFor: new Date().toISOString(),
+      triggerSource: "manual_run"
+    });
+    const retriedRun = await callRoute(
+      session.token,
+      "/automation-runs/{runId}/retry",
+      ["automation-runs", automationRun.id, "retry"],
+      "POST"
+    );
+    expect(retriedRun.status).toBe(400);
+    await callRoute(
+      session.token,
+      "/automations/{automationId}",
+      ["automations", automationId],
+      "DELETE"
+    );
+
+    const retryConversation = createConversation("Coverage retry conversation", null, {}, admin.id);
+    createMessage({ conversationId: retryConversation.id, role: "user", content: "Retry this" });
+    const erroredReply = createMessage({
+      conversationId: retryConversation.id,
+      role: "assistant",
+      content: "",
+      status: "error"
+    });
+    await callRoute(
+      session.token,
+      "/messages/{messageId}/retry",
+      ["messages", erroredReply.id, "retry"],
+      "POST"
+    );
+
+    const regenerateConversation = createConversation(
+      "Coverage regenerate conversation",
+      null,
+      {},
+      admin.id
+    );
+    const regeneratedMessage = createMessage({
+      conversationId: regenerateConversation.id,
+      role: "user",
+      content: "Regenerate this"
+    });
+    await callRoute(
+      session.token,
+      "/messages/{messageId}/regenerate",
+      ["messages", regeneratedMessage.id, "regenerate"],
+      "POST"
+    );
+
+    const editConversation = createConversation("Coverage edit conversation", null, {}, admin.id);
+    const editedMessage = createMessage({
+      conversationId: editConversation.id,
+      role: "user",
+      content: "Edit this"
+    });
+    await callRoute(
+      session.token,
+      "/messages/{messageId}/edit-restart",
+      ["messages", editedMessage.id, "edit-restart"],
+      "POST",
+      { body: { content: "Edited coverage message" } }
+    );
+
+    const actionMessage = createMessage({ conversationId, role: "assistant", content: "" });
+    const approvalAction = createMessageAction({
+      messageId: actionMessage.id,
+      kind: "tool_approval",
+      status: "pending",
+      label: 'Allow "git" commands?',
+      detail: "git push",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "tool_approval",
+        scope: "shell",
+        families: ["git"],
+        classified: true,
+        command: "git push"
+      }
+    });
+    await callRoute(
+      session.token,
+      "/message-actions/{actionId}/approve",
+      ["message-actions", approvalAction.id, "approve"],
+      "POST",
+      { body: {} }
+    );
+    const dismissAction = createMessageAction({
+      messageId: actionMessage.id,
+      kind: "create_memory",
+      status: "pending",
+      label: "Remember the preference",
+      detail: "Prefers short answers",
+      proposalState: "pending",
+      proposalPayload: { operation: "create", targetMemoryId: null }
+    });
+    await callRoute(
+      session.token,
+      "/message-actions/{actionId}/dismiss",
+      ["message-actions", dismissAction.id, "dismiss"],
+      "POST"
+    );
+    const secretAction = createMessageAction({
+      messageId: actionMessage.id,
+      kind: "secret_request",
+      status: "pending",
+      label: "Sign in to Example",
+      detail: "https://example.com",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "secret_request",
+        label: "Password",
+        origin: "https://example.com",
+        target: "input#password",
+        save: false
+      }
+    });
+    const filledSecret = await callRoute(
+      session.token,
+      "/message-actions/{actionId}/secret",
+      ["message-actions", secretAction.id, "secret"],
+      "POST",
+      { body: { value: "coverage-secret-value" } }
+    );
+    expect([200, 409]).toContain(filledSecret.status);
+
+    await callRoute(session.token, "/settings/general", ["settings", "general"], "PUT", {
+      body: { preferences: { toolCallDisplay: "status_line" } }
+    });
+    await callRoute(
+      session.token,
+      "/settings/providers/duplicate",
+      ["settings", "providers", "duplicate"],
+      "POST",
+      { body: { sourceProfileId: "profile_mobile_routes" } }
+    );
+    await callRoute(
+      session.token,
+      "/settings/title-generation",
+      ["settings", "title-generation"],
+      "PUT",
+      { body: { titleGenerationMode: "same", titleGenerationProfileId: null } }
+    );
+    const settingsTest = await callRoute(
+      session.token,
+      "/settings/test",
+      ["settings", "test"],
+      "POST",
+      { body: { providerProfileId: "profile_absent" } }
+    );
+    expect([400, 502]).toContain(settingsTest.status);
+
+    await callRoute(
+      session.token,
+      "/speech/transcription/prepare",
+      ["speech", "transcription", "prepare"],
+      "POST"
+    );
+    await callRoute(
+      session.token,
+      "/speech/transcription/transcribe",
+      ["speech", "transcription", "transcribe"],
+      "POST"
+    );
+    await callRoute(
+      session.token,
+      "/speech/transcription/cleanup",
+      ["speech", "transcription", "cleanup"],
+      "POST",
+      { body: { transcript: "Coverage transcript" } }
+    );
+
+    const mcpServer = await callRoute(session.token, "/mcp-servers", ["mcp-servers"], "POST", {
+      body: { transport: "stdio", name: "Coverage MCP", command: "node" }
+    });
+    const mcpServerId = ((await mcpServer.json()) as {
+      data: { server: { id: string } };
+    }).data.server.id;
+    await callRoute(
+      session.token,
+      "/mcp-servers/{serverId}",
+      ["mcp-servers", mcpServerId],
+      "PATCH",
+      { body: { name: "Renamed coverage MCP" } }
+    );
+    const unknownMcpTest = await callRoute(
+      session.token,
+      "/mcp-servers/test",
+      ["mcp-servers", "test"],
+      "POST",
+      { body: { serverId: "server_missing" } }
+    );
+    expect(unknownMcpTest.status).toBe(404);
+    await callRoute(
+      session.token,
+      "/mcp-servers/{serverId}",
+      ["mcp-servers", mcpServerId],
+      "DELETE"
+    );
+
+    const skill = await callRoute(session.token, "/skills", ["skills"], "POST", {
+      body: {
+        name: "Coverage skill",
+        description: "Coverage fixture",
+        content: "Use the coverage flow.",
+        enabled: true
+      }
+    });
+    const skillId = ((await skill.json()) as { data: { skill: { id: string } } }).data.skill.id;
+    await callRoute(session.token, "/skills/{skillId}", ["skills", skillId], "PATCH", {
+      body: { enabled: false }
+    });
+    await callRoute(session.token, "/skills/{skillId}", ["skills", skillId], "DELETE");
+
+    const createdUser = await callRoute(session.token, "/users", ["users"], "POST", {
+      body: {
+        username: "coverage-removable",
+        password: "CoverageRemovablePassword123!",
+        role: "user"
+      }
+    });
+    const removableUserId = ((await createdUser.json()) as { data: { user: { id: string } } }).data
+      .user.id;
+    await callRoute(session.token, "/users/{userId}", ["users", removableUserId], "DELETE");
+
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/connection",
+      ["providers", "profile_mobile_routes", "connection"],
+      "PUT",
+      { body: { credential: "sk-coverage-connection" } }
+    );
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/connection/flows",
+      ["providers", "profile_mobile_routes", "connection", "flows"],
+      "POST"
+    );
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/connection/flows/{flowId}",
+      ["providers", "profile_mobile_routes", "connection", "flows", "flow_missing"],
+      "GET"
+    );
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/connection/flows/{flowId}",
+      ["providers", "profile_mobile_routes", "connection", "flows", "flow_missing"],
+      "DELETE"
+    );
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/models",
+      ["providers", "profile_absent", "models"],
+      "GET"
+    );
+    await callRoute(
+      session.token,
+      "/providers/{profileId}/connection",
+      ["providers", "profile_mobile_routes", "connection"],
+      "DELETE"
+    );
+
+    const bots = await callRoute(session.token, "/bots", ["bots"], "GET");
+    const botId = ((await bots.json()) as { data: { bots: Array<{ id: string }> } }).data.bots[0].id;
+    const deletedBotMemory = await callRoute(
+      session.token,
+      "/bots/{botId}/memories",
+      ["bots", botId, "memories"],
+      "DELETE",
+      { query: "?memoryId=memory_missing" }
+    );
+    await expect(deletedBotMemory.json()).resolves.toEqual({ data: { deleted: true } });
+    await callRoute(
+      session.token,
+      "/bots/{botId}/reset-browser-session",
+      ["bots", botId, "reset-browser-session"],
+      "POST"
+    );
+
+    const avatarPath = ["avatars", "coverage_seed"];
+    const avatar = await mobileGet(request(avatarPath, session.token), context(avatarPath));
+    expect(avatar.status).toBe(200);
+    expect(avatar.headers.get("content-type")).toContain("image/svg+xml");
+    recordOperationCoverage("/avatars/{seed}", "get");
+
+    await callRoute(
+      session.token,
+      "/conversations/{conversationId}",
+      ["conversations", conversationId],
+      "DELETE"
+    );
+    await callRoute(session.token, "/folders/{folderId}", ["folders", folderId], "DELETE");
+  });
+
+  it("asserts every documented operation against the contract", () => {
+    const uncovered = documentedOperations.filter(
+      (operation) =>
+        !coveredOperations.has(operation) && !operationsWithoutJsonConformance.has(operation)
+    );
+
+    expect(
+      uncovered,
+      [
+        "Every operation in contracts/mobile-api-v1.openapi.json must either be exercised",
+        "through assertResponseContract in this suite or be listed in",
+        "operationsWithoutJsonConformance with a reason.",
+        "",
+        ...uncovered.map((operation) => `  ${operation}`)
+      ].join("\n")
+    ).toEqual([]);
   });
 });

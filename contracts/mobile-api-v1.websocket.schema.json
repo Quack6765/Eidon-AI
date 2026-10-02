@@ -21,6 +21,7 @@
       "properties": {
         "operation": { "type": "string", "enum": ["create", "update", "delete"] },
         "targetMemoryId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
+        "botId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }], "description": "Set when the proposal belongs to a bot's private memory pool." },
         "currentMemory": {
           "type": "object",
           "additionalProperties": false,
@@ -144,7 +145,7 @@
         "mimeType": { "type": "string" },
         "byteSize": { "type": "integer", "minimum": 0 },
         "sha256": { "type": "string" },
-        "kind": { "type": "string", "enum": ["image", "text"] },
+        "kind": { "type": "string", "enum": ["image", "text", "file"] },
         "createdAt": { "$ref": "#/$defs/Timestamp" }
       }
     },
@@ -156,7 +157,7 @@
         "id": { "$ref": "#/$defs/OpaqueId" },
         "messageId": { "$ref": "#/$defs/OpaqueId" },
         "timelineKind": { "const": "action" },
-        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "skill_manage", "research_plan", "draft_message", "computer_handoff", "secret_request"] },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "tool_approval", "create_memory", "update_memory", "delete_memory", "image_generation", "delegate_task", "message_bot", "create_bot", "update_bot", "create_automation", "skill_manage", "skill_review", "research_plan", "draft_message", "computer_handoff", "secret_request"] },
         "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
         "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
@@ -286,7 +287,7 @@
         { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["compaction_start", "compaction_end"] } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "text", "kind"], "properties": { "type": { "const": "system_notice" }, "text": { "type": "string" }, "kind": { "const": "compaction_notice" } } },
         { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "usage" }, "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "reasoningTokens": { "type": "integer" }, "cacheReadTokens": { "type": "integer" }, "cacheCreationTokens": { "type": "integer" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "contextTokens", "compactionLimit"], "properties": { "type": { "const": "context_usage" }, "contextTokens": { "type": "integer" }, "compactionLimit": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "contextTokens", "compactionLimit"], "properties": { "type": { "const": "context_usage" }, "contextTokens": { "type": "integer" }, "compactionLimit": { "type": "integer" }, "memoriesUsed": { "type": "integer", "minimum": 0 }, "memoriesTotal": { "type": "integer", "minimum": 0 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "attempt"], "properties": { "type": { "const": "stream_retry" }, "attempt": { "type": "integer" } } },
         { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "answer_reset" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": { "type": { "const": "done" }, "messageId": { "$ref": "#/$defs/OpaqueId" }, "message": { "$ref": "#/$defs/Message" } } },
@@ -336,9 +337,9 @@
     "ClientMessage": {
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "enum": ["subscribe", "request_snapshot", "unsubscribe", "stop"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "maxLength": 65536 }, "attachmentIds": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/OpaqueId" } }, "personaId": { "$ref": "#/$defs/OpaqueId" }, "research": { "$ref": "#/$defs/ChatResearchRequest" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "queue_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId", "content"], "properties": { "type": { "const": "update_queued_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "maxLength": 150000 }, "attachmentIds": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/OpaqueId" } }, "personaId": { "$ref": "#/$defs/OpaqueId" }, "research": { "$ref": "#/$defs/ChatResearchRequest" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "queue_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 150000 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId", "content"], "properties": { "type": { "const": "update_queued_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 150000 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId"], "properties": { "type": { "enum": ["delete_queued_message", "send_queued_message_now"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageIds"], "properties": { "type": { "const": "reorder_queued_messages" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageIds": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/OpaqueId" } } } }
       ]
@@ -348,7 +349,7 @@
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "action", "x", "y"], "properties": { "type": { "const": "computer_pointer" }, "action": { "type": "string", "enum": ["down", "up", "move"] }, "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 }, "button": { "type": "string", "enum": ["left", "right", "middle"] }, "clickCount": { "type": "integer", "minimum": 1, "maximum": 3 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "x", "y", "deltaX", "deltaY"], "properties": { "type": { "const": "computer_wheel" }, "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 }, "deltaX": { "type": "number" }, "deltaY": { "type": "number" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "action", "key"], "properties": { "type": { "const": "computer_key" }, "action": { "type": "string", "enum": ["down", "up"] }, "key": { "type": "string", "minLength": 1, "maxLength": 32 }, "modifiers": { "type": "integer", "minimum": 0, "maximum": 15, "description": "Bit mask: 1 Alt, 2 Ctrl, 4 Meta (sent to the page as Ctrl), 8 Shift." } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "action", "key"], "properties": { "type": { "const": "computer_key" }, "action": { "type": "string", "enum": ["down", "up"] }, "key": { "type": "string", "minLength": 1, "maxLength": 32 }, "code": { "type": "string", "description": "KeyboardEvent.code from the sending client. Accepted for event fidelity; the server does not currently use it." }, "modifiers": { "type": "integer", "minimum": 0, "maximum": 15, "description": "Bit mask: 1 Alt, 2 Ctrl, 4 Meta (sent to the page as Ctrl), 8 Shift." } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "const": "computer_text" }, "text": { "type": "string", "minLength": 1, "maxLength": 2000 } } }
       ]
     },

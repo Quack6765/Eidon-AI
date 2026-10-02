@@ -30,6 +30,15 @@ type VapidRow = {
   credentials_encrypted: string;
 };
 
+type PushSubscriptionRow = {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  created_at: string;
+  last_success_at: string | null;
+  last_error_at: string | null;
+};
+
 function parseObjectJson(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -147,14 +156,7 @@ export function savePushSubscription(userId: string, input: PushSubscriptionInpu
   return getPushSubscriptionByEndpoint(userId, endpoint);
 }
 
-function rowToPushSubscription(row: {
-  id: string;
-  user_id: string;
-  endpoint: string;
-  created_at: string;
-  last_success_at: string | null;
-  last_error_at: string | null;
-}): PushSubscriptionRecord {
+function rowToPushSubscription(row: PushSubscriptionRow): PushSubscriptionRecord {
   return {
     id: row.id,
     userId: row.user_id,
@@ -168,22 +170,15 @@ function rowToPushSubscription(row: {
 export function getPushSubscriptionByEndpoint(userId: string, endpoint: string) {
   const row = getDb()
     .prepare("SELECT * FROM push_subscriptions WHERE user_id = ? AND endpoint = ?")
-    .get(userId, endpoint) as PushSubscriptionRecord | undefined;
-  return row ?? null;
+    .get(userId, endpoint) as PushSubscriptionRow | undefined;
+  return row ? rowToPushSubscription(row) : null;
 }
 
 export function listPushSubscriptions(userId: string): PushSubscriptionRecord[] {
   return (
     getDb()
       .prepare("SELECT * FROM push_subscriptions WHERE user_id = ? ORDER BY created_at ASC")
-      .all(userId) as Array<{
-      id: string;
-      user_id: string;
-      endpoint: string;
-      created_at: string;
-      last_success_at: string | null;
-      last_error_at: string | null;
-    }>
+      .all(userId) as PushSubscriptionRow[]
   ).map(rowToPushSubscription);
 }
 
