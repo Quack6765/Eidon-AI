@@ -1,9 +1,9 @@
 <a name="readme-top"></a>
 
 <div align="center">
-  <img src="./public/eidon-banner.png" alt="Eidon" width="100%" />
-  <br />
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
+  <br />
+  <a href="https://eidonai.app"><b>eidonai.app</b></a>
 
   <p>
     <strong>Self-hosted AI agents that work in their own browser, with chat and automations.</strong><br />
@@ -11,8 +11,6 @@
   </p>
 
   <p>
-    <a href="https://eidonai.app"><b>Website</b></a>
-    ·
     <a href="#-quick-start"><b>Quick start</b></a>
     ·
     <a href="#-agents"><b>Agents</b></a>
