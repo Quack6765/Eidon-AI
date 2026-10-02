@@ -152,9 +152,9 @@ derive their generated API layers from it — they never hand-edit their side.
 **After any change to the API surface** — new or modified routes,
 request/response schemas, enums, or the WebSocket event set — always:
 
-1. Update `contracts/mobile-api-v1.openapi.json` in the same PR (and the
-   gateway route table in `app/api/v1/[...path]/route.ts` when mounting new
-   shared handlers). Update `tests/unit/mobile-contracts.test.ts` and
+1. Update `contracts/mobile-api-v1.openapi.json` in the same PR (and the gateway
+   route table in `app/api/v1/mobile-route-table.ts` when mounting new shared
+   handlers). Update `tests/unit/mobile-contracts.test.ts` and
    `tests/unit/mobile-routes.test.ts` expectations (documented operation and
    request-body counts) so the contract stays verified.
 2. Note in the PR description that native clients must regenerate their
