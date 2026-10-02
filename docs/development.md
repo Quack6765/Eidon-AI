@@ -78,7 +78,7 @@ The screenshots in the README are generated, not hand-taken, so they can be refr
 
 **`npm run seed:readme-demo`** builds a disposable demo dataset into `.context/readme-demo-data`, wiping the directory first: accounts, provider profiles, personas, memories, folders, skills, MCP servers, a representative conversation, and an automation with a completed run. It prints JSON with the demo login credentials and the ids it created. The script refuses to run against a data directory whose final path segment does not contain `readme-demo`, so it cannot destroy your real `.data` or a production volume by accident.
 
-**`npm run screenshots`** is the whole pipeline. It seeds the dataset, starts a dev server pointed at it, drives the bundled `agent-browser` CLI through the app at desktop and mobile viewports, writes the images into `.github/readme/`, and tears the server and browser down afterwards.
+**`npm run screenshots`** is the whole pipeline. It seeds the dataset, starts a dev server pointed at it, drives the bundled `agent-browser` CLI through the app at desktop and mobile viewports, writes the images into `.github/readme/`, and tears the server and browser down afterwards. The live browser shots run a real turn against a local mock model provider (`scripts/readme-mock-provider.mjs`) that opens a demo page in the bot's own browser, so they need no API key. The pipeline uses a short data directory under `/tmp` because macOS rejects the bot browser's socket path when it is too long.
 
 Requirements on your PATH: `jq`, `curl`, and `agent-browser`.
 

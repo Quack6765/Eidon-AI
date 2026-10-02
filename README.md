@@ -149,10 +149,10 @@ to it when the other bot is done. You can open the message that went out and the
 Every bot gets a real browser, so it can open sites, read them, fill in forms, and stay logged
 in between runs. Its cookies and logins are never shared with another bot.
 
-<img src="./.github/readme/desktop-agent-browser.png" alt="A bot browsing a payments dashboard, using a saved password, and handing the browser over for a two-factor code" width="100%" />
+<img src="./.github/readme/desktop-agent-browser.png" alt="A bot's live browser in the conversation, paused on a two-factor code with a Take over button" width="100%" />
 
-- **Watch it work.** While a bot browses, the chat shows its live browser, so you see what it
-  sees as it happens.
+- **Watch it work.** While a bot browses, the chat shows its browser live, so you see what it
+  sees as it happens. Scroll away and it floats in the corner as a small tile, so you keep watching.
 - **Take over when it needs you.** When a bot reaches a login, a two-factor code, a CAPTCHA, or
   a payment, it pauses and asks. You click and type in its browser, then hand it back with an
   optional note, and it carries on from where you left it.
@@ -160,6 +160,10 @@ in between runs. Its cookies and logins are never shared with another bot.
   page for you. It is never sent to the model or written into the conversation. Save it for that
   site and bots stop asking.
 - **Sandboxed.** Each bot's shell and browser run in their own box, with their own working folder.
+
+<img src="./.github/readme/desktop-agent-login.png" alt="A bot signing in with a saved password, then handing the browser over and getting it back" width="100%" />
+
+<sub>A bot signs in with a password typed in for it, hands the browser over for the two-factor code, and carries on once you return control.</sub>
 
 ### You stay in control
 
@@ -396,7 +400,7 @@ built for a phone, not a shrunk-down desktop. A native iOS app is coming soon.
 
 <p align="center">
   <img src="./.github/readme/mobile-chat.png" alt="Eidon chat on a phone" width="31%" />
-  <img src="./.github/readme/mobile-agents.png" alt="Bot roster on a phone" width="31%" />
+  <img src="./.github/readme/mobile-agent-browser.png" alt="A bot browsing live on a phone" width="31%" />
   <img src="./.github/readme/mobile-settings.png" alt="Provider settings on a phone" width="31%" />
 </p>
 

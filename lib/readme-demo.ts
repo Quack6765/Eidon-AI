@@ -143,7 +143,8 @@ export const README_DEMO_FIXTURES = {
     buildProviderProfile({
       id: "readme_profile_openrouter",
       name: "OpenRouter · Claude Sonnet 5",
-      apiBaseUrl: "https://openrouter.ai/api/v1",
+      apiBaseUrl: process.env.README_DEMO_PROVIDER_URL ?? "https://openrouter.ai/api/v1",
+      ...(process.env.README_DEMO_PROVIDER_URL ? { apiMode: "chat_completions" as const } : {}),
       apiKey: "sk-readme-openrouter",
       model: "anthropic/claude-sonnet-5",
       providerPresetId: "openrouter",
