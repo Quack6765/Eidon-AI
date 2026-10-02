@@ -11,6 +11,8 @@
   </p>
 
   <p>
+    <a href="https://eidonai.app"><b>Website</b></a>
+    ·
     <a href="#-quick-start"><b>Quick start</b></a>
     ·
     <a href="#-agents"><b>Agents</b></a>
