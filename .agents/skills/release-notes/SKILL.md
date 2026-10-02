@@ -55,6 +55,20 @@ Hard rules, enforced by `tests/unit/release-highlights.test.ts`:
   vocabulary such as contract, route, migration, or refactor.
 - A fix earns a bullet when the user felt it.
 
+Match the established voice: a short feature headline, a colon, then the user as
+the subject of the second half.
+
+```
+Finish alerts: you can get a phone notification when an automation finishes, via
+  Pushover or ntfy
+```
+
+Follow `lib/release-notes/v5.0.0.ts` for live examples. Two rules are easy to get
+wrong: the headline is two or three words, and every bullet's second half opens
+with "you". Do not write abstract third-person summaries ("Bots now report
+progress live") or bare imperative fragments ("Watch your bot's browser live").
+The headline counts against the 120-character budget.
+
 Check each length, remembering the em dash counts as one character while
 `wc -c` counts three bytes:
 
