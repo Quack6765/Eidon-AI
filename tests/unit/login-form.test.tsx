@@ -13,4 +13,10 @@ describe("login form", () => {
     ).toHaveClass("italic");
     expect(screen.getByRole("button", { name: "Proceed" })).toBeInTheDocument();
   });
+
+  it("renders no banner image", () => {
+    const { container } = render(<LoginForm />);
+
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
 });

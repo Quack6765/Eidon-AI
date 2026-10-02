@@ -8,15 +8,9 @@ import { describe, expect, it } from "vitest";
 import { generateWarriorIconAssets } from "@/lib/warrior-icon-assets";
 
 describe("generateWarriorIconAssets", () => {
-  it("creates only the live icon assets from the banner source", async () => {
+  it("creates only the live icon assets from the warrior source", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "warrior-icons-"));
-    const sourcePath = path.resolve(process.cwd(), "public/eidon-banner.png");
-    const expectedCrop = {
-      left: 332,
-      top: 8,
-      width: 360,
-      height: 360
-    } as const;
+    const sourcePath = path.resolve(process.cwd(), "public/eidon-warrior.png");
 
     try {
       await generateWarriorIconAssets({
@@ -50,7 +44,6 @@ describe("generateWarriorIconAssets", () => {
       });
 
       const expectedAgentIcon = await sharp(sourcePath)
-        .extract(expectedCrop)
         .resize(128, 128, { fit: "fill" })
         .png()
         .raw()
