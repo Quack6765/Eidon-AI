@@ -184,6 +184,31 @@ describe("readme demo seed", () => {
       .forEach((action) => expect(action.label).toMatch(/^Messaged .+$/));
   });
 
+  it("seeds a bot browsing thread with a saved secret and a returned hand-off", async () => {
+    const seeded = await seedReadmeDemoData();
+
+    const snapshot = getConversationSnapshot(
+      seeded.releaseWatchConversationId,
+      seeded.envSuperAdminId
+    );
+    const actions = snapshot?.messages.flatMap((message) => message.actions ?? []) ?? [];
+
+    expect(actions.filter((action) => action.label === "Web browser")).toHaveLength(5);
+    expect(
+      actions.some((action) => action.kind === "secret_request" && action.proposalState === "approved")
+    ).toBe(true);
+
+    // A pending hand-off would be rewritten as "stopped by a server restart" when the dev server boots.
+    expect(
+      actions.some(
+        (action) =>
+          action.kind === "computer_handoff" &&
+          action.status === "completed" &&
+          action.proposalState === "approved"
+      )
+    ).toBe(true);
+  });
+
   it("seeds a deep research transcript with a plan and cited report", async () => {
     const seeded = await seedReadmeDemoData();
 

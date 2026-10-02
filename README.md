@@ -6,12 +6,14 @@
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
 
   <p>
-    <strong>Self-hosted AI chat, with agents and automations.</strong><br />
+    <strong>Self-hosted AI agents that work in their own browser, with chat and automations.</strong><br />
     One Docker image. Your own model keys. Your data stays on your server.
   </p>
 
   <p>
     <a href="#-quick-start"><b>Quick start</b></a>
+    ·
+    <a href="#-agents"><b>Agents</b></a>
     ·
     <a href="#-chat"><b>Features</b></a>
     ·
@@ -32,12 +34,12 @@
   <table>
     <tr>
       <td width="33%" align="center">
-        <a href="./.github/readme/desktop-chat.png"><img src="./.github/readme/desktop-chat.png" alt="Eidon chat" /></a>
-        <br /><b>Chat</b>
+        <a href="./.github/readme/desktop-agent-browser.png"><img src="./.github/readme/desktop-agent-browser.png" alt="Eidon agents" /></a>
+        <br /><b>Agents</b>
       </td>
       <td width="33%" align="center">
-        <a href="./.github/readme/desktop-delegation.png"><img src="./.github/readme/desktop-delegation.png" alt="Eidon agents" /></a>
-        <br /><b>Agents</b>
+        <a href="./.github/readme/desktop-chat.png"><img src="./.github/readme/desktop-chat.png" alt="Eidon chat" /></a>
+        <br /><b>Chat</b>
       </td>
       <td width="33%" align="center">
         <a href="./.github/readme/desktop-automations.png"><img src="./.github/readme/desktop-automations.png" alt="Eidon automations" /></a>
@@ -54,13 +56,27 @@ single file on your server, and works with the model providers you already use.
 
 Get your own AI platform for everything you need in a matter of minutes.
 
-There are three parts: **Chat** for normal conversations, **Agents** for bots that do work
-on their own (Grok Bot like), and **Automations** for tasks that run on a schedule.
+There are three parts: **Agents** for a team of bots that do work on their own, each with its
+own browser, **Chat** for normal conversations, and **Automations** for tasks that run on a
+schedule.
 
 ## ✨ What you get
 
 <table>
 <tr>
+<td valign="top" width="50%">
+
+**Agents**
+
+- A team of persistent bots, led by a Chief of Staff
+- Bots message each other to split the work
+- Each bot has its own browser, memory, and files
+- Watch a bot browse live, and take over when it needs you
+- Passwords are typed in for the bot and never reach the model
+- Allow shell commands and tools once or always
+- Skills shared across the whole team
+
+</td>
 <td valign="top" width="50%">
 
 **Chat**
@@ -76,18 +92,18 @@ on their own (Grok Bot like), and **Automations** for tasks that run on a schedu
 - Mermaid diagrams, syntax highlighting, and LaTeX math
 
 </td>
-<td valign="top" width="50%">
-
-**Agents and automations**
-
-- Agents, with cross-agent messaging (Grok Bot like)
-- Per-agent memory, files, and browser session
-- Deep research with an editable plan
-- Scheduled automations, with full run history
-
-</td>
 </tr>
 <tr>
+<td valign="top" width="50%">
+
+**Automations and research**
+
+- Scheduled and one-time automations, with full run history
+- Run an automation inside a bot, with its browser and files
+- Phone alerts when a run finishes: Pushover, ntfy, or the browser
+- Deep research with an editable plan
+
+</td>
 <td valign="top" width="50%">
 
 **Tools**
@@ -101,7 +117,9 @@ on their own (Grok Bot like), and **Automations** for tasks that run on a schedu
 - Vision support (Native, MCP or with a dedicated vision model)
 
 </td>
-<td valign="top" width="50%">
+</tr>
+<tr>
+<td valign="top" colspan="2">
 
 **Platform**
 
@@ -114,6 +132,67 @@ on their own (Grok Bot like), and **Automations** for tasks that run on a schedu
 </td>
 </tr>
 </table>
+
+## 🤖 Agents
+
+Agents are a team of bots that work toward a goal. Each one has its own chat, its own memory,
+its own files, and its own browser. You start with a Chief of Staff: ask it for something and
+it either answers, passes the job to another bot, or offers to create a new bot for it.
+
+<img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
+
+Any bot can message any other bot. The one that asked keeps working, and the answer comes back
+to it when the other bot is done. You can open the message that went out and the reply that came back.
+
+### A browser of their own
+
+Every bot gets a real browser, so it can open sites, read them, fill in forms, and stay logged
+in between runs. Its cookies and logins are never shared with another bot.
+
+<img src="./.github/readme/desktop-agent-browser.png" alt="A bot browsing a payments dashboard, using a saved password, and handing the browser over for a two-factor code" width="100%" />
+
+- **Watch it work.** While a bot browses, the chat shows its live browser, so you see what it
+  sees as it happens.
+- **Take over when it needs you.** When a bot reaches a login, a two-factor code, a CAPTCHA, or
+  a payment, it pauses and asks. You click and type in its browser, then hand it back with an
+  optional note, and it carries on from where you left it.
+- **Passwords never reach the model.** A bot can ask for a password, and Eidon types it into the
+  page for you. It is never sent to the model or written into the conversation. Save it for that
+  site and bots stop asking.
+- **Sandboxed.** Each bot's shell and browser run in their own box, with their own working folder.
+
+### You stay in control
+
+<table>
+<tr>
+<td width="50%">
+
+<img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
+
+<b>See what the team is doing</b><br />
+<sub>Every bot shows whether it is working, idle, or waiting on you, and every run is listed with how it started.</sub>
+
+</td>
+<td width="50%">
+
+<img src="./.github/readme/desktop-agent-proposal.png" alt="A bot proposing a scheduled automation" />
+
+<b>They ask first</b><br />
+<sub>A bot that notices repeating work offers to schedule it, then waits for your answer.</sub>
+
+</td>
+</tr>
+</table>
+
+- **Approve what runs.** Allow a bot's shell commands and MCP tools once, or always.
+- **Nothing goes out by surprise.** Emails and Slack messages are drafted first, so you can edit
+  them before they are sent.
+- **Stop or redirect at any time.** Stop one run or the whole chain, or send a message mid-run to
+  change course.
+- **Skills the whole team shares.** A bot can write a skill once, every bot can use it, and
+  skills nobody uses are tidied away.
+- **Files you can open.** What a bot produces lands in the chat as an attachment you can preview.
+- **Mention another bot with `@`** in a bot's chat to have it hand the request over.
 
 ## 🚀 Quick start
 
@@ -179,39 +258,6 @@ A normal chat for day-to-day questions and getting work done, with solid tools b
 - **Auto compaction for long chats.** Older messages are condensed in the background, and
   Eidon tells you when it happens.
 - **Attach any file**, paste images, or dictate instead of typing.
-
-## 🤖 Agents
-
-Agents are bots that work together to achieve a goal. Each one has its own chat, its own memory, and its own
-workspace. You start with a Chief of Staff — ask it for something and it either answers, passes
-the job to another bot, or offers to create a new bot for it.
-
-<img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
-
-Any bot can message any other bot. The one that asked keeps
-working, and the answer comes back to it when the other bot is done.
-
-A bot can also write its own skill for future use.
-
-<table>
-<tr>
-<td width="50%">
-
-<img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
-
-<b>See what the crew is doing</b><br />
-<sub>Each bot also gets its own browser, so it can navigate and stay logged in to sites on its own.</sub>
-
-</td>
-<td width="50%">
-
-<img src="./.github/readme/desktop-agent-proposal.png" alt="A bot proposing a scheduled automation" />
-
-<b>They ask first</b><br />
-<sub>A bot that notices repeating work offers to schedule it, then waits for your answer.</sub>
-</td>
-</tr>
-</table>
 
 ## 🔍 Deep research
 

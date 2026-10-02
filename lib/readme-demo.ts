@@ -383,6 +383,8 @@ export type ReadmeDemoSeedResult = {
   chiefBotId: string;
   chiefConversationId: string;
   researchDeskBotId: string;
+  releaseWatchBotId: string;
+  releaseWatchConversationId: string;
   inboxTriageBotId: string;
 };
 
@@ -1443,6 +1445,134 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     sortOrder: 1
   });
 
+  createMessage({
+    conversationId: releaseWatch.homeConversationId,
+    role: "user",
+    content: "Check the payments dashboard for failed payouts before we ship."
+  });
+
+  const releaseWatchReply = createMessage({
+    conversationId: releaseWatch.homeConversationId,
+    role: "assistant",
+    content: ""
+  });
+
+  createMessageTextSegment({
+    messageId: releaseWatchReply.id,
+    sortOrder: 0,
+    content: "Opening the payments dashboard in my browser. It wants a sign-in first."
+  });
+
+  const browserSteps = [
+    {
+      command: "agent-browser open https://payments.example.com/payouts",
+      result: "Sign in · Example Payments"
+    },
+    {
+      command: "agent-browser snapshot -i",
+      result: "Email field, password field, Sign in button"
+    },
+    {
+      command: "agent-browser fill @e1 ops@eidon.example",
+      result: "Filled"
+    }
+  ];
+
+  browserSteps.forEach((step, index) => {
+    const browserAction = createMessageAction({
+      messageId: releaseWatchReply.id,
+      kind: "shell_command",
+      status: "completed",
+      toolName: "execute_shell_command",
+      label: "Web browser",
+      detail: step.command,
+      arguments: { command: step.command },
+      resultSummary: step.result,
+      sortOrder: index + 1
+    });
+    markCompletedAction(browserAction.id);
+  });
+
+  const secretAction = createMessageAction({
+    messageId: releaseWatchReply.id,
+    kind: "secret_request",
+    status: "completed",
+    label: "Password requested",
+    detail: "Needed to sign in to the payments dashboard.",
+    resultSummary: "Your password for payments.example.com",
+    sortOrder: 4,
+    proposalState: "approved",
+    proposalPayload: {
+      operation: "secret_request",
+      label: "password",
+      origin: "https://payments.example.com",
+      target: "@e2",
+      save: true,
+      resolution: "filled",
+      saved: true
+    },
+    proposalUpdatedAt: nowIso()
+  });
+  markCompletedAction(secretAction.id);
+
+  createMessageTextSegment({
+    messageId: releaseWatchReply.id,
+    sortOrder: 5,
+    content: "Signed in, but the dashboard now wants a two-factor code from your authenticator app, which only you have. Over to you."
+  });
+
+  const handoffAction = createMessageAction({
+    messageId: releaseWatchReply.id,
+    kind: "computer_handoff",
+    status: "completed",
+    label: "Your turn in the browser",
+    detail: "Enter the two-factor code to finish signing in to the payments dashboard.",
+    resultSummary: "You returned control",
+    sortOrder: 6,
+    proposalState: "approved",
+    proposalPayload: {
+      operation: "computer_handoff",
+      reason: "Enter the two-factor code from your authenticator app to finish signing in to the payments dashboard.",
+      resolution: "returned",
+      note: "Code entered, you are on the payouts page."
+    },
+    proposalUpdatedAt: nowIso()
+  });
+  markCompletedAction(handoffAction.id);
+
+  const payoutSteps = [
+    {
+      command: "agent-browser snapshot -i",
+      result: "Payouts table, 2 rows marked Failed"
+    },
+    {
+      command: "agent-browser get text @e7",
+      result: "Insufficient balance · retried automatically"
+    }
+  ];
+
+  payoutSteps.forEach((step, index) => {
+    const browserAction = createMessageAction({
+      messageId: releaseWatchReply.id,
+      kind: "shell_command",
+      status: "completed",
+      toolName: "execute_shell_command",
+      label: "Web browser",
+      detail: step.command,
+      arguments: { command: step.command },
+      resultSummary: step.result,
+      sortOrder: 7 + index
+    });
+    markCompletedAction(browserAction.id);
+  });
+
+  createMessageTextSegment({
+    messageId: releaseWatchReply.id,
+    sortOrder: 9,
+    content:
+      "You are clear to ship. Two payouts failed overnight for insufficient balance, and both went through on the automatic retry. I will keep the session signed in for the next check."
+  });
+
   setConversationActive(researchDesk.homeConversationId, true);
 
   const routineBotRun = createBotRunRecord({
@@ -1488,6 +1618,8 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     chiefBotId: chiefBot.id,
     chiefConversationId: chiefBot.homeConversationId,
     researchDeskBotId: researchDesk.id,
+    releaseWatchBotId: releaseWatch.id,
+    releaseWatchConversationId: releaseWatch.homeConversationId,
     inboxTriageBotId: inboxTriage.id
   };
 }

@@ -64,6 +64,7 @@ AUTOMATION_RUN_ID=$(seeded automationRunId)
 CHIEF_BOT_ID=$(seeded chiefBotId)
 CHIEF_CONV_ID=$(seeded chiefConversationId)
 INBOX_TRIAGE_BOT_ID=$(seeded inboxTriageBotId)
+RELEASE_WATCH_BOT_ID=$(seeded releaseWatchBotId)
 
 echo "  primary conversation:  $PRIMARY_CONV_ID"
 echo "  research conversation: $RESEARCH_CONV_ID"
@@ -196,7 +197,8 @@ shot() {
 echo "==> Desktop shots (${DESKTOP_WIDTH}x${DESKTOP_HEIGHT})..."
 set_viewport "$DESKTOP_WIDTH" "$DESKTOP_HEIGHT"
 shot "desktop-chat.png"           "/chat/$PRIMARY_CONV_ID"                            "April launch"          sidebar top
-shot "desktop-agents.png"         "/agents"                                            "Chief of Staff"
+shot "desktop-agents.png"         "/agents/roster"                                     "Chief of Staff"
+shot "desktop-agent-browser.png"  "/agents/$RELEASE_WATCH_BOT_ID"                     "You returned control"    sidebar top
 shot "desktop-agent-proposal.png" "/agents/$INBOX_TRIAGE_BOT_ID"                       "Schedule automation"   
 shot "desktop-delegation.png"     "/agents/$CHIEF_BOT_ID"                              "Splitting this in two" sidebar top
 shot "desktop-research.png"       "/chat/$RESEARCH_CONV_ID"                            "Research plan"        sidebar top
@@ -274,7 +276,7 @@ capture_research_plan
 echo "==> Mobile shots (${MOBILE_WIDTH}x${MOBILE_HEIGHT})..."
 set_viewport "$MOBILE_WIDTH" "$MOBILE_HEIGHT"
 shot "mobile-chat.png"     "/chat/$PRIMARY_CONV_ID" "April launch"   nosidebar
-shot "mobile-agents.png"   "/agents"                "Chief of Staff" nosidebar
+shot "mobile-agents.png"   "/agents/roster"         "Chief of Staff" nosidebar
 shot "mobile-settings.png" "/settings/providers"    "OpenRouter"     nosidebar
 
 echo "==> Post-processing..."
