@@ -64,7 +64,7 @@ This lets several worktrees run at once without colliding. Read the first line o
 | `npm run test:e2e` | Playwright end-to-end specs |
 | `npm run seed:readme-demo` | Seed the disposable README screenshot dataset |
 | `npm run screenshots` | Capture the README screenshots against that dataset |
-| `npm run assets:warrior-icons` | Regenerate the app and PWA icon assets in `public/` from `public/eidon-banner.png` |
+| `npm run assets:warrior-icons` | Regenerate the app and PWA icon assets in `public/` from `public/eidon-warrior.png` |
 
 ## Testing
 

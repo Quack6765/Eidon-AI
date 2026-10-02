@@ -6,7 +6,7 @@ async function main() {
   const projectRoot = process.cwd();
 
   await generateWarriorIconAssets({
-    sourcePath: path.join(projectRoot, "public/eidon-banner.png"),
+    sourcePath: path.join(projectRoot, "public/eidon-warrior.png"),
     outputDir: path.join(projectRoot, "public")
   });
 
