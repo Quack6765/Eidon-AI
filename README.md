@@ -6,7 +6,7 @@
   <a href="https://eidonai.app"><b>eidonai.app</b></a>
 
   <p>
-    <strong>Self-hosted AI agents that work in their own browser, with chat and automations.</strong><br />
+    <strong>A self-hosted AI platform with a team of agents, and a chat for everything else.</strong><br />
     One Docker image. Your own model keys. Your data stays on your server.
   </p>
 
@@ -15,9 +15,9 @@
     ·
     <a href="#-agents"><b>Agents</b></a>
     ·
-    <a href="#-chat"><b>Features</b></a>
+    <a href="#-chat"><b>Chat</b></a>
     ·
-    <a href="#-providers"><b>Providers</b></a>
+    <a href="#works-with-the-ai-you-already-use"><b>Providers</b></a>
     ·
     <a href="./docs/configuration.md"><b>Configuration</b></a>
     ·
@@ -51,119 +51,51 @@
   <sub>Click any screenshot to see it full size.</sub>
 </div>
 
-Eidon is a self-hosted AI assistant. It runs as one Docker image, keeps your data in a
-single file on your server, and works with the model providers you already use.
-
-Get your own AI platform for everything you need in a matter of minutes.
-
-There are three parts: **Agents** for a team of bots that do work on their own, each with its
-own browser, **Chat** for normal conversations, and **Automations** for tasks that run on a
-schedule.
-
-## ✨ What you get
-
-<table>
-<tr>
-<td valign="top" width="50%">
-
-**Agents**
-
-- A team of persistent bots, led by a Chief of Staff
-- Bots message each other to split the work
-- Each bot has its own browser, memory, and files
-- Watch a bot browse live, and take over when it needs you
-- Passwords are typed in for the bot and never reach the model
-- Allow shell commands and tools once or always
-- Skills shared across the whole team
-
-</td>
-<td valign="top" width="50%">
-
-**Chat**
-
-- Chat and conversation
-- Persistent memory across conversations
-- Personas
-- Folders, chat search, and forking
-- Read-only share links
-- Temporary chats
-- Chat attachments
-- Voice input with post-processing cleanup
-- Mermaid diagrams, syntax highlighting, and LaTeX math
-
-</td>
-</tr>
-<tr>
-<td valign="top" width="50%">
-
-**Automations and research**
-
-- Scheduled and one-time automations, with full run history
-- Run an automation inside a bot, with its browser and files
-- Phone alerts when a run finishes: Pushover, ntfy, or the browser
-- Deep research with an editable plan
-
-</td>
-<td valign="top" width="50%">
-
-**Tools**
-
-- MCP
-- Skills
-- Built-in web search
-- Built-in browser
-- Shell commands
-- Image generation
-- Vision support (Native, MCP or with a dedicated vision model)
-
-</td>
-</tr>
-<tr>
-<td valign="top" colspan="2">
-
-**Platform**
-
-- Bring your own provider
-- Multi-user, with admin and user roles
-- Single Docker image, SQLite, encrypted credentials
-- Installable PWA — native iOS app coming soon
-- Live sync across devices
-
-</td>
-</tr>
-</table>
+Eidon is a self-hosted AI platform. It is a **team of agents** that do work on their own, in
+their own browsers, and an **everyday chat** for the questions that do not need a team. It runs
+as one Docker image, keeps your data in a single file on your server, and works with the model
+providers you already use.
 
 ## 🤖 Agents
 
-Agents are a team of bots that work toward a goal. Each one has its own chat, its own memory,
-its own files, and its own browser. You start with a Chief of Staff: ask it for something and
-it either answers, passes the job to another bot, or offers to create a new bot for it.
+Build a team, or let the Chief of Staff build it. Each agent has its own chat, memory, files,
+and browser, and you step in whenever you want.
+
+1. **Ask the Chief.** The Chief of Staff answers directly, passes the job to a specialist, or
+   offers to create a new agent for it.
+2. **Delegate.** Any agent can message any other agent. The one that asked keeps working, and
+   the answer comes back to it when the other agent is done.
+3. **Browse the web.** Agents open sites in their own browser, read them, fill in forms, and stay
+   logged in.
+4. **Report back.** You get the result in the chat, and you can open the message that went out
+   and the reply that came back.
+5. **Schedule it.** An agent that notices repeating work offers to run it on a schedule, then
+   waits for your answer.
 
 <img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
 
-Any bot can message any other bot. The one that asked keeps working, and the answer comes back
-to it when the other bot is done. You can open the message that went out and the reply that came back.
+Make the team your own: a travel scout, an inbox triager, a research desk, a coding assistant
+that works in its own sandboxed folder. Mention another agent with `@` in an agent's chat to
+have it hand the request over.
 
 ### A browser of their own
 
-Every bot gets a real browser, so it can open sites, read them, fill in forms, and stay logged
-in between runs. Its cookies and logins are never shared with another bot.
+Every agent gets a real browser. Its cookies and logins are never shared with another agent.
 
-<img src="./.github/readme/desktop-agent-browser.png" alt="A bot's live browser in the conversation, paused on a two-factor code with a Take over button" width="100%" />
+<img src="./.github/readme/desktop-agent-browser.png" alt="An agent's live browser in the conversation, paused on a two-factor code with a Take over button" width="100%" />
 
-- **Watch it work.** While a bot browses, the chat shows its browser live, so you see what it
-  sees as it happens. Scroll away and it floats in the corner as a small tile, so you keep watching.
-- **Take over when it needs you.** When a bot reaches a login, a two-factor code, a CAPTCHA, or
-  a payment, it pauses and asks. You click and type in its browser, then hand it back with an
-  optional note, and it carries on from where you left it.
-- **Passwords never reach the model.** A bot can ask for a password, and Eidon types it into the
-  page for you. It is never sent to the model or written into the conversation. Save it for that
-  site and bots stop asking.
-- **Sandboxed.** Each bot's shell and browser run in their own box, with their own working folder.
+- **Watch it work.** While an agent browses, the chat shows its browser live. Scroll away and it
+  floats in the corner as a small tile, so you keep watching.
+- **Take over when it needs you.** When an agent reaches a login, a two-factor code, a CAPTCHA,
+  or a payment, it pauses and asks. You click and type in its browser, then hand it back with
+  an optional note, and it carries on from where you left it.
+- **Passwords never reach the model.** An agent can ask for a password, and Eidon types it into
+  the page for you. It is never sent to the model or written into the conversation. Save it for
+  that site and agents stop asking.
+- **Sandboxed.** Each agent's shell and browser run in their own box, with their own working
+  folder.
 
-<img src="./.github/readme/desktop-agent-login.png" alt="A bot signing in with a saved password, then handing the browser over and getting it back" width="100%" />
-
-<sub>A bot signs in with a password typed in for it, hands the browser over for the two-factor code, and carries on once you return control.</sub>
+<img src="./.github/readme/desktop-agent-login.png" alt="An agent signing in with a saved password, then handing the browser over and getting it back" width="100%" />
 
 ### You stay in control
 
@@ -171,32 +103,32 @@ in between runs. Its cookies and logins are never shared with another bot.
 <tr>
 <td width="50%">
 
-<img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
+<img src="./.github/readme/desktop-agents.png" alt="Agent roster with live status" />
 
 <b>See what the team is doing</b><br />
-<sub>Every bot shows whether it is working, idle, or waiting on you, and every run is listed with how it started.</sub>
+<sub>Every agent shows whether it is working, idle, or waiting on you, and every run is listed with how it started.</sub>
 
 </td>
 <td width="50%">
 
-<img src="./.github/readme/desktop-agent-proposal.png" alt="A bot proposing a scheduled automation" />
+<img src="./.github/readme/desktop-agent-proposal.png" alt="An agent proposing a scheduled automation" />
 
 <b>They ask first</b><br />
-<sub>A bot that notices repeating work offers to schedule it, then waits for your answer.</sub>
+<sub>An agent that notices repeating work offers to schedule it, then waits for your answer.</sub>
 
 </td>
 </tr>
 </table>
 
-- **Approve what runs.** Allow a bot's shell commands and MCP tools once, or always.
+- **Approve what runs.** Allow an agent's shell commands and MCP tools once, always, or never.
 - **Nothing goes out by surprise.** Emails and Slack messages are drafted first, so you can edit
   them before they are sent.
-- **Stop or redirect at any time.** Stop one run or the whole chain, or send a message mid-run to
-  change course.
-- **Skills the whole team shares.** A bot can write a skill once, every bot can use it, and
+- **Stop or redirect at any time.** Stop one run or the whole chain, send a message mid-run to
+  change course, or rewind to any earlier message.
+- **Skills the whole team shares.** An agent can write a skill once, every agent can use it, and
   skills nobody uses are tidied away.
-- **Files you can open.** What a bot produces lands in the chat as an attachment you can preview.
-- **Mention another bot with `@`** in a bot's chat to have it hand the request over.
+- **Files you can open.** What an agent produces lands in the chat as an attachment you can
+  preview.
 
 ## 🚀 Quick start
 
@@ -252,111 +184,76 @@ Full reference in [Configuration](./docs/configuration.md).
 
 ## 💬 Chat
 
-A normal chat for day-to-day questions and getting work done, with solid tools built in.
+Not every question needs a team. The everyday chat is for questions and getting work done, and
+it has the same tools the agents do.
 
 <img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
-- **Reliable multi-conversations memory** You can approve it, edit it, or ignore it.
+- **Memory that you control.** Eidon offers to remember things that outlive the conversation, such
+  as a birthday or a preference you keep stating. It asks before saving anything, and you can
+  search, edit, pin, or delete every memory.
+- **Folders and search** to find an old conversation again.
+- **Rewind, fork, or edit.** Go back to any message, branch off any reply, or rewrite an earlier
+  message and carry on from there.
 - **Send follow-ups while it is still working.** They queue up in order.
-- **Edit an older message** and carry on from there, or branch off any reply.
-- **Auto compaction for long chats.** Older messages are condensed in the background, and
-  Eidon tells you when it happens.
-- **Attach any file**, paste images, or dictate instead of typing.
+- **Files, images, and voice.** Attach any file, paste images, or dictate instead of typing.
+- **Personas** to switch how it answers.
+- **Temporary chats** that stay out of your history, and **read-only share links** for the ones
+  you want to send.
+- **Auto compaction for long chats.** Older messages are condensed in the background, and Eidon
+  tells you when it happens.
 
-## 🔍 Deep research
-
-Turn on **Deep research** and Eidon writes a detailed plan before it starts it's search. Change the steps however
-you want, then let it run.
+## ⚡ Every chat and every agent can do this
 
 <table>
 <tr>
 <td width="50%">
+
 <img src="./.github/readme/desktop-research-plan.png" alt="An editable seven-step research plan" />
 
-<b>You approve the plan</b><br />
-<sub>Edit, reorder, or remove any step. Nothing runs until you say so.</sub>
-</td>
-<td width="50%">
-
-<img src="./.github/readme/desktop-research.png" alt="A cited research report with a comparison table" />
-
-<b>You get a report with sources</b><br />
-<sub>It searches, reads the pages in full, and links everything it used.</sub>
+<b>Research in depth</b><br />
+<sub>Turn on Deep research and approve the plan before anything runs. You get a report with sources.</sub>
 
 </td>
-</tr>
-</table>
-
-## ⏰ Automations
-
-Support for automations of tasks. Every couple of minutes, or at a set time each day or week.
-Every run is saved as a chat you can open and read.
-
-<table>
-<tr>
 <td width="50%">
 
 <img src="./.github/readme/desktop-automations.png" alt="Automation detail with run history" />
 
-<b>Every run is kept</b><br />
-<sub>Run one now, retry one that failed, or review older runs.</sub>
-
-</td>
-<td width="50%">
-
-<img src="./.github/readme/desktop-automation-run.png" alt="A scheduled run transcript with tool calls" />
-
-<b>See what it did</b><br />
-<sub>The whole run, step by step, not just the final answer.</sub>
+<b>Work on a schedule</b><br />
+<sub>Every few minutes, daily, weekly, or once. Every run is saved as a chat you can read.</sub>
 
 </td>
 </tr>
 </table>
 
-## 🧠 Memory
-
-Eidon picks up on things worth remembering — what you are working on, who is involved, how
-you like your answers — and brings them back in later conversations without you repeating
-yourself.
-
-<img src="./.github/readme/desktop-memories.png" alt="Memory settings with pinned memories" width="100%" />
-
-- It asks before saving anything, so nothing is stored behind your back.
-- **Global, not per-chat.** It offers to remember things that outlive the conversation — a birthday, something you dislike, a preference you keep stating — and never the details of the task you just finished.
-- Search, edit, or delete anything it has remembered.
-- Pin the things that are important and must be added to all chats at all time.
-
-## 🛠️ Tools
-
-Web search, reading web pages, image generation, looking at images, and running commands are
-all built in. Add more with MCP (local or remote).
-
-<img src="./.github/readme/desktop-mcp.png" alt="MCP server configuration" width="100%" />
+- **Search and browse the web.** Web search, page reading, and a built-in browser are included.
+- **Use apps and skills.** Add tools with MCP, local or remote, and teach it your own workflows
+  with skills.
+- **Code, diagrams, and images.** Syntax highlighting, Mermaid diagrams, LaTeX math, image
+  generation, and vision, native or through a dedicated vision model.
+- **Run automations inside an agent**, with its browser and files, and get a phone alert when a
+  run finishes: Pushover, ntfy, or the browser.
 
 Full list in [Features](./docs/features.md).
 
-## 📊 Diagrams, code, and math
+## 🏠 Yours to run
 
-<table>
-<tr>
-<td width="50%">
+Eidon is free and open source. It runs on your own computer or server, and setup is one Docker
+command. Bring your own model keys instead of paying a subscription per person for each
+assistant.
 
-<img src="./.github/readme/desktop-mermaid.png" alt="A Mermaid diagram rendered in a conversation" />
+- **Multiple users**, with admin and user roles, each with private data.
+- **Nothing leaves your server.** Your chats live in one SQLite file you can copy and back up, and
+  provider credentials are encrypted.
+- **Installable on your phone.** Add it to your home screen and it opens like a normal app, with
+  live sync across devices. A native iOS app is coming soon.
 
-<b>Mermaid diagrams</b>
+<p align="center">
+  <img src="./.github/readme/mobile-chat.png" alt="Eidon chat on a phone" width="31%" />
+  <img src="./.github/readme/mobile-agent-browser.png" alt="An agent browsing live on a phone" width="31%" />
+</p>
 
-</td>
-<td width="50%">
-
-<img src="./.github/readme/desktop-code.png" alt="A syntax-highlighted code block" />
-
-<b>Code and math</b>
-
-</td>
-</tr>
-</table>
-
-## 🔌 Providers
+### Works with the AI you already use
 
 <p>
   <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-0a0a0a?style=flat-square" />
@@ -366,6 +263,7 @@ Full list in [Features](./docs/features.md).
   <img alt="LM Studio" src="https://img.shields.io/badge/LM%20Studio-0a0a0a?style=flat-square&logo=lmstudio&logoColor=white" />
   <img alt="GitHub Copilot" src="https://img.shields.io/badge/GitHub%20Copilot-0a0a0a?style=flat-square&logo=githubcopilot&logoColor=white" />
   <img alt="Gemini" src="https://img.shields.io/badge/Gemini-0a0a0a?style=flat-square&logo=googlegemini&logoColor=white" />
+  <img alt="Command Code" src="https://img.shields.io/badge/Command%20Code-0a0a0a?style=flat-square" />
   <img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-0a0a0a?style=flat-square&logo=opencode&logoColor=white" />
   <img alt="Xiaomi" src="https://img.shields.io/badge/Xiaomi-0a0a0a?style=flat-square&logo=xiaomi&logoColor=white" />
   <img alt="MiniMax" src="https://img.shields.io/badge/MiniMax-0a0a0a?style=flat-square&logo=minimax&logoColor=white" />
@@ -383,39 +281,8 @@ Full list in [Features](./docs/features.md).
   <img alt="Plus any OpenAI-compatible or Anthropic-compatible provider" src="https://img.shields.io/badge/%2B%20any%20OpenAI--compatible%20or%20Anthropic--compatible%20provider-8b5cf6?style=flat-square&labelColor=0a0a0a" />
 </p>
 
-Eidon supports most of the big providers out of the box, and you can bring any other
-OpenAI- or Anthropic-compatible service you want — including Ollama or LM Studio running on
-your own machine.
-
-Set up as many as you like and switch between them in any chat. Your keys are encrypted.
-
-<img src="./.github/readme/desktop-providers.png" alt="Multiple provider profiles configured side by side" width="100%" />
-
-Setup for each one is in [Providers](./docs/providers.md).
-
-## 📱 On your phone
-
-Add Eidon to your home screen from the browser and it opens like a normal app. The layout is
-built for a phone, not a shrunk-down desktop. A native iOS app is coming soon.
-
-<p align="center">
-  <img src="./.github/readme/mobile-chat.png" alt="Eidon chat on a phone" width="31%" />
-  <img src="./.github/readme/mobile-agent-browser.png" alt="A bot browsing live on a phone" width="31%" />
-  <img src="./.github/readme/mobile-settings.png" alt="Provider settings on a phone" width="31%" />
-</p>
-
-## 💡 Why Eidon
-
-One Docker container, running in minutes, and you have the whole thing: agents doing real
-work, everyday chat, and automations on a schedule.
-
-- **Start in minutes.** One container and one volume. Nothing else to wire together.
-- **Everything in one place.** Agents, automations, memory, tools, and multiple users are all
-  part of it.
-- **Bring your own model.** No expensive per-person subscription, and nothing tying you to one
-  company's ecosystem.
-- **Your chats stay on your server**, in one file you can copy and back up.
-- **Open source**, under AGPL-3.0.
+Set up as many as you like and switch between them in any chat, including Ollama or LM Studio
+running on your own machine. Setup for each one is in [Providers](./docs/providers.md).
 
 ## 📚 Documentation
 
