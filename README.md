@@ -184,26 +184,26 @@ Full reference in [Configuration](./docs/configuration.md).
 
 ## 💬 Chat
 
-Not every question needs a team. The everyday chat is for questions and getting work done, and
-it has the same tools the agents do.
+Not every question needs a team. For day-to-day questions and getting work done, open a normal
+conversation and just talk. No agents, no setup.
 
 <img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
-- **Memory that you control.** Eidon offers to remember things that outlive the conversation, such
-  as a birthday or a preference you keep stating. It asks before saving anything, and you can
-  search, edit, pin, or delete every memory.
-- **Folders and search** to find an old conversation again.
-- **Rewind, fork, or edit.** Go back to any message, branch off any reply, or rewrite an earlier
+- **It remembers what matters.** Eidon offers to remember things that outlive the conversation,
+  such as a birthday or a preference you keep stating. It asks first, and you can search, edit,
+  pin, or delete every memory.
+- **Change course any time.** Rewind to any message, branch off any reply, or rewrite an earlier
   message and carry on from there.
-- **Send follow-ups while it is still working.** They queue up in order.
-- **Files, images, and voice.** Attach any file, paste images, or dictate instead of typing.
-- **Personas** to switch how it answers.
-- **Temporary chats** that stay out of your history, and **read-only share links** for the ones
-  you want to send.
-- **Auto compaction for long chats.** Older messages are condensed in the background, and Eidon
-  tells you when it happens.
+- **Keep typing while it works.** Follow-ups queue up in order.
+- **Stay organized.** Folders, search, personas, temporary chats that stay out of your history,
+  and read-only share links.
+- **Talk or attach.** Dictate instead of typing, attach any file, or paste an image.
+- **Long chats stay usable.** Older messages are condensed in the background, and Eidon tells you
+  when it happens.
 
-## ⚡ Every chat and every agent can do this
+## ⚡ Built in, for every chat and every agent
+
+Everything below works in the everyday chat and for every agent on your team.
 
 <table>
 <tr>
@@ -226,13 +226,22 @@ it has the same tools the agents do.
 </tr>
 </table>
 
-- **Search and browse the web.** Web search, page reading, and a built-in browser are included.
-- **Use apps and skills.** Add tools with MCP, local or remote, and teach it your own workflows
-  with skills.
-- **Code, diagrams, and images.** Syntax highlighting, Mermaid diagrams, LaTeX math, image
-  generation, and vision, native or through a dedicated vision model.
-- **Run automations inside an agent**, with its browser and files, and get a phone alert when a
-  run finishes: Pushover, ntfy, or the browser.
+| Feature | What you get |
+| --- | --- |
+| **Web search** | Search with Exa (no key needed), Tavily, or your own SearXNG |
+| **Read and browse the web** | Pages read in full, plus a built-in browser |
+| **Deep research** | An editable plan, then a cited report |
+| **Memory** | Global, approved by you, with pinned memories and semantic recall |
+| **MCP** | Connect local or remote MCP servers as tools |
+| **Skills** | Reusable instructions you write once and load when they are relevant |
+| **Image generation** | Create images from a prompt and keep them in the chat |
+| **Vision** | Understand images natively, through MCP, or with a dedicated vision model |
+| **Shell commands** | Run commands, with approval prompts when they matter |
+| **Code, diagrams, and math** | Syntax highlighting, Mermaid diagrams, and LaTeX |
+| **Files** | Attach any file; PDFs and text files are read for you |
+| **Voice input** | Dictate with your browser, an offline model on your server, or ElevenLabs, AssemblyAI, Soniox |
+| **Automations** | Scheduled and one-time runs, with full history, inside a chat or an agent |
+| **Phone alerts** | Get notified when a run finishes: Pushover, ntfy, or the browser |
 
 Full list in [Features](./docs/features.md).
 
