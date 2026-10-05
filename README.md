@@ -129,8 +129,8 @@ and browser, and you step in whenever you want.
 <img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
 
 Make the team your own: a travel scout, an inbox triager, a research desk, a coding assistant
-that works in its own sandboxed folder. Mention another agent with `@` in an agent's chat to
-have it hand the request over.
+that works in its own sandboxed folder. Ask the Chief of Staff, or mention another agent with `@`
+in an agent's chat, to have the request handed over.
 
 ### A browser of their own
 
@@ -203,7 +203,7 @@ conversation and just talk. No agents, no setup.
 - **Long chats stay usable.** Older messages are condensed in the background, and Eidon tells you
   when it happens.
 
-## ⚡ Built in, for every chat and every agent
+## ⚡ Everything you need is built in
 
 Everything below works in the everyday chat and for every agent on your team.
 
@@ -236,6 +236,7 @@ Everything below works in the everyday chat and for every agent on your team.
 | **Memory** | Global, approved by you, with pinned memories and semantic recall |
 | **MCP** | Connect local or remote MCP servers as tools |
 | **Skills** | Reusable instructions you write once and load when they are relevant |
+| **Personas** | Saved instructions that change how it answers |
 | **Image generation** | Create images from a prompt and keep them in the chat |
 | **Vision** | Understand images natively, through MCP, or with a dedicated vision model |
 | **Shell commands** | Run commands, with approval prompts when they matter |
@@ -247,7 +248,7 @@ Everything below works in the everyday chat and for every agent on your team.
 
 Full list in [Features](./docs/features.md).
 
-## 🏠 Yours to run
+## 🏠 Self-hosted
 
 Eidon is free and open source. It runs on your own computer or server, and setup is one Docker
 command. Bring your own model keys instead of paying a subscription per person for each
