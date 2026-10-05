@@ -6,6 +6,12 @@
   <a href="https://eidonai.app"><b>eidonai.app</b></a>
 
   <p>
+    <img src="./.github/readme/bot-teal.svg" alt="" width="64" />
+    <img src="./.github/readme/bot-violet.svg" alt="" width="64" />
+    <img src="./.github/readme/bot-pink.svg" alt="" width="64" />
+  </p>
+
+  <p>
     <strong>A self-hosted AI platform with a team of agents, and a chat for everything else.</strong><br />
     One Docker image. Your own model keys. Your data stays on your server.
   </p>
