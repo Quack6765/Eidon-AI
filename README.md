@@ -1,14 +1,14 @@
 <a name="readme-top"></a>
 
 <div align="center">
+  <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
+
   <p>
     <img src="./.github/readme/bot-teal.svg" alt="" width="64" />
     <img src="./.github/readme/bot-violet.svg" alt="" width="64" />
     <img src="./.github/readme/bot-pink.svg" alt="" width="64" />
   </p>
 
-  <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
-  <br />
   <a href="https://eidonai.app"><b>eidonai.app</b></a>
 
   <p>
