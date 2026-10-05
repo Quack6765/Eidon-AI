@@ -112,10 +112,13 @@ providers you already use.
 
 ## 🤖 Agents
 
-**Use agents for work you would hand to a person.** Ask a travel scout to find flights to Lisbon
-under $450 and check the hotels. Have an inbox triager sort your mail every morning and draft the
-replies. Send a research desk off to compare three vendors and come back with sources. Agents
-keep working while you do something else, and they ask you only when they need you.
+**Use agents for work you would hand to a person.** They keep working while you do something
+else, and they ask you only when they need you.
+
+- ✈️ Find flights to Lisbon under $450 and check the hotels
+- 📥 Sort your inbox every morning and draft the replies
+- 🔎 Compare three vendors and come back with sources
+- 🛠️ Fix a bug in a sandboxed workspace
 
 Build a team, or let the Chief of Staff build it. Each agent has its own chat, memory, files,
 and browser, and you step in whenever you want.
@@ -191,9 +194,14 @@ Every agent gets a real browser. Its cookies and logins are never shared with an
 
 ## 💬 Chat
 
-**Use chat for the quick stuff.** Explain an error message, rewrite an email, summarize a PDF,
-plan a weekend, or think out loud about a decision. You ask, it answers, and you stay in the
-conversation the whole time.
+**Use chat for the quick stuff.** You ask, it answers, and you stay in the conversation the
+whole time.
+
+- 🧩 Explain an error message
+- ✉️ Rewrite an email
+- 📄 Summarize a PDF
+- 🗓️ Plan a weekend
+- 💭 Think out loud about a decision
 
 Not every question needs a team. Open a normal conversation and just talk. No agents, no setup.
 
