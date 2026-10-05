@@ -194,8 +194,8 @@ Every agent gets a real browser. Its cookies and logins are never shared with an
 
 ## 💬 Chat
 
-**Use chat for the quick stuff.** You ask, it answers, and you stay in the conversation the
-whole time.
+**Use chat for the quick stuff.** Anything you can sort out in a single conversation, where you
+steer each step yourself.
 
 - 🧩 Explain an error message
 - ✉️ Rewrite an email
