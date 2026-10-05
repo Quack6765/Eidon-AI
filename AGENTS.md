@@ -1,5 +1,70 @@
 # Project Instructions
 
+## Prime Directives
+
+### Always Apply Occam's Razor
+
+- Prefer the simplest design and implementation that fully satisfies the
+  current, demonstrated requirements.
+- Do not add abstractions, layers, configuration, extension points, dependencies,
+  or infrastructure for hypothetical future needs. Introduce them only when
+  concrete requirements or repeated patterns justify their cost.
+- Before adding code, consider whether the goal can be met by deleting,
+  consolidating, or reusing existing code.
+- When multiple approaches are correct, choose the one with fewer concepts,
+  moving parts, and maintenance obligations, unless evidence shows that a more
+  complex approach is necessary.
+- Treat patterns and principles as tools, not goals. Do not apply SOLID, design
+  patterns, or architectural boundaries in ways that make a small solution more
+  complicated than the problem requires.
+
+### Make Implementations Reusable by Default
+
+- Treat reusability as a current requirement, not a hypothetical future need.
+- Design shared code around stable domain concepts rather than the first
+  provider, vendor, platform, integration, or use case.
+- Use generic names for shared code, variables, functions, and data structures.
+  Use a provider or vendor name only when the code is genuinely specific to it.
+- Isolate provider-specific configuration and behavior behind the smallest
+  practical boundary so additional providers can reuse the core flow without a
+  rewrite.
+- Prefer extending or consolidating existing code when it can serve the same
+  purpose. Create only the minimum abstraction needed for reuse; do not turn
+  reusability into speculative frameworks, unused extension points, or needless
+  complexity.
+
+### Let the Model Decide, Constrain in Code
+
+The model owns every tool decision — whether to call a tool, which tool, and
+with what arguments. Do not reimplement that decision in surrounding code by
+matching the user's words.
+
+- **Steer through the prompt, not through code.** Tool behaviour is shaped by
+  tool descriptions, parameter schemas, and system directives. Vendor guidance
+  is explicit that tool choice belongs to the model, and that forcing it is the
+  exception rather than the default.
+- **Never predict the model's decision.** No regexes, keyword lists, or intent
+  heuristics that guess what the model will do. Never fabricate, force, or
+  pre-render a tool call the runtime has not actually started.
+- **Code constrains and validates; it does not decide.** Allowed in code:
+  permission and allow/deny gates, approval checkpoints for sensitive or
+  irreversible actions, argument schema validation, sandboxing, rate and cost
+  limits. Not allowed: inferring intent from message text to route, force, or
+  display a tool call.
+- **Render only what happened.** A surface may show work the runtime has
+  started. Optimistic state is acceptable only when the value is the user's own
+  known input, is scoped to the pending operation, and is reconciled or rolled
+  back against authoritative state.
+- **Text matching is for syntax, not intent.** Regex is fine for strict,
+  author-controlled syntax — slash commands, fixed tokens, file extensions,
+  protocol lines. It is not fine for deciding what a natural-language request
+  means: every synonym and paraphrase must be hand-enumerated, and the space of
+  phrasings is unbounded.
+- **The carve-outs are not violations.** Safety filters, prompt-injection and
+  tool-poisoning defence, authorization, and cost or latency routing are
+  mandated deterministic components. Security and authorization must be
+  enforced in deterministic, auditable code — never delegated to the model.
+
 ### Dev Server
 
 - You may start the dev server (`npm run dev`) when needed.
@@ -42,8 +107,17 @@ The array order does not matter; the newest release is selected by version.
 
 Write for a non-technical self-hoster, not for a contributor:
 
-- Say what the user can now do, or what stopped going wrong: "Get a Pushover
-  notification when an automation finishes", not "Add Pushover notifier".
+- Open every bullet with a short feature headline, then a colon, then what the
+  user can now do. "Finish alerts: you can get a phone notification when an
+  automation finishes, via Pushover or ntfy" is right; "Add Pushover notifier"
+  is not.
+- Address the user as "you", and make the user the subject of the second half.
+  Never describe the change in the abstract third person ("Bots now report
+  progress live"), and never leave a bare imperative fragment that reads like a
+  generic assistant reply ("Watch your bot's browser live in the chat").
+- Keep the headline to two or three words, use exactly one colon per bullet to
+  separate it from the sentence, and do not let the same headline word open two
+  bullets in one entry.
 - Name the service or provider a user would recognise — Pushover, Mistral,
   GitHub Copilot, OpenRouter.
 - List a fix when a user would have felt it. Skip internal-only work such as
@@ -51,8 +125,10 @@ Write for a non-technical self-hoster, not for a contributor:
   has to do.
 - No PR numbers, author handles, "What's Changed" boilerplate, or internal
   terms such as contract, route, migration, or refactor.
-- Keep each bullet on one line, under roughly 120 characters. Do not let one
-  grow past that to avoid a second line — split it into two bullets instead.
+- Keep each bullet on one line, under roughly 120 characters — the headline
+  counts against that budget, so a long headline has to earn its place. Do not
+  let a bullet grow past 120 to avoid a second line — split it into two bullets
+  instead.
 
 The entries are bundled into the image, so the file has to land in the same PR
 that cuts the release. Keep them as TypeScript rather than loose markdown: the
@@ -76,9 +152,9 @@ derive their generated API layers from it — they never hand-edit their side.
 **After any change to the API surface** — new or modified routes,
 request/response schemas, enums, or the WebSocket event set — always:
 
-1. Update `contracts/mobile-api-v1.openapi.json` in the same PR (and the
-   gateway route table in `app/api/v1/[...path]/route.ts` when mounting new
-   shared handlers). Update `tests/unit/mobile-contracts.test.ts` and
+1. Update `contracts/mobile-api-v1.openapi.json` in the same PR (and the gateway
+   route table in `app/api/v1/mobile-route-table.ts` when mounting new shared
+   handlers). Update `tests/unit/mobile-contracts.test.ts` and
    `tests/unit/mobile-routes.test.ts` expectations (documented operation and
    request-body counts) so the contract stays verified.
 2. Note in the PR description that native clients must regenerate their

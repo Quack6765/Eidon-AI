@@ -5,6 +5,7 @@ import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 import { requireUser } from "@/lib/auth";
 import { createAutomation, listAutomations } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
+import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
@@ -15,15 +16,17 @@ const createSchema = z.object({
   providerProfileId: z.string().min(1),
   personaId: z.string().min(1).nullable().default(null),
   botId: z.string().min(1).nullable().default(null),
-  scheduleKind: z.enum(["interval", "calendar"]),
+  scheduleKind: z.enum(["interval", "calendar", "once"]),
   intervalMinutes: z.number().int().nullable(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable(),
   timeOfDay: z.string().nullable(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).default([]),
+  runAt: z.string().datetime({ offset: true }).nullable().default(null),
   continuePreviousConversation: z.boolean().default(false),
   enabled: z.boolean().default(true),
   research: z.boolean().default(false),
-  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null)
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null),
+  notifyConfig: notifyConfigInputSchema.optional()
 });
 
 export async function GET() {

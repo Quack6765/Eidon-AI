@@ -23,7 +23,18 @@ function rowToSkill(row: {
     content: row.content,
     enabled: Boolean(row.enabled),
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    state: "active",
+    pinned: false,
+    createdBy: "installed",
+    usage: {
+      useCount: 0,
+      viewCount: 0,
+      lastUsedAt: null,
+      lastViewedAt: null,
+      patchCount: 0,
+      lastPatchedAt: null
+    }
   };
 }
 

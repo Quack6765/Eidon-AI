@@ -23,5 +23,5 @@ export async function GET(
     return badRequest("Bot not found", 404);
   }
 
-  return ok({ tree: listBotWorkspaceTree(bot) });
+  return ok({ tree: listBotWorkspaceTree(bot), sharedTree: listBotWorkspaceTree(bot, "shared") });
 }

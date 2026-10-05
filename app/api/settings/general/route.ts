@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok } from "@/lib/http";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
 import {
   imageGenerationIntegrationUpdateSchema,
   speechTranscriptionIntegrationUpdateSchema,
@@ -36,7 +37,7 @@ const inputSchema = z.object({
     prompt: z.string().min(1).max(20_000)
   }).optional(),
   botPrompt: z.object({
-    prompt: z.string().max(20_000)
+    prompt: z.string().max(MAX_INSTRUCTION_CHARS)
   }).optional(),
   semanticRecall: z.object({
     enabled: z.boolean()

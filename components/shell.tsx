@@ -87,6 +87,11 @@ export function Shell({
   const isSettingsPage = pathname.startsWith("/settings");
   const isAutomationsPage = pathname.startsWith("/automations");
   const isAgentsPage = pathname.startsWith("/agents");
+  const chiefBotPath = useMemo(() => {
+    const chief = bots?.find((bot) => bot.isChief);
+    return chief ? `/agents/${chief.id}` : null;
+  }, [bots]);
+  const isAgentsNavPinned = isAgentsPage && (pathname === "/agents" || pathname === "/agents/roster" || pathname === chiefBotPath);
   const isDesktopSidebarOpen = isSettingsPage || isSidebarOpen;
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
   const settingsPageTitle = isSettingsPage
@@ -142,7 +147,7 @@ export function Shell({
 
     return {
       ...payload,
-      url: `${window.location.origin}/share/${payload.token}`
+      url: payload.url ?? `${window.location.origin}/share/${payload.token}`
     };
   };
 
@@ -300,7 +305,7 @@ export function Shell({
     }
 
     if (isAgentsPage) {
-      if (pathname === "/agents") {
+      if (isAgentsNavPinned) {
         hasAppliedDesktopDefaultRef.current = true;
         sessionStorage.removeItem("eidon:sidebar:user-closed");
         setIsSidebarOpen(true);
@@ -327,7 +332,7 @@ export function Shell({
     } else if (userClosed) {
       setIsSidebarOpen(false);
     }
-  }, [activeConversationId, isAgentsPage, isAutomationsPage, isSettingsPage, pathname]);
+  }, [activeConversationId, chiefBotPath, isAgentsNavPinned, isAgentsPage, isAutomationsPage, isSettingsPage, pathname]);
 
   useEffect(() => {
     if (isSettingsPage && !prevIsSettingsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
@@ -338,14 +343,14 @@ export function Shell({
       sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);
     }
-    if (isAgentsPage && pathname === "/agents" && !prevIsAgentsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
+    if (isAgentsPage && isAgentsNavPinned && !prevIsAgentsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
       sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);
     }
     prevIsSettingsPageRef.current = isSettingsPage;
     prevIsAutomationsPageRef.current = isAutomationsPage;
     prevIsAgentsPageRef.current = isAgentsPage;
-  }, [isSettingsPage, isAutomationsPage, isAgentsPage, pathname]);
+  }, [isSettingsPage, isAutomationsPage, isAgentsPage, isAgentsNavPinned, pathname]);
 
   return (
     <div className="app-shell flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -392,7 +397,7 @@ export function Shell({
           type="button"
           onClick={() => setIsSidebarOpen((prev) => { if (prev) sessionStorage.setItem("eidon:sidebar:user-closed", "true"); else sessionStorage.removeItem("eidon:sidebar:user-closed"); return !prev; })}
           className={`group/sidebar-toggle hidden md:flex fixed z-[80] h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,top,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
-            isAgentsPage && pathname !== "/agents"
+            isAgentsPage && pathname !== "/agents" && pathname !== "/agents/roster"
               ? `top-[68px] ${isSidebarOpen ? "left-[262px]" : "left-6"}`
               : `top-[72px] ${isSidebarOpen ? "left-[262px]" : "left-3"}`
           }`}

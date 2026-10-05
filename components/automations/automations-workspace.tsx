@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock3, MessageSquareText, Settings2 } from "lucide-react";
 
+import { formatAutomationRunAt } from "@/lib/automation-display";
 import type { Automation, AutomationRun } from "@/lib/types";
 
 function formatTimestamp(value: string | null) {
@@ -22,6 +23,10 @@ function formatTimestamp(value: string | null) {
 }
 
 function scheduleSummary(automation: Automation) {
+  if (automation.scheduleKind === "once") {
+    return `Once on ${formatAutomationRunAt(automation.runAt)}`;
+  }
+
   if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
     return `Every ${automation.intervalMinutes} minutes`;
   }

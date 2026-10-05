@@ -119,4 +119,77 @@ describe("resolveEditInputImages", () => {
       userMessage("generate a dog")
     ], "conv_1")).toEqual([]);
   });
+
+  it("defaults the first image to canvas and the rest to content", () => {
+    const result = resolveEditInputImages([
+      userMessage([
+        imagePart({ relativePath: "base.png", filename: "base.png" }),
+        imagePart({ relativePath: "logo.png", filename: "logo.png" })
+      ])
+    ]);
+
+    expect(result.map((image) => ({ filename: image.filename, role: image.role }))).toEqual([
+      { filename: "base.png", role: "canvas" },
+      { filename: "logo.png", role: "content" }
+    ]);
+  });
+
+  it("lets explicit overrides win over inferred roles and labels", () => {
+    const result = resolveEditInputImages(
+      [userMessage([
+        imagePart({ relativePath: "base.png", filename: "base.png" }),
+        imagePart({ relativePath: "logo.png", filename: "logo.png" })
+      ])],
+      undefined,
+      [
+        { filename: "logo.png", role: "canvas", label: "the photo to edit" },
+        { filename: "base.png", role: "content", label: "brand mark" }
+      ]
+    );
+
+    expect(result.map((image) => ({ filename: image.filename, role: image.role, label: image.label }))).toEqual([
+      { filename: "logo.png", role: "canvas", label: "the photo to edit" },
+      { filename: "base.png", role: "content", label: "brand mark" }
+    ]);
+  });
+
+  it("orders canvas before content, style and character", () => {
+    const result = resolveEditInputImages([
+      userMessage([
+        imagePart({ relativePath: "character.png", filename: "character.png" }),
+        imagePart({ relativePath: "style.png", filename: "style.png" }),
+        imagePart({ relativePath: "logo.png", filename: "logo.png" }),
+        imagePart({ relativePath: "base.png", filename: "base.png" })
+      ])
+    ], undefined, [
+      { filename: "character.png", role: "character", label: "the hero" },
+      { filename: "style.png", role: "style", label: "mood board" },
+      { filename: "logo.png", role: "content", label: "the logo" },
+      { filename: "base.png", role: "canvas", label: "base photo" }
+    ]);
+
+    expect(result.map((image) => image.filename)).toEqual([
+      "base.png",
+      "logo.png",
+      "style.png",
+      "character.png"
+    ]);
+  });
+
+  it("keeps the canvas when the cap trims trailing images", () => {
+    const result = resolveEditInputImages([
+      userMessage([
+        imagePart({ relativePath: "d.png", filename: "d.png" }),
+        imagePart({ relativePath: "c.png", filename: "c.png" }),
+        imagePart({ relativePath: "b.png", filename: "b.png" }),
+        imagePart({ relativePath: "a.png", filename: "a.png" }),
+        imagePart({ relativePath: "z.png", filename: "z.png" })
+      ])
+    ], undefined, [
+      { filename: "z.png", role: "canvas", label: "base photo" }
+    ]);
+
+    expect(result).toHaveLength(4);
+    expect(result[0]).toMatchObject({ filename: "z.png", role: "canvas" });
+  });
 });

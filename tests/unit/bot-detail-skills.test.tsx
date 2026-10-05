@@ -69,6 +69,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -148,7 +149,8 @@ function mockSkillEndpoints(skills: Skill[], options: { failList?: boolean } = {
       return {
         ok: true,
         json: async () => ({
-          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
+          tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
       } as Response;
     }
@@ -165,9 +167,12 @@ function renderView(bot: BotSummary = buildBot()) {
       bot,
       systemPrompt: "You are a research bot.",
       conversationPayload: {} as ConversationViewPayload,
-      routines: []
+      routines: [],
+      runs: [],
+      botNames: {}
     })
   );
+  fireEvent.click(screen.getByRole("button", { name: "Skills" }));
 }
 
 describe("bot detail skills", () => {
@@ -195,7 +200,7 @@ describe("bot detail skills", () => {
     renderView();
 
     expect(
-      await screen.findByText("No skills yet. This bot saves skills it creates here, and you can add your own.")
+      await screen.findByText("No skills yet. Any agent on this team saves skills it creates here, and you can add your own.")
     ).toBeInTheDocument();
   });
 
@@ -247,7 +252,7 @@ describe("bot detail skills", () => {
 
     renderView();
 
-    expect(await screen.findByText("No skills yet. This bot saves skills it creates here, and you can add your own.")).toBeInTheDocument();
+    expect(await screen.findByText("No skills yet. Any agent on this team saves skills it creates here, and you can add your own.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add skill" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Add skill" });
@@ -297,7 +302,8 @@ describe("bot detail skills", () => {
       if (url === "/api/bots/bot_1/workspace") {
         return {
           ok: true,
-          json: async () => ({ tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] } })
+          json: async () => ({ tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] },
+          sharedTree: { name: "shared", path: "", isDirectory: true, byteSize: 0, children: [] } })
         } as Response;
       }
       return {
@@ -308,7 +314,7 @@ describe("bot detail skills", () => {
     }) as unknown as typeof fetch;
 
     renderView();
-    await screen.findByText("No skills yet. This bot saves skills it creates here, and you can add your own.");
+    await screen.findByText("No skills yet. Any agent on this team saves skills it creates here, and you can add your own.");
     fireEvent.click(screen.getByRole("button", { name: "Add skill" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Add skill" });
@@ -352,7 +358,7 @@ describe("bot detail skills", () => {
     const { calls } = mockSkillEndpoints([]);
 
     renderView();
-    await screen.findByText("No skills yet. This bot saves skills it creates here, and you can add your own.");
+    await screen.findByText("No skills yet. Any agent on this team saves skills it creates here, and you can add your own.");
 
     const listCalls = () =>
       calls.filter((call) => call.url === "/api/bots/bot_1/skills" && call.method === "GET");

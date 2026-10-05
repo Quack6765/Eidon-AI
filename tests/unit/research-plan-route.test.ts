@@ -86,4 +86,66 @@ describe("POST /api/research/plan", () => {
     expect(response.status).toBe(400);
     await expect(response.text()).resolves.toContain("No provider profile configured");
   });
+
+  it("revises the current plan when currentPlan and instruction are provided", async () => {
+    generateResearchPlanMock.mockResolvedValue(["Find EU subsidy pages"]);
+    const { POST } = await import("@/app/api/research/plan/route");
+
+    const response = await POST(
+      post({
+        message: "Research this",
+        providerProfileId: "profile_pinned",
+        currentPlan: ["Find official pages", "Compare amounts"],
+        instruction: "Focus on EU programs only"
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ plan: ["Find EU subsidy pages"] });
+    expect(generateResearchPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Research this",
+        settings: pinnedProfile,
+        currentPlan: ["Find official pages", "Compare amounts"],
+        instruction: "Focus on EU programs only"
+      })
+    );
+  });
+
+  it("rejects currentPlan without instruction and vice versa", async () => {
+    const { POST } = await import("@/app/api/research/plan/route");
+
+    expect(
+      (await POST(post({ message: "Research this", currentPlan: ["Find official pages"] }))).status
+    ).toBe(400);
+    expect((await POST(post({ message: "Research this", instruction: "Narrow it down" }))).status).toBe(400);
+    expect(generateResearchPlanMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid currentPlan shape", async () => {
+    const { POST } = await import("@/app/api/research/plan/route");
+
+    expect((await POST(post({ message: "Research this", currentPlan: [], instruction: "Narrow it down" }))).status).toBe(
+      400
+    );
+    expect(
+      (await POST(post({ message: "Research this", currentPlan: ["   "], instruction: "Narrow it down" }))).status
+    ).toBe(400);
+    expect(
+      (await POST(post({ message: "Research this", currentPlan: [5], instruction: "Narrow it down" }))).status
+    ).toBe(400);
+    expect(generateResearchPlanMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed revision as a non-OK response", async () => {
+    generateResearchPlanMock.mockRejectedValue(new Error("provider down"));
+    const { POST } = await import("@/app/api/research/plan/route");
+
+    const response = await POST(
+      post({ message: "Research this", currentPlan: ["Find official pages"], instruction: "Narrow it down" })
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.text()).resolves.toContain("The research plan could not be updated");
+  });
 });

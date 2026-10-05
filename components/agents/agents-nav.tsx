@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bot } from "lucide-react";
+import { Bot, Crown } from "lucide-react";
 
 import { BotAvatar } from "@/components/agents/bot-avatar";
-import { BotStatusDot, botStatusLabel } from "@/components/agents/bot-status";
+import { BotStatusDot, botAttentionLabel } from "@/components/agents/bot-status";
 import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { BotSummary } from "@/lib/types";
@@ -74,7 +74,7 @@ export function AgentsNav({
       if (msg.type === "bot_run_updated") {
         scheduleRefresh();
       }
-    });
+    }, { onReconnect: scheduleRefresh });
   }, []);
 
   function handleNavigate(href: string) {
@@ -98,10 +98,10 @@ export function AgentsNav({
 
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto scrollbar-thin">
           <Link
-            href="/agents"
+            href="/agents/roster"
             onClick={onCloseAction}
             className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-300 ${
-              pathname === "/agents"
+              pathname === "/agents/roster"
                 ? "bg-white/[0.05] font-semibold text-white"
                 : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
             }`}
@@ -112,6 +112,8 @@ export function AgentsNav({
 
           {sortBots(bots).map((bot) => {
             const isActive = pathname === `/agents/${bot.id}`;
+            const unread = bot.unread && !isActive;
+            const attentionLabel = botAttentionLabel(bot, unread);
 
             return (
               <Link
@@ -121,19 +123,24 @@ export function AgentsNav({
                 className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-300 ${
                   isActive
                     ? "bg-white/[0.05] font-semibold text-white"
-                    : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
+                    : unread
+                      ? "font-medium text-white/80 hover:bg-white/[0.03] hover:text-white"
+                      : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
                 }`}
               >
-                <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
+                <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" status={bot.status} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{bot.name}</div>
-                  {bot.status === "queued" ? (
-                    <div className="truncate text-[11px] text-[#71717a]">
-                      {botStatusLabel(bot.status)}
-                    </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm">{bot.name}</span>
+                    {bot.isChief ? (
+                      <Crown role="img" aria-label="Chief" className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+                    ) : null}
+                  </div>
+                  {attentionLabel ? (
+                    <div className="truncate text-[11px] text-[#71717a]">{attentionLabel}</div>
                   ) : null}
                 </div>
-                <BotStatusDot status={bot.status} waitingForInput={bot.waitingForInput} />
+                <BotStatusDot status={bot.status} waitingForInput={bot.waitingForInput} unread={unread} />
               </Link>
             );
           })}

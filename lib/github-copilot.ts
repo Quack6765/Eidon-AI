@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CopilotClient } from "@github/copilot-sdk";
-import type { Tool } from "@github/copilot-sdk";
+import type { MessageOptions, PermissionRequest, PermissionRequestResult, Tool } from "@github/copilot-sdk";
 
-import { env } from "@/lib/env";
+import { env, getGithubAppCallbackUrl } from "@/lib/env";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";
 import {
   updateProviderConnectionIfNonceMatches,
@@ -23,6 +23,24 @@ const COPILOT_EXCLUDED_TOOLS: string[] = [
   "write_task_specification",
   "agent_github_mcp"
 ];
+
+export function buildCopilotPermissionRouter(customToolNames: Iterable<string>) {
+  const knownToolNames = new Set(customToolNames);
+  return (request: PermissionRequest): PermissionRequestResult => {
+    if (request.kind === "read") {
+      return { kind: "approved" };
+    }
+
+    if (request.kind === "custom-tool") {
+      const toolName = typeof request.toolName === "string" ? request.toolName : "";
+      if (!toolName || knownToolNames.has(toolName)) {
+        return { kind: "approved" };
+      }
+    }
+
+    return { kind: "denied-by-permission-request-hook" };
+  };
+}
 
 function ensureCopilotWorkDir(): string {
   mkdirSync(COPILOT_WORK_DIR, { recursive: true });
@@ -176,7 +194,7 @@ async function withAbort<T>(
 export function getGithubAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.EIDON_GITHUB_APP_CLIENT_ID!,
-    redirect_uri: env.EIDON_GITHUB_APP_CALLBACK_URL!,
+    redirect_uri: getGithubAppCallbackUrl()!,
     state,
     scope: "read:user"
   });
@@ -351,6 +369,7 @@ export async function buildGithubCopilotClient(
 export async function runGithubCopilotChat(
   input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
+    attachments?: CopilotMessageAttachment[];
     abortSignal?: AbortSignal;
   }
 ) {
@@ -363,14 +382,16 @@ export async function runGithubCopilotChat(
   try {
     session = await withAbort(client.createSession({
       model: input.model,
-      onPermissionRequest: () => ({ kind: "approved" as const })
+      onPermissionRequest: buildCopilotPermissionRouter([])
     }), input.abortSignal);
 
-    return await withAbort(session.send({
-      prompt: input.messages.map((m) => m.content).join("\n")
-    }), input.abortSignal, () => {
-      void session?.abort().catch(() => undefined);
-    });
+    return await withAbort(
+      sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      input.abortSignal,
+      () => {
+        void session?.abort().catch(() => undefined);
+      }
+    );
   } finally {
     if (input.abortSignal?.aborted) {
       await session?.abort().catch(() => undefined);
@@ -379,9 +400,39 @@ export async function runGithubCopilotChat(
   }
 }
 
+export type CopilotMessageAttachment = {
+  data: string;
+  mimeType: string;
+  displayName?: string;
+};
+
+async function sendCopilotPrompt(
+  session: { send: (options: MessageOptions) => Promise<string> },
+  prompt: string,
+  attachments?: CopilotMessageAttachment[]
+) {
+  const blobs: NonNullable<MessageOptions["attachments"]> = (attachments ?? []).map((attachment) => ({
+    type: "blob" as const,
+    data: attachment.data,
+    mimeType: attachment.mimeType,
+    ...(attachment.displayName ? { displayName: attachment.displayName } : {})
+  }));
+
+  if (!blobs.length) {
+    return session.send({ prompt });
+  }
+
+  try {
+    return await session.send({ prompt, attachments: blobs });
+  } catch {
+    return session.send({ prompt });
+  }
+}
+
 export async function streamGithubCopilotChat(
   input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
+    attachments?: CopilotMessageAttachment[];
     onEvent: (event: unknown) => void;
     tools?: Tool[];
     abortSignal?: AbortSignal;
@@ -406,7 +457,7 @@ export async function streamGithubCopilotChat(
       streaming: true as const,
       workingDirectory: ensureCopilotWorkDir(),
       excludedTools: COPILOT_EXCLUDED_TOOLS,
-      onPermissionRequest: () => ({ kind: "approved" as const }),
+      onPermissionRequest: buildCopilotPermissionRouter((input.tools ?? []).map((tool) => tool.name)),
       onEvent: (rawEvent: unknown) => {
         const event = rawEvent as { type: string; data?: Record<string, unknown> };
 
@@ -426,11 +477,13 @@ export async function streamGithubCopilotChat(
 
     session = await withAbort(client.createSession(sessionConfig), input.abortSignal);
 
-    await withAbort(session.send({
-      prompt: input.messages.map((m) => m.content).join("\n")
-    }), input.abortSignal, () => {
-      void session?.abort().catch(() => undefined);
-    });
+    await withAbort(
+      sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      input.abortSignal,
+      () => {
+        void session?.abort().catch(() => undefined);
+      }
+    );
 
     await withAbort(turnComplete, input.abortSignal, () => {
       void session?.abort().catch(() => undefined);

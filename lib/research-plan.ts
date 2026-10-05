@@ -17,6 +17,23 @@ export function buildResearchPlanningPrompt(message: string) {
   ].join("\n");
 }
 
+export function buildResearchPlanRevisionPrompt(input: { message: string; plan: string[]; instruction: string }) {
+  return [
+    "You are revising a research plan for a deep research task run by an AI assistant that can search the web and read full pages.",
+    "Apply the follow-up instruction from the user to the current plan below. Keep every step the instruction does not change, revise or remove the ones it does, and add new steps only when the instruction asks for them. Steps stay ordered so early findings inform later ones.",
+    `Respond with the complete revised plan as a JSON array of strings only, no prose, no numbering inside the strings, at most ${MAX_RESEARCH_PLAN_STEPS} steps, each under ${MAX_RESEARCH_PLAN_STEP_CHARS} characters.`,
+    "",
+    "Request:",
+    input.message.trim(),
+    "",
+    "Current plan:",
+    input.plan.map((step, index) => `${index + 1}. ${step}`).join("\n"),
+    "",
+    "Follow-up instruction:",
+    input.instruction.trim()
+  ].join("\n");
+}
+
 export function parseResearchPlanResponse(text: string): string[] | null {
   const start = text.indexOf("[");
   const end = text.lastIndexOf("]");
@@ -50,19 +67,34 @@ export async function generateResearchPlan(input: {
   message: string;
   settings: RuntimeProviderProfile;
   abortSignal?: AbortSignal;
+  currentPlan?: string[];
+  instruction?: string;
 }) {
+  const revising = Boolean(input.currentPlan?.length && input.instruction);
+  const prompt = revising
+    ? buildResearchPlanRevisionPrompt({
+        message: input.message,
+        plan: input.currentPlan ?? [],
+        instruction: input.instruction ?? ""
+      })
+    : buildResearchPlanningPrompt(input.message);
+  let text: string;
   try {
     const signals = [AbortSignal.timeout(RESEARCH_PLANNING_TIMEOUT_MS), input.abortSignal].filter(
       (signal): signal is AbortSignal => Boolean(signal)
     );
-    const text = await callProviderText({
+    text = await callProviderText({
       settings: input.settings,
-      prompt: buildResearchPlanningPrompt(input.message),
+      prompt,
       purpose: "research_planning",
       abortSignal: AbortSignal.any(signals)
     });
-    return parseResearchPlanResponse(text) ?? buildFallbackResearchPlan(input.message);
-  } catch {
+  } catch (error) {
+    if (revising) throw error;
     return buildFallbackResearchPlan(input.message);
   }
+  const plan = parseResearchPlanResponse(text);
+  if (plan) return plan;
+  if (revising) throw new Error("The research plan could not be updated");
+  return buildFallbackResearchPlan(input.message);
 }

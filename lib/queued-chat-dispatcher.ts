@@ -1,14 +1,19 @@
 import {
   claimNextQueuedMessageForDispatch,
+  createQueuedMessage,
   deleteQueuedMessage,
   failQueuedMessage,
   getConversation,
   listQueuedMessages,
   markOrphanedQueuedMessagesFailed,
+  moveQueuedMessageToFront,
   requeueQueuedMessage
 } from "@/lib/conversations";
+import { getBotByConversationId } from "@/lib/bots";
+import { requestRedirect } from "@/lib/chat-turn-control";
 import type { ConversationManager } from "@/lib/conversation-manager";
 import type { StartChatTurn } from "@/lib/chat-turn";
+import type { ChatInputMode } from "@/lib/types";
 
 const dispatchLocks = new Set<string>();
 
@@ -22,6 +27,20 @@ function broadcastQueueUpdated(manager: ConversationManager, conversationId: str
     conversationId,
     queuedMessages: listQueuedMessages(conversationId)
   });
+}
+
+export function queueFollowUpMessage(input: { conversationId: string; content: string; mode?: ChatInputMode }) {
+  const queuedMessage = createQueuedMessage(input);
+  if (getBotByConversationId(input.conversationId)) {
+    requestRedirect(input.conversationId, queuedMessage.id);
+  }
+  return queuedMessage;
+}
+
+export function sendQueuedMessageNow(input: { conversationId: string; queuedMessageId: string }) {
+  if (!moveQueuedMessageToFront(input)) return false;
+  requestRedirect(input.conversationId, input.queuedMessageId);
+  return true;
 }
 
 export async function ensureQueuedDispatch({

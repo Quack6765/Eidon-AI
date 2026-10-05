@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { useDirtyState } from "@/hooks/use-dirty-state";
+import { MAX_INSTRUCTION_CHARS } from "@/lib/instruction-limits";
+import { CHIEF_BOT_NAME, DEFAULT_CHIEF_DESCRIPTION, DEFAULT_CHIEF_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import type { BotSummary, ProviderProfileSummary } from "@/lib/types";
 
@@ -56,20 +60,57 @@ export function BotFormModal({
   onSubmit: (values: BotFormValues) => Promise<string | null>;
 }) {
   const defaultProfile = providerProfiles?.find((profile) => profile.id === defaultProviderProfileId) ?? null;
+  const isChief = bot?.isChief === true;
+  const baseline = useMemo(() => valuesFromBot(bot, currentSystemPrompt), [bot, currentSystemPrompt]);
   const [values, setValues] = useState<BotFormValues>(() => valuesFromBot(bot, currentSystemPrompt));
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(values);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUnsavedPromptOpen, setIsUnsavedPromptOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setValues(valuesFromBot(bot, currentSystemPrompt));
       setError(null);
       setIsSubmitting(false);
+      setIsUnsavedPromptOpen(false);
+      resetDirty(baseline);
     }
-  }, [open, bot, currentSystemPrompt]);
+  }, [open, bot, currentSystemPrompt, baseline, resetDirty]);
 
   function update<K extends keyof BotFormValues>(key: K, value: BotFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function closeImmediately() {
+    resetDirty(baseline);
+    onOpenChange(false);
+  }
+
+  function requestClose() {
+    if (isDirty) {
+      setIsUnsavedPromptOpen(true);
+      return;
+    }
+    onOpenChange(false);
+  }
+
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      onOpenChange(true);
+      return;
+    }
+    requestClose();
+  }
+
+  function resetToDefaults() {
+    setValues((current) => ({
+      ...current,
+      name: CHIEF_BOT_NAME,
+      description: DEFAULT_CHIEF_DESCRIPTION,
+      systemPrompt: DEFAULT_CHIEF_SYSTEM_PROMPT
+    }));
+    setError(null);
   }
 
   async function handleSubmit() {
@@ -95,7 +136,7 @@ export function BotFormModal({
         return;
       }
 
-      onOpenChange(false);
+      closeImmediately();
     } catch {
       setError("Unable to save bot");
     } finally {
@@ -104,110 +145,146 @@ export function BotFormModal({
   }
 
   return (
-    <DialogShell
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      size="lg"
-      icon={
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] border border-[var(--accent)]/25 bg-[var(--accent)]/10">
-          <Bot className="h-[18px] w-[18px] text-[var(--accent)]" />
-        </div>
-      }
-      footer={
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            autoFocus
-            className="px-4 py-2 text-xs"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            className="px-4 py-2 text-xs"
-            onClick={() => void handleSubmit()}
-            disabled={isSubmitting || !values.name.trim()}
-          >
-            {isSubmitting ? "Saving…" : submitLabel}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className={fieldLabel}>Name</label>
-            <Input
-              aria-label="Bot name"
-              value={values.name}
-              onChange={(event) => update("name", event.target.value)}
-              placeholder="Inbox Bot"
-              maxLength={60}
-            />
+    <>
+      <DialogShell
+        open={open}
+        onOpenChange={handleOpenChange}
+        title={title}
+        description={description}
+        size="lg"
+        icon={
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] border border-[var(--accent)]/25 bg-[var(--accent)]/10">
+            <Bot className="h-[18px] w-[18px] text-[var(--accent)]" />
+          </div>
+        }
+        footer={
+          <>
+            {isChief ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="mr-auto px-4 py-2 text-xs"
+                onClick={resetToDefaults}
+                disabled={isSubmitting}
+              >
+                Reset default
+              </Button>
+            ) : null}
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                autoFocus
+                className="px-4 py-2 text-xs"
+                onClick={requestClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="px-4 py-2 text-xs"
+                onClick={() => void handleSubmit()}
+                disabled={isSubmitting || !values.name.trim()}
+              >
+                {isSubmitting ? "Saving…" : submitLabel}
+              </Button>
+            </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={fieldLabel}>Name</label>
+              <Input
+                aria-label="Bot name"
+                value={values.name}
+                onChange={(event) => update("name", event.target.value)}
+                placeholder="Inbox Bot"
+                maxLength={60}
+                className={isFieldDirty("name") ? "!border-amber-500/40" : ""}
+              />
+            </div>
+            <div>
+              <label className={fieldLabel}>Title</label>
+              <Input
+                aria-label="Bot title"
+                value={values.title}
+                onChange={(event) => update("title", event.target.value)}
+                placeholder="Triage specialist"
+                maxLength={120}
+                className={isFieldDirty("title") ? "!border-amber-500/40" : ""}
+              />
+            </div>
           </div>
           <div>
-            <label className={fieldLabel}>Title</label>
-            <Input
-              aria-label="Bot title"
-              value={values.title}
-              onChange={(event) => update("title", event.target.value)}
-              placeholder="Triage specialist"
-              maxLength={120}
+            <label className={fieldLabel}>Description</label>
+            <Textarea
+              aria-label="Bot description"
+              value={values.description}
+              onChange={(event) => update("description", event.target.value)}
+              placeholder="What this bot is responsible for."
+              rows={5}
+              maxLength={1000}
+              className={isFieldDirty("description") ? "!border-amber-500/40" : ""}
             />
           </div>
-        </div>
-        <div>
-          <label className={fieldLabel}>Description</label>
-          <Textarea
-            aria-label="Bot description"
-            value={values.description}
-            onChange={(event) => update("description", event.target.value)}
-            placeholder="What this bot is responsible for."
-            rows={5}
-            maxLength={1000}
-          />
-        </div>
-        {providerProfiles ? (
-          <div>
-            <label htmlFor="bot-provider-profile" className={fieldLabel}>Provider</label>
-            <p className="mb-2 text-xs leading-5 text-[var(--muted)]">The provider and model this bot runs on. Following the default keeps it in step with your default provider whenever that changes.</p>
-            <select
-              id="bot-provider-profile"
-              aria-label="Provider profile"
-              value={values.providerProfileId ?? ""}
-              onChange={(event) => update("providerProfileId", event.target.value || null)}
-              className={`${selectLike} w-full`}
-            >
-              <option value="">
-                {defaultProfile ? `Default · ${describeProfile(defaultProfile)}` : "Default provider"}
-              </option>
-              {providerProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {describeProfile(profile)}
+          {providerProfiles ? (
+            <div>
+              <label htmlFor="bot-provider-profile" className={fieldLabel}>Provider</label>
+              <p className="mb-2 text-xs leading-5 text-[var(--muted)]">The provider and model this bot runs on. Following the default keeps it in step with your default provider whenever that changes.</p>
+              <select
+                id="bot-provider-profile"
+                aria-label="Provider profile"
+                value={values.providerProfileId ?? ""}
+                onChange={(event) => update("providerProfileId", event.target.value || null)}
+                className={`${selectLike} w-full ${isFieldDirty("providerProfileId") ? "!border-amber-500/40" : ""}`}
+              >
+                <option value="">
+                  {defaultProfile ? `Default · ${describeProfile(defaultProfile)}` : "Default provider"}
                 </option>
-              ))}
-            </select>
+                {providerProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {describeProfile(profile)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          <div>
+            <label className={fieldLabel}>System prompt</label>
+            <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Defines the bot&apos;s role and specialty. Its environment and team-communication context are added automatically.</p>
+            {isChief && !values.systemPrompt.trim() ? (
+              <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Using the built-in default instructions.</p>
+            ) : null}
+            <Textarea
+              aria-label="System prompt"
+              value={values.systemPrompt}
+              onChange={(event) => update("systemPrompt", event.target.value)}
+              placeholder="Optional instructions that shape how this bot works."
+              rows={10}
+              maxLength={MAX_INSTRUCTION_CHARS}
+              className={isFieldDirty("systemPrompt") ? "!border-amber-500/40" : ""}
+            />
           </div>
-        ) : null}
-        <div>
-          <label className={fieldLabel}>System prompt</label>
-          <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Defines the bot&apos;s role and specialty. Its environment and team-communication context are added automatically.</p>
-          <Textarea
-            aria-label="System prompt"
-            value={values.systemPrompt}
-            onChange={(event) => update("systemPrompt", event.target.value)}
-            placeholder="Optional instructions that shape how this bot works."
-            rows={10}
-            maxLength={8000}
-          />
+          {error ? <p className="text-xs text-red-300">{error}</p> : null}
         </div>
-        {error ? <p className="text-xs text-red-300">{error}</p> : null}
-      </div>
-    </DialogShell>
+      </DialogShell>
+
+      <UnsavedChangesDialog
+        open={isUnsavedPromptOpen}
+        onOpenChange={setIsUnsavedPromptOpen}
+        entityType={isChief ? "the chief of staff" : "this bot"}
+        onSave={() => {
+          setIsUnsavedPromptOpen(false);
+          void handleSubmit();
+        }}
+        onDiscard={() => {
+          setIsUnsavedPromptOpen(false);
+          closeImmediately();
+        }}
+      />
+    </>
   );
 }

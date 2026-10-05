@@ -1,28 +1,40 @@
-import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
-import { spawn } from "node:child_process";
+import { lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
+import { normalizeAttachmentKind } from "@/lib/attachments";
+import { isPathInsideRoot, toPosixSegment } from "@/lib/local-shell";
 import { env } from "@/lib/env";
-import type { Bot } from "@/lib/types";
+import type { AttachmentKind, Bot } from "@/lib/types";
 
 export type BotSandbox = {
   botId: string;
   workspaceDir: string;
-  browserSocketDir: string;
+  sharedDir: string;
+  homeDir: string;
   cwd: string;
-  env: Record<string, string>;
 };
 
-function toPosixSegment(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "bot";
+export type BotWorkspaceScope = "bot" | "shared";
+
+export function getBotTeamWorkspacesDir(bot: Pick<Bot, "userId">) {
+  const ownerSegment = bot.userId ? toPosixSegment(bot.userId, "bot") : "shared";
+  return join(env.EIDON_DATA_DIR, "bot-workspaces", ownerSegment);
 }
 
 export function getBotWorkspaceDir(bot: Pick<Bot, "id" | "userId">) {
-  const ownerSegment = bot.userId ? toPosixSegment(bot.userId) : "shared";
-  return join(env.EIDON_DATA_DIR, "bot-workspaces", ownerSegment, toPosixSegment(bot.id));
+  return join(getBotTeamWorkspacesDir(bot), toPosixSegment(bot.id, "bot"));
 }
 
-export function getBotBrowserSocketDir(bot: Pick<Bot, "id">) {
-  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id));
+export function getSharedBotWorkspaceDir(bot: Pick<Bot, "userId">) {
+  return join(getBotTeamWorkspacesDir(bot), "shared");
+}
+
+export function getBotHomeDir(bot: Pick<Bot, "id" | "userId">) {
+  const ownerSegment = bot.userId ? toPosixSegment(bot.userId, "bot") : "shared";
+  return join(env.EIDON_DATA_DIR, "bot-homes", ownerSegment, toPosixSegment(bot.id, "bot"));
+}
+
+function getBotWorkspaceScopeDir(bot: Pick<Bot, "id" | "userId">, scope: BotWorkspaceScope) {
+  return scope === "shared" ? getSharedBotWorkspaceDir(bot) : getBotWorkspaceDir(bot);
 }
 
 export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
@@ -33,33 +45,24 @@ export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
 
 export function removeBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
   rmSync(getBotWorkspaceDir(bot), { recursive: true, force: true });
-}
-
-export async function removeBotBrowserSession(bot: Pick<Bot, "id">) {
-  const socketDir = getBotBrowserSocketDir(bot);
-  await runAgentBrowserCloseAll(socketDir);
-  try {
-    rmSync(socketDir, { recursive: true, force: true });
-  } catch {}
+  rmSync(getBotHomeDir(bot), { recursive: true, force: true });
 }
 
 export function resolveBotSandbox(bot: Pick<Bot, "id" | "userId">): BotSandbox {
   const workspaceDir = getBotWorkspaceDir(bot);
-  const browserSocketDir = getBotBrowserSocketDir(bot);
+  const sharedDir = getSharedBotWorkspaceDir(bot);
+  const homeDir = getBotHomeDir(bot);
 
   mkdirSync(workspaceDir, { recursive: true });
-  mkdirSync(browserSocketDir, { recursive: true });
+  mkdirSync(sharedDir, { recursive: true });
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
 
   return {
     botId: bot.id,
     workspaceDir,
-    browserSocketDir,
-    cwd: workspaceDir,
-    env: {
-      AGENT_BROWSER_SOCKET_DIR: browserSocketDir,
-      AGENT_BROWSER_SESSION: "bot",
-      AGENT_BROWSER_SESSION_NAME: "bot"
-    }
+    sharedDir,
+    homeDir,
+    cwd: workspaceDir
   };
 }
 
@@ -68,6 +71,8 @@ export type BotWorkspaceNode = {
   path: string;
   isDirectory: boolean;
   byteSize: number;
+  kind?: AttachmentKind;
+  mimeType?: string;
   children: BotWorkspaceNode[];
 };
 
@@ -100,7 +105,10 @@ function readWorkspaceNodes(
     let isDirectory = entry.isDirectory();
     let byteSize = 0;
     try {
-      const stats = statSync(join(absoluteDir, entry.name));
+      const stats = lstatSync(join(absoluteDir, entry.name));
+      if (stats.isSymbolicLink()) {
+        continue;
+      }
       isDirectory = stats.isDirectory();
       byteSize = stats.isFile() ? stats.size : 0;
     } catch {
@@ -112,6 +120,7 @@ function readWorkspaceNodes(
       path: relativePath,
       isDirectory,
       byteSize,
+      ...(isDirectory ? {} : normalizeAttachmentKind(entry.name, "")),
       children: []
     };
     if (isDirectory) {
@@ -136,8 +145,32 @@ function readWorkspaceNodes(
   return [...directories, ...files];
 }
 
-export function listBotWorkspaceTree(bot: Pick<Bot, "id" | "userId">): BotWorkspaceNode {
-  const workspaceDir = getBotWorkspaceDir(bot);
+export function resolveBotWorkspaceFile(
+  bot: Pick<Bot, "id" | "userId">,
+  scope: BotWorkspaceScope,
+  relativePath: string
+) {
+  if (!relativePath || relativePath.includes("\0") || isAbsolute(relativePath)) {
+    return null;
+  }
+
+  try {
+    const root = realpathSync(getBotWorkspaceScopeDir(bot, scope));
+    const candidate = realpathSync(join(root, relativePath));
+    if (candidate === root || !isPathInsideRoot(candidate, root) || !statSync(candidate).isFile()) {
+      return null;
+    }
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+export function listBotWorkspaceTree(
+  bot: Pick<Bot, "id" | "userId">,
+  scope: BotWorkspaceScope = "bot"
+): BotWorkspaceNode {
+  const workspaceDir = getBotWorkspaceScopeDir(bot, scope);
   const budget = { remaining: WORKSPACE_TREE_MAX_ENTRIES };
   const children = readWorkspaceNodes(workspaceDir, "", 1, budget);
   return {
@@ -147,44 +180,4 @@ export function listBotWorkspaceTree(bot: Pick<Bot, "id" | "userId">): BotWorksp
     byteSize: 0,
     children
   };
-}
-
-function runAgentBrowserCloseAll(socketDir: string) {
-  return new Promise<void>((resolve) => {
-    try {
-      const child = spawn("agent-browser", ["close", "--all"], {
-        env: {
-          ...process.env,
-          AGENT_BROWSER_SOCKET_DIR: socketDir,
-          AGENT_BROWSER_SESSION: "bot",
-          AGENT_BROWSER_SESSION_NAME: "bot"
-        },
-        stdio: "ignore",
-        detached: process.platform !== "win32"
-      });
-      child.on("error", () => resolve());
-      child.on("close", () => resolve());
-      setTimeout(() => {
-        try {
-          if (child.pid && process.platform !== "win32") {
-            process.kill(-child.pid, "SIGKILL");
-          } else {
-            child.kill("SIGKILL");
-          }
-        } catch {}
-        resolve();
-      }, 10_000).unref();
-    } catch {
-      resolve();
-    }
-  });
-}
-
-export async function resetBotBrowserSession(bot: Pick<Bot, "id">) {
-  const socketDir = getBotBrowserSocketDir(bot);
-  await runAgentBrowserCloseAll(socketDir);
-  try {
-    rmSync(socketDir, { recursive: true, force: true });
-  } catch {}
-  mkdirSync(socketDir, { recursive: true });
 }

@@ -8,10 +8,10 @@ import {
   buildUpdateMemoryProposal,
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
-import { assertValidSchedule } from "@/lib/automations";
+import { assertFutureRunAt, assertValidSchedule } from "@/lib/automations";
 import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
-import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
+import { executeLocalShellCommand, getShellCommandLabel, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
@@ -27,17 +27,52 @@ import {
   registerScreenshotArtifact,
   revokeScreenshotArtifact
 } from "@/lib/screenshot-artifact-capabilities";
-import { getLatestUserPromptContent } from "./prompt-analysis";
+import { getLatestUserRequestText } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
-import { buildBotWorkspaceSkillId, buildSkillMarkdown, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
-import { nowIso } from "@/lib/utils";
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+  archiveLibrarySkill,
+  createLibrarySkill,
+  ensureLibraryReady,
+  findLibrarySkill,
+  getSkillLibraryDir,
+  hardDeleteLibrarySkill,
+  listLibrarySkills,
+  normalizeSkillRef,
+  parseSkillId,
+  patchLibrarySkillFile,
+  removeLibrarySupportFile,
+  rewriteLibrarySkill,
+  skillRefCategory,
+  skillRefLeaf,
+  writeLibrarySupportFile
+} from "./skill-library";
+import { evaluateSkillGuards, type SkillWriteOrigin } from "./skill-guards";
+import { normalizeSkillOperation, SKILL_MANAGE_BATCH_MAX_OPS, type SkillOperation } from "./skill-operation";
 import { join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
-import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import {
+  classifyShellCommand,
+  mcpToolApprovalFamily,
+  requestToolExecutionApproval
+} from "@/lib/tool-approvals";
+import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
+import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
+import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
-import { resolveBotSandbox } from "./bot-sandbox";
+import {
+  prepareBrowserEnv,
+  resolveBrowserExecutable,
+  sandboxScratchDirs,
+  type BrowserSessionTarget
+} from "@/lib/agent-computer";
+import { conversationBrowserTarget, getComputerControl, setComputerCaption } from "@/lib/agent-computer-relay";
+import { requestComputerHandoff } from "@/lib/computer-handoff";
+import { requestComputerSecret } from "@/lib/computer-secrets";
+import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
+import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
+import { redactSecrets } from "@/lib/secret-redaction";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -46,7 +81,11 @@ import type {
   MessageActionStatus,
   MemoryProposalState,
   MessageActionKind,
+  MessageDraftProposalPayload,
   ProposalPayload,
+  DelegationChain,
+  ToolApprovalContext,
+  ToolApprovalProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -87,7 +126,8 @@ export function isProposalToolCall(name: string) {
     name === "create_memory" ||
     name === "update_memory" ||
     name === "delete_memory" ||
-    name === "create_automation"
+    name === "create_automation" ||
+    name === "draft_message"
   );
 }
 
@@ -287,8 +327,6 @@ export async function executeImageGeneration(
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      imageGenerationActionHandle?: string;
-      hasVisibleImageGenerationAction?: boolean;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -303,27 +341,28 @@ export async function executeImageGeneration(
   const conversationId = context.input.conversationId;
   const assistantMessageId = context.input.assistantMessageId;
 
+  const requestText = getLatestUserRequestText(context.promptMessages);
+
   if (!context.input.settings || !appSettings || !conversationId || !assistantMessageId) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
 
   try {
-    const initialDetail = prompt || getLatestUserPromptContent(context.promptMessages) || "Generate image";
-    if (context.input.hasVisibleImageGenerationAction) {
-      actionHandle = context.input.imageGenerationActionHandle;
-    } else {
-      const handle = await context.input.onActionStart?.({
-        kind: "image_generation",
-        label: "Generate image",
-        detail: initialDetail
-      });
-      actionHandle = typeof handle === "string" ? handle : undefined;
-    }
+    const initialDetail = prompt || requestText || "Generate image";
+    const handle = await context.input.onActionStart?.({
+      kind: "image_generation",
+      label: "Generate image",
+      detail: initialDetail
+    });
+    actionHandle = typeof handle === "string" ? handle : undefined;
 
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateImages } = await import("@/lib/image-generation/provider");
     const { resolveEditInputImages } = await import("@/lib/image-generation/edit-inputs");
+    const { parseImageSlotOverrides } = await import("@/lib/image-generation/slots");
+    const { prepareCompositeStage } = await import("@/lib/image-generation/composite");
+    const { renameGeneratedImages } = await import("@/lib/image-generation/generated-filenames");
     const { createAttachments } = await import("@/lib/attachments");
     const { bindAttachmentsToMessage } = await import("@/lib/attachments");
     const instruction = await compileImageInstruction({
@@ -334,20 +373,35 @@ export async function executeImageGeneration(
     });
     throwIfAborted(context.input.abortSignal);
 
-    const inputImages = instruction.mode === "edit"
-      ? resolveEditInputImages(context.promptMessages, conversationId)
+    const imageOverrides = parseImageSlotOverrides(args.images);
+    const needsInputImages = instruction.mode === "edit"
+      || Boolean(instruction.placement)
+      || Boolean(imageOverrides?.length);
+    const inputImages = needsInputImages
+      ? resolveEditInputImages(context.promptMessages, conversationId, imageOverrides)
       : undefined;
     throwIfAborted(context.input.abortSignal);
-    if (instruction.mode === "edit" && (!inputImages || !inputImages.length)) {
+    if (needsInputImages && (!inputImages || !inputImages.length)) {
       throw new Error("No reference image was available to edit");
     }
 
-    const backendResult = await generateImages({
-      settings: appSettings,
-      instruction,
-      inputImages,
-      abortSignal: context.input.abortSignal
-    });
+    const compositeStage = inputImages?.length
+      ? await prepareCompositeStage({ slots: inputImages, placement: instruction.placement })
+      : undefined;
+    throwIfAborted(context.input.abortSignal);
+
+    const backendResult = compositeStage?.directResult
+      ? {
+          assistantText: instruction.assistantText || "",
+          images: renameGeneratedImages([compositeStage.directResult])
+        }
+      : await generateImages({
+          settings: appSettings,
+          instruction,
+          inputImages: compositeStage?.slots ?? inputImages,
+          mask: compositeStage?.mask,
+          abortSignal: context.input.abortSignal
+        });
     throwIfAborted(context.input.abortSignal);
 
     const attachments = await createAttachments(
@@ -368,7 +422,11 @@ export async function executeImageGeneration(
     );
 
     const editedImageCount = inputImages?.length ?? 0;
-    const resultSummary = `${editedImageCount ? "Edited" : "Generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}: ${attachments.map((a) => a.filename).join(", ")}`;
+    const roleSummary = (compositeStage?.slots ?? inputImages ?? [])
+      .map((image) => image.label)
+      .filter(Boolean)
+      .join(" + ");
+    const resultSummary = `${editedImageCount ? "Edited" : "Generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}${roleSummary ? ` using ${roleSummary}` : ""}: ${attachments.map((a) => a.filename).join(", ")}`;
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
@@ -403,6 +461,32 @@ export async function executeImageGeneration(
   }
 }
 
+function resolveMcpToolFunction(
+  functionName: string,
+  toolSets: ToolSet[]
+): { server: McpServer; tool: McpTool } | null {
+  if (!functionName.startsWith("mcp_")) {
+    return null;
+  }
+
+  const withoutPrefix = functionName.slice(4);
+  const toolSetsBySpecificity = [...toolSets].sort(
+    (left, right) => right.server.slug.length - left.server.slug.length
+  );
+
+  for (const { server, tools } of toolSetsBySpecificity) {
+    if (withoutPrefix.startsWith(server.slug + "_")) {
+      const toolName = withoutPrefix.slice(server.slug.length + 1);
+      const tool = tools.find((t) => t.name === toolName);
+      if (tool) {
+        return { server, tool };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -411,7 +495,9 @@ export async function executeMcpToolCall(
     input: {
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
+      conversationId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -423,26 +509,8 @@ export async function executeMcpToolCall(
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
-  const withoutPrefix = functionName.slice(4);
-  const toolSets = context.input.mcpToolSets;
-  let resolvedServer: McpServer | null = null;
-  let resolvedTool: McpTool | null = null;
-
-  const toolSetsBySpecificity = [...toolSets].sort(
-    (left, right) => right.server.slug.length - left.server.slug.length
-  );
-
-  for (const { server, tools } of toolSetsBySpecificity) {
-    if (withoutPrefix.startsWith(server.slug + "_")) {
-      const toolName = withoutPrefix.slice(server.slug.length + 1);
-      const tool = tools.find((t) => t.name === toolName);
-      if (tool) {
-        resolvedServer = server;
-        resolvedTool = tool;
-        break;
-      }
-    }
-  }
+  const { server: resolvedServer, tool: resolvedTool } =
+    resolveMcpToolFunction(functionName, context.input.mcpToolSets) ?? {};
 
   if (!resolvedServer || !resolvedTool) {
     const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
@@ -474,6 +542,48 @@ export async function executeMcpToolCall(
 
   const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
 
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "mcp",
+    families: [mcpToolApprovalFamily(resolvedServer.slug, resolvedTool.name)],
+    classified: true,
+    mcpServerId: resolvedServer.id,
+    mcpServerName: resolvedServer.name,
+    mcpToolName: resolvedTool.name,
+    arguments: correctedArgs
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: getToolLabel(resolvedTool),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "mcp_tool_call",
+        label: getToolLabel(resolvedTool),
+        detail: buildArgumentsSummary(correctedArgs),
+        serverId: resolvedServer.id,
+        toolName: resolvedTool.name,
+        arguments: correctedArgs
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildArgumentsSummary(correctedArgs),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
     label: getToolLabel(resolvedTool),
@@ -494,7 +604,7 @@ export async function executeMcpToolCall(
       )
     : await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   throwIfAborted(context.input.abortSignal);
-  const resultText = getToolResultText(result);
+  const resultText = redactSecrets(context.input.conversationId, getToolResultText(result));
 
   sortOrder += 1;
 
@@ -547,7 +657,7 @@ export async function executeLoadSkill(
     const bot = context.input.conversationId
       ? getBotByConversationId(context.input.conversationId)
       : null;
-    workspaceSkills = bot ? listBotWorkspaceSkills(bot) : [];
+    workspaceSkills = bot ? listLibrarySkills(bot.userId ?? null) : [];
     skill = workspaceSkills.find(
       (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
     );
@@ -568,36 +678,8 @@ export async function executeLoadSkill(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  context.loadedSkillIds.add(skill.id);
-  try {
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: getSkillResolvedName(skill),
-      resultSummary: "Skill instructions loaded."
-    });
-    throwIfAborted(context.input.abortSignal);
-  } catch (error) {
-    context.loadedSkillIds.delete(skill.id);
-    throw error;
-  }
-
+  const skillContent = await loadSkillIntoTurn(skill, context.input, context.loadedSkillIds);
   sortOrder += 1;
-
-  const skillContent = truncateText([
-    `Skill loaded: ${getSkillResolvedName(skill)}`,
-    `Description: ${getSkillResolvedDescription(skill)}`,
-    "",
-    skill.content
-  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
@@ -606,14 +688,55 @@ export async function executeLoadSkill(
   };
 }
 
-export async function executeSaveSkill(
+export async function loadSkillIntoTurn(
+  skill: Skill,
+  input: {
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  },
+  loadedSkillIds: Set<string>
+) {
+  throwIfAborted(input.abortSignal);
+  const handle = await input.onActionStart?.({
+    kind: "skill_load",
+    label: "Load skill",
+    detail: getSkillResolvedName(skill),
+    skillId: skill.id
+  });
+  throwIfAborted(input.abortSignal);
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  loadedSkillIds.add(skill.id);
+  try {
+    await input.onActionComplete?.(actionHandle, {
+      detail: getSkillResolvedName(skill),
+      resultSummary: "Skill instructions loaded."
+    });
+    throwIfAborted(input.abortSignal);
+  } catch (error) {
+    loadedSkillIds.delete(skill.id);
+    throw error;
+  }
+
+  return truncateText([
+    `Skill loaded: ${getSkillResolvedName(skill)}`,
+    `Description: ${getSkillResolvedDescription(skill)}`,
+    "",
+    skill.content
+  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
+}
+
+export async function executeSkillManage(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
     input: {
       abortSignal?: AbortSignal;
       conversationId?: string;
+      memoryUserId?: string | null;
       skills?: Skill[];
+      skillWriteOrigin?: SkillWriteOrigin;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (
         handle: string | undefined,
@@ -624,6 +747,7 @@ export async function executeSaveSkill(
         patch: { detail?: string; resultSummary?: string }
       ) => Promise<void> | void;
     };
+    loadedSkillIds: Set<string>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -633,134 +757,240 @@ export async function executeSaveSkill(
   toolSucceeded?: boolean;
 }> {
   throwIfAborted(context.input.abortSignal);
-  let sortOrder = context.timelineSortOrder;
-
-  const name = String(args.name ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const description = String(args.description ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const instructions = String(args.instructions ?? "").trim();
-
-  const invalidReason = !name
-    ? "a name is required"
-    : !description
-      ? "a description is required"
-      : !instructions
-        ? "instructions are required"
-        : null;
-
-  if (invalidReason) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot save skill — ${invalidReason}.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
-
-  const bot = context.input.conversationId
-    ? getBotByConversationId(context.input.conversationId)
-    : null;
-
-  if (!bot) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      "Error: save_skill is only available in agent conversations that have a workspace."
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
-
-  const slug = slugifySkillFolderName(name);
-
-  if (!slug) {
-    const resultMsg = buildToolResultMessage(
-      toolCallId,
-      `Error: Cannot derive a valid skill folder name from "${name}". Use lowercase letters, digits, and hyphens.`
-    );
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
-
-  const skillDir = join(getBotSkillsDir(bot), slug);
-  const skillFilePath = join(skillDir, "SKILL.md");
-  const content = buildSkillMarkdown(name, description, instructions);
-
-  throwIfAborted(context.input.abortSignal);
-  const handle = await context.input.onActionStart?.({
-    kind: "save_skill",
-    label: "Save skill",
-    detail: name
-  });
-  throwIfAborted(context.input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
-  try {
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(skillFilePath, content, "utf8");
-  } catch (error) {
-    throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "Failed to write the skill file";
-    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
-  }
-
-  await context.input.onActionComplete?.(actionHandle, {
-    detail: name,
-    resultSummary: "Skill saved to the workspace skills folder."
+  const sortOrder = context.timelineSortOrder;
+  const errorResult = (message: string) => ({
+    nextSortOrder: sortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
+    toolSucceeded: false
   });
 
-  const turnSkills = context.input.skills;
-  if (turnSkills) {
-    const savedSkill: Skill = {
-      id: buildBotWorkspaceSkillId(bot.id, slug),
-      name,
-      description,
-      content,
-      enabled: true,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    };
-    const resolvedNameLower = name.toLowerCase();
-    for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
-      const existing = turnSkills[index];
-      if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
-        turnSkills.splice(index, 1);
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
+  const origin: SkillWriteOrigin = context.input.skillWriteOrigin ?? "foreground";
+
+  if (!bot && origin === "foreground") {
+    return errorResult("skill_manage is only available in agent conversations that have a workspace.");
+  }
+
+  const ownerUserId = bot?.userId ?? context.input.memoryUserId ?? null;
+  if (ownerUserId === null && bot?.userId !== null) {
+    return errorResult("skill_manage could not determine which skill library to write to.");
+  }
+
+  ensureLibraryReady(ownerUserId);
+
+  const rawOperations = Array.isArray(args.operations) ? args.operations : [args];
+  if (!rawOperations.length) {
+    return errorResult("operations must contain at least one operation.");
+  }
+  if (rawOperations.length > SKILL_MANAGE_BATCH_MAX_OPS) {
+    return errorResult(`operations exceeds the batch limit of ${SKILL_MANAGE_BATCH_MAX_OPS}.`);
+  }
+
+  const operations = rawOperations.map((entry) => normalizeSkillOperation(entry));
+  const invalid = operations.find((entry) => "error" in entry);
+  if (invalid && "error" in invalid) {
+    return errorResult(invalid.error);
+  }
+
+  const deleteOps = operations.filter((entry) => !("error" in entry) && entry.action === "delete");
+  if (deleteOps.length && operations.length > 1) {
+    return errorResult("delete must be the SOLE op in its call — it doesn't compose with other ops' rollback.");
+  }
+
+  const loadedRefs = new Set(
+    [...context.loadedSkillIds].map((id) => parseSkillId(id)).filter((ref): ref is string => Boolean(ref))
+  );
+
+  const results: string[] = [];
+  const undoStack: Array<() => void> = [];
+
+  const rollback = () => {
+    for (const undo of undoStack.reverse()) {
+      try {
+        undo();
+      } catch {
+        // best effort
       }
     }
-    const existingIndex = turnSkills.findIndex((skill) => skill.id === savedSkill.id);
+  };
+
+  const snapshotFile = (path: string) => {
+    const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+    undoStack.push(() => {
+      if (before === null) {
+        rmSync(path, { force: true });
+      } else {
+        writeFileSync(path, before, "utf8");
+      }
+    });
+  };
+
+  try {
+    for (const operation of operations as SkillOperation[]) {
+      throwIfAborted(context.input.abortSignal);
+
+      const guard = evaluateSkillGuards({
+        ownerUserId,
+        ref: operation.name,
+        name: operation.name,
+        action: operation.action,
+        origin,
+        absorbedInto: operation.action === "delete" ? operation.absorbedInto ?? null : null,
+        loadedRefs,
+        filePath: "filePath" in operation ? operation.filePath ?? null : null
+      });
+
+      if (!guard.ok) {
+        throw new Error(guard.error);
+      }
+
+      const found = findLibrarySkill(ownerUserId, operation.name);
+      const ref = found?.ref ?? normalizeSkillRef(operation.name) ?? operation.name;
+
+      switch (operation.action) {
+        case "create": {
+          snapshotFile(join(getSkillLibraryDir(ownerUserId), ...ref.split("/"), "SKILL.md"));
+          const created = createLibrarySkill(ownerUserId, {
+            name: skillRefLeaf(ref),
+            category: skillRefCategory(ref),
+            content: operation.content,
+            actor: origin === "background-review" ? "background-review" : "foreground",
+            agentAuthored: origin === "background-review"
+          });
+          if ("error" in created) {
+            throw new Error(created.error);
+          }
+          results.push(created.warning ? `Skill '${created.ref}' created. ${created.warning}` : `Skill '${created.ref}' created.`);
+          break;
+        }
+
+        case "patch": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          snapshotFile(join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), "SKILL.md"));
+          if (operation.content !== undefined) {
+            const rewritten = rewriteLibrarySkill(ownerUserId, found.ref, {
+              content: operation.content,
+              actor: origin === "background-review" ? "background-review" : "foreground"
+            });
+            if ("error" in rewritten) {
+              throw new Error(rewritten.error);
+            }
+            results.push(`Skill '${found.ref}' updated (full rewrite).`);
+          } else {
+            const patched = patchLibrarySkillFile(ownerUserId, found.ref, {
+              oldString: operation.oldString ?? "",
+              newString: operation.newString ?? "",
+              replaceAll: operation.replaceAll,
+              filePath: operation.filePath,
+              actor: origin === "background-review" ? "background-review" : "foreground"
+            });
+            if ("error" in patched) {
+              throw new Error(patched.error);
+            }
+            results.push(`Patched ${patched.filePath} in skill '${found.ref}' (${patched.replacements} replacement(s).)`);
+          }
+          break;
+        }
+
+        case "write_file": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library. Create it first with action='create'.`);
+          }
+          const targetPath = join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), ...(operation.filePath ?? "").split("/"));
+          snapshotFile(targetPath);
+          const written = writeLibrarySupportFile(ownerUserId, found.ref, {
+            filePath: operation.filePath ?? "",
+            fileContent: operation.fileContent ?? "",
+            actor: origin === "background-review" ? "background-review" : "foreground"
+          });
+          if ("error" in written) {
+            throw new Error(written.error);
+          }
+          results.push(`File '${written.filePath}' written to skill '${found.ref}'.`);
+          break;
+        }
+
+        case "remove_file": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          const targetPath = join(getSkillLibraryDir(ownerUserId), ...found.ref.split("/"), ...(operation.filePath ?? "").split("/"));
+          snapshotFile(targetPath);
+          const removed = removeLibrarySupportFile(ownerUserId, found.ref, {
+            filePath: operation.filePath ?? "",
+            actor: origin === "background-review" ? "background-review" : "foreground"
+          });
+          if ("error" in removed) {
+            throw new Error(removed.error);
+          }
+          results.push(`File '${removed.filePath}' removed from skill '${found.ref}'.`);
+          break;
+        }
+
+        case "delete": {
+          if (!found) {
+            throw new Error(`Skill '${operation.name}' not found in the active library.`);
+          }
+          const deleted =
+            origin === "foreground"
+              ? hardDeleteLibrarySkill(ownerUserId, found.ref, "foreground")
+              : archiveLibrarySkill(ownerUserId, found.ref);
+          if ("error" in deleted) {
+            throw new Error(deleted.error);
+          }
+          results.push(
+            origin === "foreground"
+              ? `Skill '${found.ref}' deleted.`
+              : `Skill '${found.ref}' archived (recoverable under .archive/).`
+          );
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    rollback();
+    const message = error instanceof Error ? error.message : "skill_manage failed";
+    const handle = await context.input.onActionStart?.({
+      kind: "skill_manage",
+      label: "Skill manage",
+      detail: message.split("\n")[0]
+    });
+    await context.input.onActionError?.(typeof handle === "string" ? handle : undefined, {
+      resultSummary: message
+    });
+    return errorResult(message);
+  }
+
+  throwIfAborted(context.input.abortSignal);
+  const detail = results[0]?.split("\n")[0] ?? "skill_manage";
+  const handle = await context.input.onActionStart?.({
+    kind: "skill_manage",
+    label: "Update skills",
+    detail,
+    toolName: "skill_manage"
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+  await context.input.onActionComplete?.(actionHandle, {
+    detail,
+    resultSummary: results.join(" ")
+  });
+
+  const refreshed = listLibrarySkills(ownerUserId).find((skill) => results.some((line) => line.includes(`'${skill.name}'`) || line.includes(`'${skill.id}'`)));
+  const turnSkills = context.input.skills;
+  if (turnSkills && refreshed) {
+    const existingIndex = turnSkills.findIndex((skill) => skill.id === refreshed.id);
     if (existingIndex >= 0) {
-      turnSkills[existingIndex] = savedSkill;
+      turnSkills[existingIndex] = refreshed;
     } else {
-      turnSkills.push(savedSkill);
+      turnSkills.push(refreshed);
     }
   }
 
-  sortOrder += 1;
-
-  const resultMsg = buildToolResultMessage(
-    toolCallId,
-    `Skill saved: ${name} (skills/${slug}/SKILL.md). It is available via load_skill, including right away in this turn.`
-  );
   return {
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, resultMsg],
+    nextSortOrder: sortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, results.join("\n"))],
     toolSucceeded: true
   };
 }
@@ -772,6 +1002,7 @@ export async function executeShellCommand(
     input: {
       conversationId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -790,6 +1021,55 @@ export async function executeShellCommand(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  if (
+    getShellCommandLabel(command) === "Web browser" &&
+    getComputerControl(conversationBrowserTarget(context.input.conversationId)) === "user"
+  ) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: The user has control of the browser right now. Wait until they return it, then try again. Use request_takeover if you need them to do a step for you."
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const classification = classifyShellCommand(command);
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "shell",
+    families: classification.families,
+    classified: classification.classified,
+    command
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: buildShellDetail(command),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    timeoutMs: context.input.toolApproval?.timeoutMs,
+    onWaitChange: context.input.toolApproval?.onWaitChange,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "shell_command",
+        label: getShellCommandLabel(command),
+        detail: buildShellDetail(command),
+        arguments: { command, timeoutMs }
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const handle = await context.input.onActionStart?.({
     kind: "shell_command",
     label: getShellCommandLabel(command),
@@ -803,14 +1083,28 @@ export async function executeShellCommand(
     ? getBotByConversationId(context.input.conversationId)
     : null;
   const sandbox = bot ? resolveBotSandbox(bot) : null;
+  const browserTarget = conversationBrowserTarget(context.input.conversationId);
+  const usesBrowser = getShellCommandLabel(command) === "Web browser";
 
   try {
-    const result = await executeLocalShellCommand({
+    const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
+    const browserEnv = await prepareBrowserEnv(browserTarget, usesBrowser);
+    const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
+    throwIfAborted(context.input.abortSignal);
+    if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
+    const shellResult = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
-      ...(sandbox ? { cwd: sandbox.cwd, env: { ...process.env, ...sandbox.env } } : {})
+      cwd,
+      env: { ...browserEnv, ...botShell?.env },
+      isolation: botShell?.rules
     });
+    const result = {
+      ...shellResult,
+      stdout: redactSecrets(context.input.conversationId, shellResult.stdout),
+      stderr: redactSecrets(context.input.conversationId, shellResult.stderr)
+    };
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
     const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
@@ -844,7 +1138,85 @@ export async function executeShellCommand(
     await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } finally {
+    if (usesBrowser) setComputerCaption(browserTarget, null);
   }
+}
+
+async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget) {
+  const proxyPort = await ensureEgressProxy();
+  return {
+    env: { HOME: sandbox.homeDir, ...egressProxyEnv(proxyPort) },
+    rules: {
+      readWrite: [sandbox.workspaceDir, sandbox.sharedDir, sandbox.homeDir, browserTarget.socketDir, ...sandboxScratchDirs()],
+      connectPorts: resolveBrowserExecutable() ? [proxyPort] : undefined
+    }
+  };
+}
+
+async function executeRequestTakeover(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const reason = String(args.reason ?? "").trim().slice(0, 500) || "Finish a step in the browser";
+  const resultText = await requestComputerHandoff({
+    conversationId: context.input.conversationId,
+    reason,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
+}
+
+async function executeRequestSecret(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const replaceSaved = args.replace_saved === true;
+  const resultText = await requestComputerSecret({
+    conversationId: context.input.conversationId,
+    userId: context.input.toolApproval?.userId,
+    label: String(args.label ?? ""),
+    origin: String(args.origin ?? ""),
+    target: String(args.target ?? ""),
+    save: args.save === true || replaceSaved,
+    replaceSaved,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart,
+    onWaitChange: context.input.toolApproval?.onWaitChange
+  });
+  throwIfAborted(context.input.abortSignal);
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
 }
 
 function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
@@ -1040,8 +1412,14 @@ function parseAutomationScheduleArgs(args: Record<string, unknown>): {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt: string | null;
 } {
-  const scheduleKind: AutomationScheduleKind = args.schedule_kind === "calendar" ? "calendar" : "interval";
+  const scheduleKind: AutomationScheduleKind =
+    args.schedule_kind === "calendar"
+      ? "calendar"
+      : args.schedule_kind === "once"
+        ? "once"
+        : "interval";
   const intervalMinutes =
     typeof args.interval_minutes === "number" && Number.isFinite(args.interval_minutes)
       ? Math.round(args.interval_minutes)
@@ -1052,8 +1430,16 @@ function parseAutomationScheduleArgs(args: Record<string, unknown>): {
   const daysOfWeek = Array.isArray(args.days_of_week)
     ? args.days_of_week.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= 6)
     : [];
+  const runAt = (() => {
+    if (scheduleKind !== "once" || typeof args.run_at !== "string" || !args.run_at.trim()) {
+      return null;
+    }
 
-  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek };
+    const parsed = new Date(args.run_at.trim());
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  })();
+
+  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek, runAt };
 }
 
 export async function executeCreateAutomationProposal(
@@ -1081,6 +1467,7 @@ export async function executeCreateAutomationProposal(
 
   try {
     assertValidSchedule(schedule);
+    assertFutureRunAt(schedule.scheduleKind, schedule.runAt);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid automation schedule";
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
@@ -1096,6 +1483,7 @@ export async function executeCreateAutomationProposal(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
   const proposalPayload = {
     name,
     prompt,
@@ -1104,9 +1492,11 @@ export async function executeCreateAutomationProposal(
     calendarFrequency: schedule.calendarFrequency,
     timeOfDay: schedule.timeOfDay,
     daysOfWeek: schedule.daysOfWeek,
+    runAt: schedule.runAt,
     providerProfileId,
     personaId: null,
-    continuePreviousConversation
+    botId: bot?.id ?? null,
+    continuePreviousConversation: bot ? false : continuePreviousConversation
   };
   const scheduleSummary = describeSchedule(proposalPayload);
 
@@ -1122,9 +1512,114 @@ export async function executeCreateAutomationProposal(
   });
   throwIfAborted(context.input.abortSignal);
 
+  const onceNote =
+    schedule.scheduleKind === "once"
+      ? " It runs a single time and then deletes itself."
+      : "";
+
   const resultMsg = buildToolResultMessage(
     toolCallId,
-    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
+    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card.${onceNote} Tell the user you have proposed the automation and that they can review and approve it.`
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+export async function executeDraftMessage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      mcpToolSets: ToolSet[];
+      conversationId?: string;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const fail = (message: string) => ({
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  const functionName = typeof args.tool === "string" ? args.tool.trim() : "";
+  const rawArguments = args.arguments;
+
+  if (!functionName) {
+    return fail("tool is required: pass the exact name of the connected tool that sends the message");
+  }
+
+  if (!rawArguments || typeof rawArguments !== "object" || Array.isArray(rawArguments)) {
+    return fail("arguments must be an object with the arguments for the sending tool");
+  }
+
+  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets);
+  if (!resolved) {
+    return fail(`${functionName} is not a connected tool. Use the exact name of a tool from your tool list, such as mcp_<server>_<tool>.`);
+  }
+
+  const { server, tool } = resolved;
+  if (tool.annotations?.readOnlyHint === true) {
+    return fail(`${functionName} is read-only and does not send anything. Call it directly instead.`);
+  }
+
+  const toolArguments = coerceEnumValues(tool.inputSchema ?? {}, rawArguments as Record<string, unknown>);
+  const missing = (tool.inputSchema?.required ?? []).filter((key) => toolArguments[key] === undefined);
+  if (missing.length) {
+    return fail(`missing required arguments for ${functionName}: ${missing.join(", ")}`);
+  }
+
+  const fields = buildMessageDraftFields(tool, toolArguments);
+  if (!fields.length) {
+    return fail(`${functionName} has no text for the user to review. Call it directly instead.`);
+  }
+
+  const replacesDraftId = typeof args.replaces_draft_id === "string" ? args.replaces_draft_id.trim() : "";
+  const replaced =
+    replacesDraftId && context.input.conversationId
+      ? supersedeMessageDraft(replacesDraftId, context.input.conversationId)
+      : false;
+
+  const proposalPayload: MessageDraftProposalPayload = {
+    operation: "message_draft",
+    mcpServerId: server.id,
+    mcpServerName: server.name,
+    mcpToolName: tool.name,
+    toolLabel: getToolLabel(tool),
+    arguments: toolArguments,
+    fields
+  };
+
+  throwIfAborted(context.input.abortSignal);
+  const handle = await context.input.onActionStart?.({
+    kind: "draft_message",
+    status: "pending",
+    label: `Message draft for ${server.name}`,
+    detail: buildArgumentsSummary(toolArguments),
+    serverId: server.id,
+    toolName: "draft_message",
+    arguments: { tool: functionName, arguments: toolArguments },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+  const draftId = typeof handle === "string" && handle ? handle : null;
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    [
+      `Draft${draftId ? ` ${draftId}` : ""} is ready for the user to review, edit, and send with ${server.name}. Nothing has been sent.`,
+      replacesDraftId
+        ? replaced
+          ? `Draft ${replacesDraftId} was withdrawn and replaced by this one.`
+          : `Draft ${replacesDraftId} was not replaced because it is no longer waiting; the user may already have sent or discarded it.`
+        : "",
+      "Tell the user the draft is ready below without repeating its full text, and never claim it was sent."
+    ]
+      .filter(Boolean)
+      .join(" ")
   );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
@@ -1272,6 +1767,7 @@ export async function executeSearchWorkspace(
   context: {
     input: {
       memoryUserId?: string | null;
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -1310,7 +1806,12 @@ export async function executeSearchWorkspace(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const results = await searchWorkspace({ userId, query, limit });
+    const results = await searchWorkspace({
+      userId,
+      query,
+      limit,
+      memoryBotId: resolveMemoryScope(context.input.conversationId)?.botId ?? null
+    });
     throwIfAborted(context.input.abortSignal);
     if (!results) {
       throw new Error("Semantic index is unavailable");
@@ -1356,18 +1857,19 @@ export async function executeToolCall(
       settings?: RuntimeProviderProfile;
       visionProfile?: RuntimeProviderProfile;
       skills: Skill[];
+      skillWriteOrigin?: SkillWriteOrigin;
       mcpToolSets: ToolSet[];
       memoryUserId?: string | null;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      imageGenerationActionHandle?: string;
-      hasVisibleImageGenerationAction?: boolean;
       appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
+      delegationChain?: DelegationChain;
       abortSignal?: AbortSignal;
+      toolApproval?: ToolApprovalContext;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
@@ -1394,12 +1896,20 @@ export async function executeToolCall(
     return executeLoadSkill(toolCallId, args, context);
   }
 
-  if (name === "save_skill") {
-    return executeSaveSkill(toolCallId, args, context);
+  if (name === "skill_manage") {
+    return executeSkillManage(toolCallId, args, context);
   }
 
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name === "request_takeover") {
+    return executeRequestTakeover(toolCallId, args, context);
+  }
+
+  if (name === "request_secret") {
+    return executeRequestSecret(toolCallId, args, context);
   }
 
   if (name === "message_bot") {
@@ -1418,6 +1928,10 @@ export async function executeToolCall(
     return executeUpdateBotTool(toolCallId, args, context);
   }
 
+  if (name === "update_own_instructions") {
+    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
+  }
+
   if (name === "create_memory") {
     return executeCreateMemory(toolCallId, args, context);
   }
@@ -1432,6 +1946,10 @@ export async function executeToolCall(
 
   if (name === "create_automation") {
     return executeCreateAutomationProposal(toolCallId, args, context);
+  }
+
+  if (name === "draft_message") {
+    return executeDraftMessage(toolCallId, args, context);
   }
 
   if (name === "web_search") {

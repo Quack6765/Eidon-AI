@@ -52,6 +52,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     providerProfileId: null,
     status: "idle",
     waitingForInput: false,
+    unread: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -69,6 +70,7 @@ function buildRun(overrides: Partial<BotRun> = {}): BotRun {
     startedAt: null,
     finishedAt: null,
     parentMessageId: null,
+    requestedByBotId: null,
     errorMessage: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     ...overrides

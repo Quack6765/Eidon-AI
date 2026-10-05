@@ -26,6 +26,7 @@ import {
   updateMessageAction
 } from "@/lib/conversations";
 import { executeShellCommand, type RuntimeAction } from "@/lib/tool-executors";
+import { createToolApprovalRules } from "@/lib/tool-approvals";
 
 const PNG_BYTES = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -81,6 +82,7 @@ function createExecutionContext() {
 
 describe("screenshot artifact capabilities", () => {
   beforeEach(() => {
+    createToolApprovalRules(null, "shell", ["agent-browser", "true"]);
     shellMocks.executeLocalShellCommand.mockReset();
     shellMocks.summarizeShellResult.mockReset();
     shellMocks.summarizeShellResult.mockReturnValue("screenshot result");

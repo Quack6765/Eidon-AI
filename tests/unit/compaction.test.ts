@@ -13,11 +13,13 @@ import {
 } from "@/lib/provider-adapters/openai-message-formatting";
 import { toAnthropicMessages } from "@/lib/anthropic";
 import { getDb } from "@/lib/db";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
+import { MAX_PROMPT_IMAGES } from "@/lib/constants";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
 import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import { createLocalUser } from "@/lib/users";
-import type { Message, MessageAction, PromptMessage } from "@/lib/types";
+import type { Message, MessageAction, MessageAttachment, PromptMessage } from "@/lib/types";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 vi.mock("@/lib/provider", async () => {
@@ -168,6 +170,70 @@ describe("lossless compaction", () => {
     expect(getPromptText(prompt[0]!)).toContain("Stay concise.");
     expect(getPromptText(prompt[0]!)).toContain("Compacted Memory");
     expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
+  });
+
+  it("reminds the assistant where the files it delivered live, including files-only replies", () => {
+    const deliveredFile = (id: string, messageId: string, sourcePath: string | null) => ({
+      id,
+      conversationId: "conv_1",
+      messageId,
+      filename: "report.csv",
+      mimeType: "text/csv",
+      byteSize: 5,
+      sha256: "hash",
+      relativePath: `conv_1/${id}_report.csv`,
+      kind: "text" as const,
+      extractedText: "a,b",
+      sourcePath,
+      createdAt: new Date().toISOString()
+    });
+    const baseMessage = {
+      conversationId: "conv_1",
+      thinkingContent: "",
+      status: "completed" as const,
+      estimatedTokens: 2,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString()
+    };
+
+    const prompt = buildPromptMessages({
+      systemPrompt: "System.",
+      activeMemoryNodes: [],
+      messages: [
+        { ...baseMessage, id: "msg_user", role: "user", content: "Build the report" },
+        {
+          ...baseMessage,
+          id: "msg_with_text",
+          role: "assistant",
+          content: "Here is the report.",
+          attachments: [deliveredFile("att_1", "msg_with_text", "/work/bot/report.csv")]
+        },
+        {
+          ...baseMessage,
+          id: "msg_files_only",
+          role: "assistant",
+          content: "",
+          attachments: [deliveredFile("att_2", "msg_files_only", "/work/shared/team report.csv")]
+        },
+        {
+          ...baseMessage,
+          id: "msg_uploaded_copy",
+          role: "assistant",
+          content: "",
+          attachments: [deliveredFile("att_3", "msg_uploaded_copy", null)]
+        }
+      ]
+    });
+
+    const assistantContents = prompt
+      .filter((message) => message.role === "assistant")
+      .map((message) => (typeof message.content === "string" ? message.content : ""));
+
+    expect(assistantContents).toEqual([
+      "Here is the report.\n\n[report.csv](/work/bot/report.csv)",
+      "[team report.csv](</work/shared/team report.csv>)"
+    ]);
   });
 
   it("excludes error-status assistant turns from the prompt", () => {
@@ -837,13 +903,13 @@ describe("lossless compaction", () => {
 
   it("keeps the fresh completed-turn tail un-compacted when leaf compaction runs", async () => {
     updateDefaultProfile({
-      modelContextLimit: 4352,
-      maxOutputTokens: 2000,
+      modelContextLimit: 16384,
+      maxOutputTokens: 4096,
       compactionThreshold: 0.6
     });
     getDb()
-      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
-      .run(2, "profile_default");
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ?, leaf_source_token_limit = ? WHERE id = ?")
+      .run(2, 30000, "profile_default");
 
     const conversation = createConversation();
     const messageIds: string[] = [];
@@ -852,7 +918,7 @@ describe("lossless compaction", () => {
       const message = createMessage({
         conversationId: conversation.id,
         role: index % 2 === 0 ? "user" : "assistant",
-        content: `Turn ${Math.floor(index / 2)} ${index % 2 === 0 ? "user" : "assistant"} ${"dense context ".repeat(240)}`,
+        content: `Turn ${Math.floor(index / 2)} ${index % 2 === 0 ? "user" : "assistant"} ${"dense context ".repeat(900)}`,
         thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
       });
       messageIds.push(message.id);
@@ -1970,7 +2036,7 @@ describe("buildPromptMessages tool-call replay", () => {
     expect(toolMessages.map((m) => m.toolCallId)).toEqual(["act_1", "act_2"]);
   });
 
-  it("omits non-replayable action kinds and emits the assistant text-only", () => {
+  it("replays image_generation actions as generate_image tool calls and omits other non-replayable kinds", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Sys.",
       activeMemoryNodes: [],
@@ -1987,8 +2053,13 @@ describe("buildPromptMessages tool-call replay", () => {
     });
 
     const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
-    expect(assistant.toolCalls ?? []).toHaveLength(0);
-    expect(prompt.filter((m) => m.role === "tool")).toHaveLength(0);
+    expect(assistant.toolCalls ?? []).toHaveLength(1);
+    expect(assistant.toolCalls![0]).toMatchObject({ id: "act_img", name: "generate_image" });
+
+    const toolMessages = prompt.filter((m) => m.role === "tool");
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0]!.toolCallId).toBe("act_img");
+    expect(toolMessages[0]!.content).toContain("Generated 1 images: cat.png");
     expect(assistant.content).toBe("Made an image.");
   });
 
@@ -2075,5 +2146,221 @@ describe("buildPromptMessages tool-call replay", () => {
     const anthropic = JSON.stringify(toAnthropicMessages(history));
     expect(anthropic).toContain('"tool_use_id":"act_1"');
     expect(anthropic).toContain('"type":"tool_use","id":"act_1"');
+  });
+});
+
+describe("buildPromptMessages rolling image context", () => {
+  function userMessage(overrides: Partial<Message>): Message {
+    return {
+      id: "msg_user",
+      conversationId: "conv_1",
+      role: "user",
+      content: "Hello",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 1,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      ...overrides
+    };
+  }
+
+  function assistantMessage(overrides: Partial<Message>): Message {
+    return {
+      id: "msg_assistant",
+      conversationId: "conv_1",
+      role: "assistant",
+      content: "Done.",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 2,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      ...overrides
+    };
+  }
+
+  function action(overrides: Partial<MessageAction> & { id: string }): MessageAction {
+    return {
+      messageId: "msg_assistant",
+      kind: "mcp_tool_call",
+      status: "completed",
+      serverId: "exa",
+      skillId: null,
+      toolName: "search",
+      label: "search",
+      detail: "",
+      arguments: { q: "x" },
+      resultSummary: "hits: a, b",
+      sortOrder: 0,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null,
+      ...overrides
+    };
+  }
+
+  function imageAttachment(id: string, filename: string): MessageAttachment {
+    return {
+      id,
+      conversationId: "conv_1",
+      messageId: null,
+      filename,
+      mimeType: "image/png",
+      byteSize: 100,
+      sha256: `hash-${id}`,
+      relativePath: `conv_1/${id}_${filename}`,
+      kind: "image",
+      extractedText: "",
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  function imageParts(message: PromptMessage) {
+    return typeof message.content === "string"
+      ? []
+      : message.content.filter((part) => part.type === "image");
+  }
+
+  function textOf(message: PromptMessage) {
+    return typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+  }
+
+  it("injects the generated baseline into follow-ups that never name the image", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        userMessage({
+          id: "msg_u1",
+          content: "here is a photo",
+          attachments: [imageAttachment("att_user", "photo.png")]
+        }),
+        assistantMessage({
+          id: "msg_a1",
+          content: "Generated an image.",
+          attachments: [imageAttachment("att_gen", "20250101-1.png")],
+          actions: [
+            action({
+              id: "act_gen",
+              kind: "image_generation",
+              toolName: "generate_image",
+              label: "Generate image",
+              resultSummary: "Generated 1 images: 20250101-1.png"
+            })
+          ]
+        }),
+        userMessage({ id: "msg_u2", content: "make it darker", attachments: [] })
+      ]
+    });
+
+    const latestUser = prompt.filter((message) => message.role === "user").at(-1)!;
+    const text = textOf(latestUser);
+    expect(text).toContain("make it darker");
+    expect(text).toContain("Previous image reference: 20250101-1.png");
+    expect(imageParts(latestUser).map((part) => part.attachmentId)).toEqual(["att_gen"]);
+
+    const firstUser = prompt.filter((message) => message.role === "user")[0]!;
+    expect(imageParts(firstUser).map((part) => part.attachmentId)).toEqual(["att_user"]);
+  });
+
+  it("caps image blocks at the prompt budget and drops the oldest to stubs", () => {
+    const userMessages = Array.from({ length: 12 }, (_, index) =>
+      userMessage({
+        id: `msg_u${index}`,
+        content: `photo ${index}`,
+        attachments: [imageAttachment(`att_${index}`, `photo${index}.png`)]
+      })
+    );
+
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        ...userMessages,
+        assistantMessage({
+          id: "msg_a1",
+          content: "Generated.",
+          attachments: [imageAttachment("att_gen", "gen.png")],
+          actions: [
+            action({
+              id: "act_gen",
+              kind: "image_generation",
+              toolName: "generate_image",
+              label: "Generate image",
+              resultSummary: "Generated 1 images: gen.png"
+            })
+          ]
+        }),
+        userMessage({ id: "msg_final", content: "continue", attachments: [] })
+      ]
+    });
+
+    const allImageParts = prompt.flatMap((message) => imageParts(message));
+    expect(allImageParts).toHaveLength(MAX_PROMPT_IMAGES);
+
+    const keptIds = allImageParts.map((part) => part.attachmentId);
+    expect(keptIds).toContain("att_gen");
+    expect(keptIds).toContain("att_11");
+    expect(keptIds).not.toContain("att_0");
+
+    const omittedCount = prompt.filter((message) =>
+      textOf(message).includes("[image omitted from context to save tokens")
+    ).length;
+    expect(omittedCount).toBeGreaterThan(0);
+
+    const latestUser = prompt.filter((message) => message.role === "user").at(-1)!;
+    expect(textOf(latestUser)).toContain("Previous image reference: gen.png");
+  });
+
+  it("recovers the baseline from the database when the generation turn is out of the prompt window", async () => {
+    const conversation = createConversation("DB baseline");
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "generate a logo"
+    });
+    const assistantRow = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Generated."
+    });
+    createMessageAction({
+      messageId: assistantRow.id,
+      kind: "image_generation",
+      status: "completed",
+      toolName: "generate_image",
+      label: "Generate image",
+      resultSummary: "Generated 1 images: gen.png"
+    });
+    const [attachment] = await createAttachments(conversation.id, [
+      { filename: "gen.png", mimeType: "image/png", bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
+    ]);
+    bindAttachmentsToMessage(conversation.id, assistantRow.id, [attachment.id]);
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "make it darker"
+    });
+
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      conversationId: conversation.id,
+      activeMemoryNodes: [],
+      messages: [userMessage({ id: "msg_u_only", content: "make it darker", attachments: [] })]
+    });
+
+    const latestUser = prompt.filter((message) => message.role === "user").at(-1)!;
+    expect(textOf(latestUser)).toContain("Previous image reference: gen.png");
+    expect(imageParts(latestUser).map((part) => part.attachmentId)).toEqual([attachment.id]);
   });
 });

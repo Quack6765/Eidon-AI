@@ -15,10 +15,11 @@ import {
 } from "@/lib/research-mode";
 import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
-import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
-import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
+import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
+import { isLibrarySkillId } from "./skill-library";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { findReferencedNames } from "./reference-tokens";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -28,6 +29,7 @@ import type {
   ProviderToolCall,
   PromptMessage,
   Skill,
+  ToolApprovalContext,
   VisionMode
 } from "@/lib/types";
 
@@ -35,7 +37,7 @@ export type { ToolSet } from "./tool-definitions";
 export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
 export { mcpToolFunctionName, buildToolDefinitions } from "./tool-definitions";
 export { buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
-export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, hasRecentAssistantImageContext, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
+export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 
 type Usage = {
   inputTokens?: number;
@@ -49,8 +51,8 @@ const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
   "Image generation is available in this environment and a generated image is already attached in this turn. Do not claim that image generation is unavailable. Refer to the generated image result directly, do not call generate_image again in this turn, and do not embed markdown image tags or local file links in your response.";
 const WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE =
   "Web search results have been received in this turn. Answer the user now by synthesizing the results above, or call read_page on the most relevant result URLs when the snippets are insufficient. Only call web_search again if the results clearly cannot answer the question — never to re-run or refine similar queries, and never for additional confirmation. Users wait while you search, so prefer answering from what you already have.";
-const IMAGE_TOOL_REQUIRED_DIRECTIVE =
-  "The latest user request requires generating a new image. Do not claim that an image was generated unless you call generate_image in this response. Call generate_image now.";
+const IMAGE_TOOL_POLICY_DIRECTIVE =
+  "Images are produced only when the conversation calls for one: an explicit request from the user, or a follow-up that revises an image generated earlier (including short corrections like 'No, use a pixel theme.'). Never generate decorative, celebratory, summary, chart, or completion images, and never call generate_image to visualize results — use mermaid code blocks for diagrams. If the user has told you not to generate images, obey that until they ask for one. If you are unsure whether the user wants an image, ask instead of generating.";
 const INLINE_ATTACHMENT_DIRECTIVE =
   "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
@@ -115,29 +117,51 @@ function buildCapabilitiesStableSegment(
   return lines.join("\n");
 }
 
-function buildDynamicSkillsSegment(skills: Skill[], saveSkillEnabled = false) {
-  if (!skills.length && !saveSkillEnabled) return "";
+function buildDynamicSkillsSegment(skills: Skill[], skillManageEnabled = false) {
+  if (!skills.length && !skillManageEnabled) return "";
 
   const lines: string[] = [];
 
   if (skills.length) {
     lines.push("Available skills (metadata only — call load_skill to get full instructions):");
     for (const skill of skills) {
-      const marker = isBotWorkspaceSkillId(skill.id) ? " (workspace)" : "";
-      lines.push(`- ${getSkillResolvedName(skill)}${marker}: ${getSkillResolvedDescription(skill)}`);
+      const marker = isLibrarySkillId(skill.id) ? " (shared)" : "";
+      const state = skill.state === "archived" ? " [archived]" : skill.state === "stale" ? " [stale]" : "";
+      lines.push(`- ${getSkillResolvedName(skill)}${marker}${state}: ${getSkillResolvedDescription(skill)}`);
     }
-    if (saveSkillEnabled) {
+    if (skillManageEnabled) {
       lines.push(
-        "Skills marked (workspace) are your own — create or update reusable skills with the save_skill tool."
+        "Skills marked (shared) live in this team's shared library — every agent here reads and writes the same skills.",
+        "When the user asks you to learn, capture, or save a workflow as a skill, load the skill-authoring skill first and follow it.",
+        "With skill_manage, prefer patching a loaded skill over patching an umbrella, over adding a support file, over creating a new skill. Creation is the last resort."
       );
     }
   } else {
     lines.push(
-      "No skills are available yet. You can create your own reusable skills with the save_skill tool; saved skills become available via load_skill in future turns."
+      "No skills are available yet. With skill_manage you can create reusable skills in this team's shared library; they become available via load_skill in future turns.",
+      "When the user asks you to learn, capture, or save a workflow as a skill, load the skill-authoring skill first and follow it."
     );
   }
 
   return lines.join("\n");
+}
+
+const BOT_AUTHORED_PROMPT_PREFIX = "[Message from ";
+
+function buildInvokedSkillsDirective(loadedSkills: string[]) {
+  return [
+    "The user invoked the skills below with / for this message. Their full instructions are already loaded: follow them for this request and do not call load_skill for them again.",
+    ...loadedSkills
+  ].join("\n\n");
+}
+
+function buildBotMentionDirective(botNames: string[]) {
+  const mentions = botNames.map((name) => `@${name}`).join(", ");
+  return [
+    `The user addressed this message to ${mentions}.`,
+    "Hand the request off with message_bot instead of doing the work yourself: one call per mentioned bot, each with the part of the request meant for that bot and the context it needs.",
+    "Then briefly tell the user who you handed it to. Their replies arrive in this conversation."
+  ].join(" ");
 }
 
 function buildVisionMcpDirective(
@@ -334,7 +358,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
       break;
     }
 
-    input.onEvent?.(next.value);
+    await input.onEvent?.(next.value);
   }
 
   if (!answer.trim()) {
@@ -359,6 +383,7 @@ export async function resolveAssistantTurn(input: {
   memoriesEnabled?: boolean;
   memoriesRigor?: MemoryRigor;
   memoryUserId?: string | null;
+  toolApproval?: ToolApprovalContext;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;
@@ -377,12 +402,16 @@ export async function resolveAssistantTurn(input: {
   appSettings?: import("@/lib/types").RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
+  delegationChain?: import("@/lib/types").DelegationChain;
   botTeam?: {
     isChief: boolean;
     roster: import("@/lib/bots").BotRosterEntry[];
   };
   botWorkspaceSkillsEnabled?: boolean;
+  skillManageEnabled?: boolean;
+  toolAllowlist?: string[];
   research?: import("@/lib/types").ChatResearchOptions;
+  takeRedirect?: () => Promise<{ content: string; assistantMessageId: string } | null>;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const baseSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
@@ -440,12 +469,8 @@ export async function resolveAssistantTurn(input: {
   }
 
   let imageGenerationToolConsumed = false;
-  let imageGenerationToolAttempted = false;
-  let imageGenerationIntentRetries = 0;
   let memoryIntentRetries = 0;
   let emptyAnswerRetries = 0;
-  let visibleImageActionStarted = false;
-  let visibleImageActionHandle: string | undefined;
 
   const hasWebSearch = Boolean(
     input.appSettings && input.appSettings.webSearch.providerId !== "disabled"
@@ -480,6 +505,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   if (hasImageGeneration) {
+    promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POLICY_DIRECTIVE);
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
   }
 
@@ -498,6 +524,36 @@ export async function resolveAssistantTurn(input: {
     }
   }
 
+  const applyComposerReferences = async (userContent: string) => {
+    const invokedSkillNames = findReferencedNames(
+      userContent,
+      "/",
+      turnSkills.map((skill) => getSkillResolvedName(skill))
+    ).map((name) => name.toLowerCase());
+    const invokedSkillContents: string[] = [];
+    for (const skill of turnSkills) {
+      if (loadedSkillIds.has(skill.id) || !invokedSkillNames.includes(getSkillResolvedName(skill).toLowerCase())) continue;
+      invokedSkillContents.push(await loadSkillIntoTurn(skill, input, loadedSkillIds));
+      timelineSortOrder += 1;
+    }
+    if (invokedSkillContents.length) {
+      promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
+    }
+
+    if (input.botTeam && !userContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
+      const mentionedBots = findReferencedNames(
+        userContent,
+        "@",
+        input.botTeam.roster.map((entry) => entry.name)
+      );
+      if (mentionedBots.length) {
+        promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+      }
+    }
+  };
+
+  await applyComposerReferences(getLatestUserPromptContent(promptMessages));
+
   const commitAnswerSegment = async (segment: string) => {
     if (!segment) return;
     if (input.onAnswerSegment) {
@@ -505,28 +561,28 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
+  const applyRedirect = async (answeredMessage?: PromptMessage) => {
+    const redirect = await input.takeRedirect?.();
+    if (!redirect) return false;
+    toolRuntimeInput.assistantMessageId = redirect.assistantMessageId;
+    promptMessages = [
+      ...promptMessages,
+      ...(answeredMessage ? [answeredMessage] : []),
+      { role: "user", content: redirect.content }
+    ];
+    await applyComposerReferences(redirect.content);
+    return true;
+  };
+
   for (let step = 0; step < maxSteps; step += 1) {
     assertRunning();
 
-    if (researchCollapseThreshold !== null && estimatePromptTokens(promptMessages) > researchCollapseThreshold) {
-      promptMessages = collapseOlderToolResults(promptMessages);
+    if (step > 0 && (await applyRedirect())) {
+      step = 0;
     }
 
-    const restrictToGenerateImage =
-      !imageGenerationToolConsumed &&
-      !imageGenerationToolAttempted &&
-      imageGenerationIntentRetries === 0 &&
-      hasImageGeneration &&
-      hasUnfulfilledImageGenerationIntent(promptMessages);
-
-    if (restrictToGenerateImage && !visibleImageActionStarted) {
-      const handle = await input.onActionStart?.({
-        kind: "image_generation",
-        label: "Generate image",
-        detail: getLatestUserPromptContent(promptMessages) || "Generate image"
-      });
-      visibleImageActionStarted = true;
-      visibleImageActionHandle = typeof handle === "string" ? handle : undefined;
+    if (researchCollapseThreshold !== null && estimatePromptTokens(promptMessages) > researchCollapseThreshold) {
+      promptMessages = collapseOlderToolResults(promptMessages);
     }
 
     const tools = buildToolDefinitions({
@@ -539,7 +595,6 @@ export async function resolveAssistantTurn(input: {
       webSearchPipelineMode: hasWebSearch ? webSearchPipeline.mode : undefined,
       imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,
-      restrictToGenerateImage,
       effectiveVisionMode,
       visionToolEnabled:
         effectiveVisionMode === "provider" &&
@@ -547,6 +602,8 @@ export async function resolveAssistantTurn(input: {
         !getProviderReadinessError(input.visionProfile),
       botTeam: input.botTeam,
       botWorkspaceSkillsEnabled: input.botWorkspaceSkillsEnabled,
+      skillManageEnabled: input.skillManageEnabled,
+      toolAllowlist: input.toolAllowlist,
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
@@ -556,7 +613,7 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         visionMcpServers
       }),
-      buildDynamicSkillsSegment(turnSkills, input.botWorkspaceSkillsEnabled)
+      buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled)
     );
 
     const buildProviderStream = () =>
@@ -571,7 +628,7 @@ export async function resolveAssistantTurn(input: {
           visionProfile: input.visionProfile,
           appSettings: input.appSettings,
           conversationId: input.conversationId,
-          assistantMessageId: input.assistantMessageId,
+          assistantMessageId: toolRuntimeInput.assistantMessageId,
           promptMessages,
           mcpToolSets: input.mcpToolSets,
           skills: turnSkills,
@@ -580,9 +637,6 @@ export async function resolveAssistantTurn(input: {
           effectiveVisionMode,
           memoryUserId: input.memoryUserId,
           imageGenerationToolEnabled: !imageGenerationToolConsumed,
-          restrictToGenerateImage,
-          imageGenerationActionHandle: visibleImageActionHandle,
-          hasVisibleImageGenerationAction: visibleImageActionStarted,
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,
           onActionError: input.onActionError,
@@ -621,29 +675,16 @@ export async function resolveAssistantTurn(input: {
         toolCalls = next.value.toolCalls ?? [];
         break;
       }
-      input.onEvent?.(next.value);
+      await input.onEvent?.(next.value);
     }
 
     assertRunning();
 
     if (!toolCalls.length) {
-      if (
-        !imageGenerationToolConsumed &&
-        !imageGenerationToolAttempted &&
-        imageGenerationIntentRetries < 1 &&
-        hasImageGeneration &&
-        hasUnfulfilledImageGenerationIntent(promptMessages)
-      ) {
-        imageGenerationIntentRetries += 1;
-        input.onEvent?.({ type: "answer_reset" });
-        promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
-        continue;
-      }
-
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
         if (memoryIntentRetries < 1) {
           memoryIntentRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
             "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If the fact is durable and would still matter in an unrelated future conversation, call the memory tool now — the call is the offer, so do not ask for permission in words first. If it only matters in this conversation, drop the claim, propose nothing, and answer normally without mentioning memory."
@@ -655,7 +696,7 @@ export async function resolveAssistantTurn(input: {
       if (!answer.trim()) {
         if (emptyAnswerRetries < 1) {
           emptyAnswerRetries += 1;
-          input.onEvent?.({ type: "answer_reset" });
+          await input.onEvent?.({ type: "answer_reset" });
           promptMessages = mergeSystemMessage(
             promptMessages,
             "Your previous response was empty. Answer the user directly. Do not emit an empty response."
@@ -665,6 +706,18 @@ export async function resolveAssistantTurn(input: {
         throw new Error("Provider returned an empty response");
       }
       await commitAnswerSegment(answer);
+      if (
+        await applyRedirect({
+          role: "assistant",
+          content: answer,
+          reasoningContent: thinking || undefined,
+          reasoningSignature,
+          responseItems
+        })
+      ) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
 
@@ -674,8 +727,6 @@ export async function resolveAssistantTurn(input: {
 
     if (answer.trim()) {
       await commitAnswerSegment(answer);
-    } else {
-      input.onEvent?.({ type: "answer_reset" });
     }
 
     promptMessages = [
@@ -710,11 +761,7 @@ export async function resolveAssistantTurn(input: {
 
     const runToolCall = (toolCall: ProviderToolCall, sortOrder: number) =>
       executeToolCall(toolCall, {
-        input: {
-          ...toolRuntimeInput,
-          imageGenerationActionHandle: visibleImageActionHandle,
-          hasVisibleImageGenerationAction: visibleImageActionStarted
-        },
+        input: toolRuntimeInput,
         mcpServers,
         loadedSkillIds,
         successfulReadOnlyToolResults,
@@ -774,7 +821,6 @@ export async function resolveAssistantTurn(input: {
           }
 
           imageGenerationToolAttemptedThisStep = true;
-          imageGenerationToolAttempted = true;
         }
 
         const result = await runToolCall(toolCall, timelineSortOrder);
@@ -790,17 +836,16 @@ export async function resolveAssistantTurn(input: {
 
         if (toolCall.name === "generate_image" && result.toolSucceeded) {
           imageGenerationToolConsumed = true;
-          visibleImageActionStarted = false;
-          visibleImageActionHandle = undefined;
           promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
-        } else if (toolCall.name === "generate_image") {
-          visibleImageActionStarted = false;
-          visibleImageActionHandle = undefined;
         }
       }
     }
 
     if (isProposalFinalStep) {
+      if (await applyRedirect()) {
+        step = -1;
+        continue;
+      }
       return { answer, thinking, usage };
     }
   }

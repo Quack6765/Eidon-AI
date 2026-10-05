@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ResearchPlanCard } from "@/components/research-plan-card";
@@ -20,6 +20,7 @@ function renderCard(draft: Partial<ResearchPlanDraft> = {}) {
   const fullDraft: ResearchPlanDraft = {
     message: "Compare heat pump subsidies",
     plan: ["Find official pages", "Compare amounts"],
+    updates: [],
     status: "ready",
     error: null,
     ...draft
@@ -79,5 +80,32 @@ describe("ResearchPlanCard", () => {
     renderCard({ plan: ["Only step"] });
 
     expect(screen.getByRole("button", { name: "Remove step 1" })).toBeDisabled();
+  });
+
+  it("lists applied update instructions", () => {
+    renderCard({ updates: ["Focus on pricing", "Add a step about availability"] });
+
+    const updates = screen.getByRole("list", { name: "Plan updates" });
+    expect(within(updates).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(updates).getByText("You: Focus on pricing")).toBeInTheDocument();
+    expect(within(updates).getByText("You: Add a step about availability")).toBeInTheDocument();
+  });
+
+  it("shows an updating state that keeps the plan editable-disabled", () => {
+    renderCard({ status: "updating", updates: ["Focus on pricing"] });
+
+    expect(screen.getByText("Updating")).toBeInTheDocument();
+    expect(screen.getByLabelText("Research step 1")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start research" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Regenerate plan" })).toBeDisabled();
+  });
+
+  it("keeps the plan and lists the instruction when a refinement fails", () => {
+    renderCard({ status: "error", error: "The plan could not be updated", updates: ["Focus on pricing"] });
+
+    expect(screen.getByText(/The plan could not be updated/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Research step 1")).toHaveValue("Find official pages");
+    expect(screen.getByRole("list", { name: "Plan updates" })).toHaveTextContent("You: Focus on pricing");
+    expect(screen.getByRole("button", { name: "Start research" })).toBeEnabled();
   });
 });

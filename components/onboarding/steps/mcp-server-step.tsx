@@ -70,8 +70,8 @@ function parseArgs(text: string) {
 }
 
 /**
- * The request body for both `POST /api/mcp-servers` and the bare-draft form of
- * `POST /api/mcp-servers/test`, so a tested draft is exactly what gets saved.
+ * The request body for `POST /api/mcp-servers` and `PATCH /api/mcp-servers/{serverId}`.
+ * Testing runs against the saved server, so a tested draft is exactly what gets saved.
  * Create takes `headers`/`env` directly — the action tri-state is PATCH-only.
  */
 export function buildMcpServerPayload(draft: McpDraft) {

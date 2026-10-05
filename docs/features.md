@@ -8,15 +8,16 @@ The complete capability reference: what Eidon does, where the controls are, and 
 
 **Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**, which carries the live activity while the turn runs and then rests on a count summary — for example `3 tools, 4 web searches, 6 pages read` — that expands on click to list every call of the turn.
 
-**Branching and redoing.** Three different ways to change course:
+**Branching and redoing.** Four different ways to change course:
 
 | Action | Where | Effect |
 | --- | --- | --- |
-| Fork | On an assistant reply | Copies the conversation up to that reply into a new conversation, leaving the original intact |
+| Rewind | On any message | Discards everything after an assistant reply — messages, tool calls, and their place in the model's context. Rewinding one of your messages removes it too and puts its text and attachments back in the composer |
+| Fork | On any message | Copies the conversation up to that message into a new conversation, leaving the original intact. Forking from one of your messages opens the new conversation with that message in the composer |
 | Edit and restart | On one of your messages | Rewrites that message and re-runs the turn from there, discarding what followed |
 | Regenerate | On an assistant reply | Re-runs the same turn to get a different answer |
 
-A failed turn can also be retried directly.
+A failed turn can also be retried directly. Rewind takes effect on screen at once and offers Undo for a few seconds; it is saved when that window closes, when you dismiss the notice, or when you send or change anything else in the conversation, and leaving the conversation before then cancels it. Rewind waits until the current reply has finished. A bot's home thread can be rewound but not forked, because each bot has exactly one thread.
 
 **Queued follow-ups.** While a reply is streaming you can keep typing. Queued messages are held in order and sent when the current turn finishes. The queue is editable: reorder it, edit an entry, delete one, or push one to the front and send it immediately.
 
@@ -45,6 +46,15 @@ Only the Chief of Staff can call `create_bot` and `update_bot`. Other bots that 
 - its own workspace directory under `bot-workspaces/<user>/<bot>/`, which is the working directory for its shell commands
 - its own `agent-browser` session with a dedicated socket directory, so its cookies and logins are entirely separate from every other bot's
 
+**Browser control.** A bot drives its browser with `agent-browser`, and the thread groups its browser steps into one **Browser** card with the current page and a step count.
+
+- **Live view.** While a turn is running, the card shows the bot's tab as a live frame, streamed over a WebSocket. **Take control** opens a full-screen stage that relays your clicks and typing to the tab.
+- **Hand-offs.** A bot calls `request_takeover` when a step only you can do — sign-in, two-factor, CAPTCHA, payment. The thread shows a **Your turn in the browser** card with what the bot needs; you take over, finish the step, and return control with an optional note. The bot waits up to 30 minutes, and the card records whether you returned control, nobody took over, or the run was stopped.
+- **Secrets.** A bot calls `request_secret` to ask for a password or code. The thread shows a masked card; Eidon checks the bot's tab is on the requested site, focuses the field, and types your answer through the live stream, so the value never reaches the model, the conversation, or a command line. Saving it for a site lets bots fill it next time without asking; saved logins are listed and removable in settings.
+- **Sandbox.** Each bot's shell, browser daemon, and Chromium run sandboxed in the bot's own workspace, and the bot browsers are budgeted against the container's memory limit.
+
+**Shared skills.** The team shares one skill library at `bot-workspaces/<user>/shared/skills/` — shared with every agent on this team rather than kept per bot. Any bot can extend it with `skill_manage`, and an optional **Learn from each task** pass captures recurring workflows as skills after a run, marked **Skill review** in the timeline. Unused skills go stale and are archived — never deleted — by skill maintenance, and can be restored. See [MCP and skills](./mcp-and-skills.md#skills).
+
 **Status and visibility.** Each bot shows a live status of `idle`, `queued`, or `running`. A **Waiting for input** indicator appears when a bot has left a proposal pending your approval. Runs are recorded with their trigger source — a direct message, another bot's delegation, or a scheduled routine — plus timings and any error.
 
 **Per-bot state.** For each bot you can browse its workspace file tree, read and manage its private memories, and reset its browser session (which closes any open browser and wipes that session's directory). Bots read the shared account memory but their memory tools write into their own pool, so one bot's notes never leak into another's.
@@ -57,7 +67,7 @@ Bots use the provider profiles and settings already configured in the workspace.
 
 A toggle in the composer switches a turn into deep research mode.
 
-**Plan first.** Eidon drafts a research plan for your request, then shows it to you as an editable card before any searching starts. You can rewrite each step, reorder them, add or remove steps, or regenerate the whole plan, then press **Start research**. A plan holds 1 to 12 steps of up to 500 characters each. If plan generation fails or times out, a sensible generic four-step plan is substituted.
+**Plan first.** Eidon drafts a research plan for your request, then shows it to you as an editable card before any searching starts. You can rewrite each step, reorder them, add or remove steps, or regenerate the whole plan, then press **Start research**. A plan holds 1 to 12 steps of up to 500 characters each. If plan generation fails or times out, a sensible generic four-step plan is substituted. You can also send follow-up messages from the composer while the card is open — Eidon revises the plan to match, lists each instruction on the card, and only the final plan runs when you press **Start research**.
 
 **Execution.** The model works the plan in rounds: one `web_search` call carrying several distinct queries that run in parallel, then several `read_page` calls in the same step to read the most relevant results in full rather than relying on snippets. After each round it writes a short findings digest — key facts with their source URLs, what remains open, what it will search next. It finishes with a self-contained Markdown report: title, executive summary, findings organized by plan section with inline citations, gaps and open questions, and a sources list.
 
@@ -81,7 +91,9 @@ A toggle in the composer switches a turn into deep research mode.
 
 Scheduled prompts that run on their own and leave a normal transcript behind.
 
-**Schedules.** Either `interval` (every N minutes, minimum 5) or `calendar` (daily, or weekly on chosen weekdays, at a local `HH:MM`). Calendar schedules use the server's `TZ`.
+**Schedules.** Either `interval` (every N minutes, minimum 5), `calendar` (daily, or weekly on chosen weekdays, at a local `HH:MM`), or `once` (a single run at an absolute instant). Calendar schedules use the server's `TZ`.
+
+**One-time automations.** A `once` automation fires exactly one time and then deletes itself, so it can never trigger again — the run's transcript stays in your chats and the completion notification links straight to it. Say "remind me tomorrow to …" in a conversation and the model proposes one; you approve it like any other proposal, and **Settings → Automations** can also create one by hand. If the server happens to be down when the moment passes, the run still fires once on the next start rather than being lost. A one-time automation created with no notification channel configured starts with web push enabled so it actually reaches you, and a manual **Run now** only previews it — the scheduled moment is what consumes it. Deleting a one-time automation is not undoable.
 
 **Per-automation configuration.** Each automation carries its own provider profile, an optional persona, an optional bot to run inside, a deep-research flag with its own run timeout, and a *continue previous conversation* switch — with it on, each run appends to the previous run's conversation so daily briefs build on prior results; with it off, every run starts fresh.
 
@@ -95,7 +107,9 @@ Scheduled prompts that run on their own and leave a normal transcript behind.
 
 **Running and reviewing.** **Run now** triggers an automation outside its schedule and a failed run can be retried. Every run is recorded with its scheduled time, trigger source (`schedule`, `manual_run`, `manual_retry`), status, and error, and links to the full transcript of what the assistant actually did — the same message and timeline view as a normal chat.
 
-**Assistant-proposed automations.** The model can call `create_automation` when a request is obviously recurring. Like memory writes, this creates a proposal card you approve or dismiss; nothing gets scheduled without your sign-off.
+**Run-done notifications.** Each automation can push the result to an ntfy topic (self-hostable), a raw webhook POST (Slack/Discord/Matrix incoming webhooks), Pushover (using your Pushover account keys from **Settings → Notifications**), or web push on your subscribed browsers. Notifications are title-only (for example `Eidon: "Daily digest" failed: <error>`) unless a channel opts into the run summary; webhook URLs and header values are stored encrypted and are never shown again after saving. With `EIDON_BASE_URL` set, every payload carries a deep link straight to that run's transcript (ntfy `click`, Pushover `url`, web push `url`, webhook `runUrl`).
+
+**Assistant-proposed automations.** The model can call `create_automation` when a request is for something that should run on its own — a recurring task like "check this every morning", or a one-off like "remind me tomorrow to X". Like memory writes, this creates a proposal card you approve or dismiss; nothing gets scheduled without your sign-off.
 
 ## Tools available to the model
 
@@ -105,12 +119,14 @@ Which tools appear depends on your configuration. The full set:
 | --- | --- | --- |
 | `mcp_<server>_<tool>` | An MCP server is enabled and connected | One entry per discovered tool. Vision-flagged servers only appear in `mcp` vision mode |
 | `load_skill` | At least one skill is enabled and relevant | Loads a skill's full instructions into the turn |
+| `skill_manage` | The conversation belongs to a bot and skills are enabled | Creates, edits, and deletes skills in the team's shared skill library |
 | `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace). Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
-| `create_automation` | Always | Proposes a scheduled automation for your approval |
+| `create_automation` | Always | Proposes a scheduled or one-time automation for your approval |
+| `draft_message` | An enabled MCP server has a tool that is not read-only | Prepares an email, Slack message, reply, or post as a draft you edit and send from the chat |
 | `web_search` | Web search is configured | Searches with the selected provider. Accepts up to 5 parallel queries and up to 10 results each |
 | `search_workspace` | Semantic recall is available | Read-only semantic search over your memories, past conversations, summaries, and attachment text |
-| `generate_image` | Image generation is configured | Generates 1–4 images from a prompt, returned as attachments |
+| `generate_image` | Image generation is configured | Generates 1–4 images from a prompt, returned as attachments. The model decides when to call it (tool description + image policy: only for user-requested images and follow-up revisions of earlier ones — never decorative or summary images; diagrams use mermaid) |
 | `analyze_image` | Vision mode is `provider` and the vision profile is ready | Sends attached image paths to the nominated vision profile and returns a description |
 | `message_bot` | The conversation belongs to a bot team | Sends work to another bot; returns immediately, reply arrives later |
 | `create_bot` | Chief of Staff only | Creates a new specialist bot |
@@ -150,7 +166,7 @@ Streaming-safe rendering means partially-received Markdown does not flicker or b
 
 ## Multi-user
 
-Password login is optional. With `EIDON_PASSWORD_LOGIN_ENABLED=false` the app runs without a sign-in step, which suits a single-user deployment behind your own authentication. With it enabled:
+Password login is on by default: authentication is enforced and every caller needs a real account. Setting `EIDON_PASSWORD_LOGIN_ENABLED` to the string `false` opts out, and the app then runs without a sign-in step, which suits a single-user deployment behind your own authentication. With password login on:
 
 - The credentials in `EIDON_ADMIN_USERNAME` / `EIDON_ADMIN_PASSWORD` are an **environment super-admin** that always exists.
 - Additional **local accounts** are created in-app and stored in the database with Argon2id password hashes.

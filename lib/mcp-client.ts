@@ -10,7 +10,6 @@ import { deserializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 
 import { MCP_PROTOCOL_VERSION } from "@/lib/constants";
 import {
-  appendBoundedText,
   MAX_RUNTIME_TOOL_RESULT_CHARS,
   truncateText
 } from "@/lib/bounded-text";
@@ -24,6 +23,7 @@ import {
   MCP_AUTH_REQUIRED_MESSAGE
 } from "@/lib/mcp-oauth";
 import type { McpServer, McpTool, McpToolCallResult } from "@/lib/types";
+import { fetchGuardedHttp } from "@/lib/web-read";
 
 export const MAX_MCP_RESULT_CHARS = MAX_RUNTIME_TOOL_RESULT_CHARS;
 export const MAX_MCP_DISCOVERED_TOOLS = 100;
@@ -120,8 +120,7 @@ function createBoundedResponseBody(body: ReadableStream<Uint8Array>, isEventStre
   }));
 }
 
-export async function boundedMcpFetch(url: string | URL, init?: RequestInit) {
-  const response = await globalThis.fetch(url, init);
+async function boundMcpResponse(response: Response) {
   const isEventStream = response.headers
     .get("content-type")
     ?.toLowerCase()
@@ -148,6 +147,14 @@ export async function boundedMcpFetch(url: string | URL, init?: RequestInit) {
   });
 }
 
+export async function boundedMcpFetch(url: string | URL, init?: RequestInit) {
+  return boundMcpResponse(await globalThis.fetch(url, init));
+}
+
+export async function guardedMcpFetch(url: string | URL, init?: RequestInit) {
+  return boundMcpResponse((await fetchGuardedHttp(url, init)).response as unknown as Response);
+}
+
 type ConnectedMcpClient = {
   key: string;
   serverId: string | null;
@@ -155,25 +162,9 @@ type ConnectedMcpClient = {
   transport: StdioClientTransport | StreamableHTTPClientTransport;
 };
 
-type TestableMcpServer =
-  | McpServer
-  | {
-      id?: string;
-      name: string;
-      url: string;
-      headers: Record<string, string>;
-      transport: McpServer["transport"];
-      command: string | null;
-      args: string[] | null;
-      env: Record<string, string> | null;
-      enabled?: boolean;
-      createdAt?: string;
-      updatedAt?: string;
-    };
-
 const connectedClients = new Map<string, ConnectedMcpClient>();
 
-function getServerKey(server: TestableMcpServer) {
+function getServerKey(server: McpServer) {
   return JSON.stringify({
     id: server.id ?? server.name,
     name: server.name,
@@ -201,25 +192,22 @@ function isMcpAuthFailure(error: unknown) {
   return error instanceof Error && /HTTP 401/.test(error.message);
 }
 
-function mapMcpConnectionError(server: TestableMcpServer, error: unknown) {
+function mapMcpConnectionError(server: McpServer, error: unknown) {
   if (!isMcpAuthFailure(error)) {
     return error;
   }
-  const serverId = server.id ?? null;
-  if (serverId && serverId !== "draft") {
-    const connection = getMcpOAuthConnection(serverId);
-    if (connection?.accessToken) {
-      markMcpOAuthConnectionExpired(serverId);
-    } else if (connection) {
-      markMcpOAuthConnectionAuthRequired(serverId);
-    }
+  const connection = getMcpOAuthConnection(server.id);
+  if (connection?.accessToken) {
+    markMcpOAuthConnectionExpired(server.id);
+  } else if (connection) {
+    markMcpOAuthConnectionAuthRequired(server.id);
   }
   return new McpAuthenticationRequiredError(
     `"${server.name}" ${MCP_AUTH_REQUIRED_MESSAGE}`
   );
 }
 
-function createTransport(server: TestableMcpServer) {
+function createTransport(server: McpServer, fetchImpl = boundedMcpFetch) {
   if (server.transport === "stdio") {
     const transport = new StdioClientTransport({
       command: server.command ?? "",
@@ -232,8 +220,7 @@ function createTransport(server: TestableMcpServer) {
     return transport;
   }
 
-  const serverId = server.id && server.id !== "draft" ? server.id : null;
-  const oauthConnection = serverId ? getMcpOAuthConnection(serverId) : null;
+  const oauthConnection = getMcpOAuthConnection(server.id);
   const staticHeaders: Record<string, string> = { ...server.headers };
   if (oauthConnection && (oauthConnection.accessToken || oauthConnection.clientId)) {
     for (const headerName of Object.keys(staticHeaders)) {
@@ -248,9 +235,9 @@ function createTransport(server: TestableMcpServer) {
       headers: staticHeaders
     },
     ...(oauthConnection && (oauthConnection.accessToken || oauthConnection.clientId)
-      ? { authProvider: new McpOAuthProvider(serverId as string, server.url) }
+      ? { authProvider: new McpOAuthProvider(server.id, server.url) }
       : {}),
-    fetch: boundedMcpFetch
+    fetch: fetchImpl
   });
 
   transport.setProtocolVersion(MCP_PROTOCOL_VERSION);
@@ -304,7 +291,7 @@ function drainTransportStderr(transport: StdioClientTransport | StreamableHTTPCl
   });
 }
 
-async function createConnectedClient(server: TestableMcpServer, abortSignal?: AbortSignal) {
+async function createConnectedClient(server: McpServer, abortSignal?: AbortSignal) {
   const transport = createTransport(server);
   const client = createClient();
   let firstTransportError: unknown;
@@ -334,14 +321,11 @@ async function createConnectedClient(server: TestableMcpServer, abortSignal?: Ab
     await closeTransport(transport);
     throw mapMcpConnectionError(server, firstTransportError ?? error);
   }
-  const connectedServerId = server.id && server.id !== "draft" ? server.id : null;
-  if (connectedServerId) {
-    markMcpOAuthConnectionConnected(connectedServerId);
-  }
+  markMcpOAuthConnectionConnected(server.id);
   drainTransportStderr(transport, server.name);
   return {
     key: getServerKey(server),
-    serverId: connectedServerId,
+    serverId: server.id,
     client,
     transport
   };
@@ -611,23 +595,9 @@ export async function initializeMcpServers() {
   await Promise.allSettled(servers.map((server) => getConnectedClient(server)));
 }
 
-export async function testMcpServerConnection(server: TestableMcpServer) {
-  const transport = createTransport(server);
-  let stderrOutput = "";
-  let stderrTruncated = false;
-
-  if (transport instanceof StdioClientTransport && transport.stderr) {
-    transport.stderr.on("data", (chunk: Buffer) => {
-      const appended = appendBoundedText(
-        stderrOutput,
-        chunk.toString(),
-        MAX_MCP_RESULT_CHARS
-      );
-      stderrOutput = appended.value;
-      stderrTruncated ||= appended.truncated;
-    });
-  }
-
+export async function testMcpServerConnection(server: McpServer) {
+  const transport = createTransport(server, guardedMcpFetch);
+  drainTransportStderr(transport, server.name);
   const client = createClient();
 
   try {
@@ -650,12 +620,7 @@ export async function testMcpServerConnection(server: TestableMcpServer) {
           ? transport.sessionId ?? null
           : null,
       toolCount: toolResult.tools.length,
-      tools: toolResult.tools.map(normalizeTool),
-      stderr: stderrOutput
-        ? stderrTruncated
-          ? truncateText(`${stderrOutput} `, MAX_MCP_RESULT_CHARS)
-          : stderrOutput
-        : undefined
+      tools: toolResult.tools.map(normalizeTool)
     };
   } catch (error) {
     throw mapMcpConnectionError(server, error);

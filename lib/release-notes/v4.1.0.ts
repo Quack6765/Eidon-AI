@@ -4,11 +4,11 @@ export const releaseNote: ReleaseHighlight = {
   version: "v4.1.0",
   date: "2026-09-16",
   bullets: [
-    "After each update, a What's new window lists what changed — you can reopen it any time from the version in Settings",
-    "Clear a bot's conversation to start it fresh — its files, skills, memories, and browser session are kept",
-    "Bots now test website work in their own browser and stop asking you to check what they can verify themselves",
-    "Memory offers only what outlives the chat — a birthday, a dislike, a preference — not the task you just finished",
-    "The compact status line settles on a count summary like '3 tools, 4 web searches' and expands to every call",
-    "Text the assistant writes before a tool call stays on screen instead of disappearing when the tool starts"
+    "What's new window: you can reopen the list of what changed any time from the version in Settings",
+    "Fresh start: you can clear a bot's conversation and keep its files, skills, memories and browser session",
+    "Self-checking bots: you can stop checking website work yourself, because bots now test it in their own browser",
+    "Focused memory: you are offered only what outlives the chat, like a birthday or a preference, not the last task",
+    "Compact status line: you can see a summary like '3 tools, 4 web searches' and expand it to every call",
+    "Text that stays: you can read what the assistant wrote before a tool call instead of watching it vanish"
   ]
 };

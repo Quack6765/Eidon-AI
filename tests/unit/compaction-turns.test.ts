@@ -161,4 +161,53 @@ describe("compaction turns", () => {
     expect(rendered).not.toContain("npm run test -- --verbose");
     expect(rendered).not.toContain("msg_3");
   });
+
+  it("keeps attached and generated image filenames in the compacted turn text", () => {
+    const imageAttachment = (id: string, filename: string) => ({
+      id,
+      conversationId: "conv_1",
+      messageId: null,
+      filename,
+      mimeType: "image/png",
+      byteSize: 100,
+      sha256: `hash-${id}`,
+      relativePath: `conv_1/${id}_${filename}`,
+      kind: "image" as const,
+      extractedText: "",
+      createdAt: "2026-04-10T10:00:00.000Z"
+    });
+
+    const messages: Message[] = [
+      makeMessage({
+        id: "msg_1",
+        role: "user",
+        content: "Make a poster of this photo",
+        status: "completed",
+        attachments: [imageAttachment("att_photo", "beach.png")]
+      }),
+      makeMessage({
+        id: "msg_2",
+        role: "assistant",
+        content: "Here is the poster.",
+        status: "completed",
+        attachments: [imageAttachment("att_gen", "poster.png")],
+        actions: [
+          makeAction({
+            id: "act_gen",
+            messageId: "msg_2",
+            kind: "image_generation",
+            toolName: "generate_image",
+            label: "Generate image",
+            detail: "poster",
+            resultSummary: "Generated 1 images: poster.png"
+          })
+        ]
+      })
+    ];
+
+    const rendered = renderCompletedTurns(messages);
+
+    expect(rendered).toContain("User attached images: beach.png");
+    expect(rendered).toContain("Generated images: poster.png");
+  });
 });

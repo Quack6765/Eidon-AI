@@ -149,8 +149,11 @@ function createSkill(overrides: Partial<Skill> = {}): Skill {
 }
 
 describe("assistant runtime", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    const { createToolApprovalRules } = await import("@/lib/tool-approvals");
+    createToolApprovalRules(null, "shell", ["echo", "curl", "agent-browser"]);
+    createToolApprovalRules(null, "mcp", ["docs:search_docs", "exa:search", "exa_docs:search"]);
     streamProviderResponse.mockReset();
     callProviderText.mockReset();
     callMcpTool.mockReset();
@@ -241,6 +244,55 @@ ${JSON.stringify({
     expect(started).toEqual([expect.objectContaining({ kind: "skill_load", label: "Load skill", detail: "Release Notes" })]);
     expect(completed).toEqual([{ handle: "act_skill", resultSummary: "Skill instructions loaded." }]);
     expect(result.answer).toBe("Done");
+  });
+
+  it("delivers a redirect at the next step boundary and after a final answer, resetting the tool budget", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+          usage: {}
+        })
+      )
+      .mockReturnValueOnce(createProviderStream([], { answer: "Notes for Canada.", thinking: "", usage: {} }))
+      .mockReturnValueOnce(createProviderStream([], { answer: "Shorter notes.", thinking: "", usage: {} }));
+
+    const redirects = [
+      { content: "Make it about Canada", assistantMessageId: "msg_second" },
+      { content: "Shorter please", assistantMessageId: "msg_third" }
+    ];
+    const takeRedirect = vi.fn(async () => redirects.shift() ?? null);
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Write release notes" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      assistantMessageId: "msg_first",
+      appSettings: createAppSettings({ maxAssistantToolSteps: 2 }),
+      takeRedirect,
+      onActionStart: () => "act_skill"
+    });
+
+    expect(result.answer).toBe("Shorter notes.");
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
+    const secondCall = streamProviderResponse.mock.calls[1][0] as {
+      promptMessages: PromptMessage[];
+      runtimeToolContext: { assistantMessageId?: string };
+    };
+    expect(secondCall.promptMessages.filter((message) => message.role === "user").map((message) => message.content)).toContain(
+      "Make it about Canada"
+    );
+    expect(secondCall.runtimeToolContext.assistantMessageId).toBe("msg_second");
+    const thirdCall = streamProviderResponse.mock.calls[2][0] as { promptMessages: PromptMessage[] };
+    const answeredIndex = thirdCall.promptMessages.findIndex(
+      (message) => message.role === "assistant" && message.content === "Notes for Canada."
+    );
+    expect(answeredIndex).toBeGreaterThan(0);
+    expect(thirdCall.promptMessages[answeredIndex + 1]).toEqual({ role: "user", content: "Shorter please" });
   });
 
   it("reports the final provider call's usage, not the sum across tool steps", async () => {
@@ -1312,7 +1364,9 @@ Run browser commands.`
     ]);
     expect(localShellMocks.executeLocalShellCommand).toHaveBeenCalledWith({
       command: "curl -I https://example.com",
-      timeoutMs: undefined
+      timeoutMs: undefined,
+      cwd: expect.stringContaining("test-data-workspaces"),
+      env: expect.objectContaining({ AGENT_BROWSER_SESSION: "tab" })
     });
     expect(result.answer).toBe("Probed the endpoint.");
   });
@@ -1761,7 +1815,7 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("stops forcing generate_image after one retry and accepts the model's text answer instead of looping", async () => {
+  it("does not force generate_image when the model answers with text instead of calling the tool", async () => {
     let providerCallCount = 0;
     const emittedEvents: ChatStreamEvent[] = [];
     streamProviderResponse.mockImplementation(() => {
@@ -1785,9 +1839,9 @@ Run browser commands.`
       onEvent: (event) => emittedEvents.push(event)
     });
 
-    expect(providerCallCount).toBe(2);
+    expect(providerCallCount).toBe(1);
     expect(result.answer).toBe("Here is some advice instead.");
-    expect(emittedEvents.filter((event) => event.type === "answer_reset")).toHaveLength(1);
+    expect(emittedEvents.filter((event) => event.type === "answer_reset")).toHaveLength(0);
   });
 
   it("does not force generate_image again after a failed generation attempt and accepts the failure explanation", async () => {
@@ -1831,28 +1885,16 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("requires generate_image for another-one follow-up requests instead of accepting a hallucinated success message", async () => {
+  it("allows generate_image for an edit continuation after a recently generated image", async () => {
     let providerCallCount = 0;
-    streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
+    streamProviderResponse.mockImplementation(({ tools }: {
       tools?: Array<{ function: { name: string } }>;
-      promptMessages?: Array<{ content: string | Array<{ type: string; text?: string }> }>;
     }) => {
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
-      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
 
       if (providerCallCount === 1) {
         expect(toolNames).toContain("generate_image");
-        return createProviderStream([], {
-          answer: "I've generated another image for you. It should appear above.",
-          thinking: "",
-          usage: { inputTokens: 8 }
-        });
-      }
-
-      if (providerCallCount === 2) {
-        expect(toolNames).toContain("generate_image");
-        expect(systemPrompt).toContain("The latest user request requires generating a new image");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -1893,7 +1935,16 @@ Run browser commands.`
       settings: createSettings(),
       promptMessages: [
         { role: "user", content: "Generate an image of a Japanese garden at sunset" },
-        { role: "assistant", content: "I've generated an image for you." },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_prev_image", name: "generate_image", arguments: JSON.stringify({ prompt: "a Japanese garden at sunset" }) }]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_prev_image",
+          content: "Successfully generated 1 image. Generated 1 image: generated-1.png"
+        },
         { role: "user", content: "Nice! Create another one" }
       ],
       skills: [],
@@ -1905,6 +1956,77 @@ Run browser commands.`
 
     expect(result.answer).toBe("Here is another image.");
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not block model-initiated generate_image calls and injects the image policy directive", async () => {
+    const started: Array<{ kind: string; label: string }> = [];
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
+      tools?: Array<{ function: { name: string } }>;
+      promptMessages?: Array<{ content: string | Array<{ type: string; text?: string }> }>;
+    }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        expect(toolNames).toContain("execute_shell_command");
+        expect(systemPrompt).toContain("Images are produced only when the conversation calls for one");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_model_choice",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a pixel theme rendition" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+
+      return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
+        answer: "Here is the image.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "user", content: "Merge the duplicate iPad memories, keeping the richer one" }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image",
+      onActionStart: (action) => {
+        started.push({ kind: action.kind, label: action.label });
+      }
+    });
+
+    expect(result.answer).toBe("Here is the image.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+    expect(started).toEqual([expect.objectContaining({ kind: "image_generation", label: "Generate image" })]);
   });
 
   it("does not force generate_image for follow-up questions about a previous image", async () => {
@@ -1938,14 +2060,15 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).not.toHaveBeenCalled();
   });
 
-  it("restricts fresh image requests to the generate_image tool until generation succeeds", async () => {
+  it("keeps the full toolset available for a fresh image request and generates once", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
 
       if (providerCallCount === 1) {
-        expect(toolNames).toEqual(["generate_image"]);
+        expect(toolNames).toContain("generate_image");
+        expect(toolNames).toContain("execute_shell_command");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -2004,7 +2127,7 @@ Run browser commands.`
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
-  it("starts a visible image action before the model returns its generate_image tool call and reuses the same handle", async () => {
+  it("starts a visible image action only when the generate_image tool actually runs", async () => {
     const started: Array<{ kind: string; label: string; detail?: string }> = [];
     const completed: Array<{ handle?: string; detail?: string; resultSummary?: string }> = [];
     let providerCallCount = 0;
@@ -2013,14 +2136,9 @@ Run browser commands.`
       providerCallCount += 1;
       const toolNames = tools?.map((tool) => tool.function.name) ?? [];
 
-      expect(started).toHaveLength(1);
-      expect(started[0]).toEqual(expect.objectContaining({
-        kind: "image_generation",
-        label: "Generate image"
-      }));
-
       if (providerCallCount === 1) {
-        expect(toolNames).toEqual(["generate_image"]);
+        expect(started).toHaveLength(0);
+        expect(toolNames).toContain("generate_image");
         return createProviderStream([], {
           answer: "",
           thinking: "",
@@ -2032,6 +2150,12 @@ Run browser commands.`
           usage: { inputTokens: 6 }
         });
       }
+
+      expect(started).toHaveLength(1);
+      expect(started[0]).toEqual(expect.objectContaining({
+        kind: "image_generation",
+        label: "Generate image"
+      }));
 
       return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
         answer: "Here is the image.",
@@ -2621,6 +2745,55 @@ Run browser commands.`
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
     expect(result.answer).toBe("Fallback answer");
+  });
+
+  it("does not reset committed answer text when a tool step carries no prose", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Let me look that up." }], {
+          answer: "Let me look that up.",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "thinking_delta", text: "Checking results." }], {
+          answer: "",
+          thinking: "Checking results.",
+          toolCalls: [{ id: "call_2", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "more" }) }],
+          usage: { inputTokens: 12 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done." }], {
+          answer: "Done.",
+          thinking: "",
+          usage: { inputTokens: 14, outputTokens: 2 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found MCP docs" }] });
+
+    const events: Array<{ type: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", title: "Search docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+      onActionStart: () => "act_tool",
+      onActionComplete: () => {}
+    });
+
+    expect(events.some((event) => event.type === "answer_reset")).toBe(false);
+    expect(result.answer).toContain("Done.");
   });
 
   it("resolves MCP tool calls against the most specific matching slug", async () => {
@@ -4118,6 +4291,183 @@ Run browser commands.`
         (message) => message.role === "tool" && message.toolCallId === "call_analyze_empty"
       );
       expect(toolMessage?.content).toContain("non-empty array");
+    });
+  });
+
+  describe("composer references", () => {
+    function answerOnce() {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        })
+      );
+    }
+
+    function systemPromptOfFirstCall() {
+      const firstCall = streamProviderResponse.mock.calls[0]?.[0] as { promptMessages: PromptMessage[] };
+      const system = firstCall.promptMessages.find((message) => message.role === "system");
+      return typeof system?.content === "string" ? system.content : "";
+    }
+
+    const roster = [
+      { name: "Chief of Staff", title: "", description: "", isChief: true },
+      { name: "Writer", title: "Copywriter", description: "", isChief: false }
+    ];
+
+    it("preloads a skill referenced with / before the first provider call", async () => {
+      answerOnce();
+      const started: Array<{ kind: string; detail?: string; skillId?: string | null }> = [];
+      const completed: Array<string | undefined> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Use /release notes for the v2 launch" }],
+        skills: [createSkill(), createSkill({ id: "skill_other", name: "Onboarding", content: "Other skill." })],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_preload";
+        },
+        onActionComplete: (handle) => {
+          completed.push(handle);
+        }
+      });
+
+      expect(started).toEqual([
+        expect.objectContaining({ kind: "skill_load", detail: "Release Notes", skillId: "skill_release_notes" })
+      ]);
+      expect(completed).toEqual(["act_preload"]);
+      const systemPrompt = systemPromptOfFirstCall();
+      expect(systemPrompt).toContain("The user invoked the skills below with /");
+      expect(systemPrompt).toContain("Summarize changes for end users in concise release notes.");
+      expect(systemPrompt).not.toContain("Other skill.");
+    });
+
+    it("reports a preloaded skill as already loaded when the model asks for it again", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+            usage: {}
+          })
+        );
+      answerOnce();
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "/Release Notes please" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual(["skill_load"]);
+      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
+      const toolResult = secondCall.promptMessages.find((message) => message.role === "tool");
+      expect(toolResult?.content).toBe("This skill is already loaded.");
+    });
+
+    it("does not preload a skill name that only appears without a leading slash", async () => {
+      answerOnce();
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Write release notes and see docs/release notes" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual([]);
+      expect(systemPromptOfFirstCall()).not.toContain("The user invoked the skills below");
+    });
+
+    it("tells the current bot to hand off to every @mentioned teammate", async () => {
+      answerOnce();
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "@Writer draft it, then @chief of staff review." }],
+        skills: [],
+        mcpToolSets: [],
+        botTeam: { isChief: false, roster }
+      });
+
+      const systemPrompt = systemPromptOfFirstCall();
+      expect(systemPrompt).toContain("The user addressed this message to @Writer, @Chief of Staff.");
+      expect(systemPrompt).toContain("message_bot");
+    });
+
+    it("applies /skill and @bot references in a mid-run redirect", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(createProviderStream([], { answer: "First draft.", thinking: "", usage: {} }))
+        .mockReturnValueOnce(createProviderStream([], { answer: "Redirected.", thinking: "", usage: {} }));
+      const redirects = [{ content: "Hand it to @Writer and use /Release Notes", assistantMessageId: "msg_redirect" }];
+      const started: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Draft the launch post" }],
+        skills: [createSkill()],
+        mcpToolSets: [],
+        botTeam: { isChief: true, roster },
+        takeRedirect: async () => redirects.shift() ?? null,
+        onActionStart: (action) => {
+          started.push(action.kind);
+          return "act";
+        }
+      });
+
+      expect(started).toEqual(["skill_load"]);
+      const firstSystem = systemPromptOfFirstCall();
+      expect(firstSystem).not.toContain("The user invoked the skills below");
+      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
+      const secondSystem = String(secondCall.promptMessages.find((message) => message.role === "system")?.content ?? "");
+      expect(secondSystem).toContain("Summarize changes for end users in concise release notes.");
+      expect(secondSystem).toContain("The user addressed this message to @Writer.");
+    });
+
+    it("ignores @mentions outside bot conversations and in bot-authored deliveries", async () => {
+      answerOnce();
+      answerOnce();
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "@Writer draft it" }],
+        skills: [],
+        mcpToolSets: []
+      });
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "[Message from Writer]\nAsk @Chief of Staff next." }],
+        skills: [],
+        mcpToolSets: [],
+        botTeam: { isChief: false, roster }
+      });
+
+      for (const call of streamProviderResponse.mock.calls) {
+        const messages = (call[0] as { promptMessages: PromptMessage[] }).promptMessages;
+        const system = messages.find((message) => message.role === "system");
+        expect(String(system?.content ?? "")).not.toContain("The user addressed this message");
+      }
     });
   });
 });

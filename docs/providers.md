@@ -31,10 +31,14 @@ Selecting a preset fills in the base URL, a starting model, the API mode, and se
 | Xiaomi Mimo | `openai_compatible` | `https://api.xiaomimimo.com/v1` | `mimo-v2.5` | Chat Completions |
 | OpenCode Go | `openai_compatible` | `https://opencode.ai/zen/go/v1` | `kimi-k2.6` | Chat Completions |
 | OpenCode Go | `anthropic` | `https://opencode.ai/zen/go` | `qwen3.7-max` | Messages |
+| Command Code | `openai_compatible` | `https://api.commandcode.ai/provider/v1` | `deepseek/deepseek-v4-flash` | Chat Completions |
+| Command Code | `anthropic` | `https://api.commandcode.ai/provider` | `claude-sonnet-5` | Messages |
 
-OpenCode Go appears twice because it exposes both an OpenAI-compatible and an Anthropic-compatible surface; choose whichever kind matches the model you want.
+OpenCode Go and Command Code each appear twice because they expose both an OpenAI-compatible and an Anthropic-compatible surface; choose whichever kind matches the model you want. For Command Code that split is load-bearing: its Anthropic Messages route is the only one that serves Claude models, so a Claude model typed into the OpenAI-compatible entry is rejected by the endpoint.
 
-Notable preset defaults: Ollama Cloud uses mirrored reasoning parameters and a 64K context limit; DeepSeek defaults to temperature 1.3 and a 1M context limit; Xiaomi Mimo defaults to a ~1M context limit with native vision on; OpenAI defaults to a 1.05M context limit, 128K max output, and native vision on.
+The Command Code preset defaults to Chat Completions but sends any `gpt-5*` model over the Responses API instead, so those models keep their reasoning effort and reasoning summaries. Every other model stays on Chat Completions, which is the route that serves the whole non-Claude catalog.
+
+Notable preset defaults: Ollama Cloud uses mirrored reasoning parameters and a 64K context limit; DeepSeek defaults to temperature 1.3 and a 1M context limit; Xiaomi Mimo defaults to a ~1M context limit with native vision on; OpenAI defaults to a 1.05M context limit, 128K max output, and native vision on; Command Code uses a 1M context limit on both entries, and its OpenAI-compatible entry starts on the same model as DeepSeek so it carries the same temperature 1.3 and 8K max output.
 
 GitHub Copilot has no preset — it is configured entirely through the OAuth connection described below.
 

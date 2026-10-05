@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, ShieldCheck, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -15,6 +15,10 @@ import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
+import { BotIsolationStatus } from "@/components/settings/bot-isolation-status";
+import { SavedLoginsSettings } from "@/components/settings/integration-settings/saved-logins-settings";
+import type { IsolationStatus } from "@/lib/shell-isolation";
+import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
@@ -25,7 +29,7 @@ import { Toast } from "@/components/ui/toast";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
@@ -57,6 +61,13 @@ const GENERAL_SECTIONS = [
     description: "Tool timeouts and steps",
     detail: "Set the boundaries for tool calls and multi-step assistant work.",
     icon: Gauge
+  },
+  {
+    id: "tool-approvals",
+    label: "Tool approvals",
+    description: "Allowed commands and tools",
+    detail: "Review and revoke the commands and MCP tools that are always allowed to run.",
+    icon: ShieldCheck
   },
   {
     id: "speech",
@@ -96,8 +107,8 @@ const GENERAL_SECTIONS = [
   {
     id: "bots",
     label: "Bots",
-    description: "Team base prompt",
-    detail: "Set the base system prompt shared by every bot on the team.",
+    description: "Base prompt, sandbox and logins",
+    detail: "Set the base system prompt shared by every bot on the team, check the sandbox bots run in, and manage the logins they may fill.",
     icon: Bot
   }
 ] as const;
@@ -106,10 +117,12 @@ type GeneralSectionId = (typeof GENERAL_SECTIONS)[number]["id"];
 
 export function GeneralSection({
   settings,
-  canManageGlobalIntegrations = false
+  canManageGlobalIntegrations = false,
+  botIsolation
 }: {
   settings: GeneralSectionSettings;
   canManageGlobalIntegrations?: boolean;
+  botIsolation?: IsolationStatus;
 }) {
   const router = useRouter();
   const toast = useToastState();
@@ -396,6 +409,9 @@ export function GeneralSection({
         </div>
       </div>
     ),
+    "tool-approvals": (
+      <ToolApprovalRulesSettings active={activeSection === "tool-approvals"} />
+    ),
     speech: (
       <SpeechTranscriptionSettings
         draft={draft.speechTranscription}
@@ -535,6 +551,8 @@ export function GeneralSection({
             </div>
           ) : null}
         </div>
+        {botIsolation ? <BotIsolationStatus status={botIsolation} /> : null}
+        <SavedLoginsSettings active={activeSection === "bots"} />
       </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;

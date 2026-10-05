@@ -98,6 +98,7 @@ export function OnboardingFlow({
   });
   const [mcpTest, setMcpTest] = useState<McpTestResult>(null);
   const [mcpSaved, setMcpSaved] = useState(false);
+  const [mcpSavedId, setMcpSavedId] = useState<string | null>(null);
 
   const [isBusy, setIsBusy] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -205,17 +206,44 @@ export function OnboardingFlow({
     }
   }, [providerDraft, settings, showToast]);
 
+  const persistMcpDraft = useCallback(async () => {
+    const payload = buildMcpServerPayload(mcpDraft);
+    const response = await fetch(mcpSavedId ? `/api/mcp-servers/${mcpSavedId}` : "/api/mcp-servers", {
+      method: mcpSavedId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        mcpSavedId
+          ? {
+              ...payload,
+              headersAction: mcpDraft.headers.trim() ? "replace" : "clear",
+              envAction: mcpDraft.env.trim() ? "replace" : "clear"
+            }
+          : payload
+      )
+    });
+    if (!response.ok) {
+      throw new Error(await readError(response, "Unable to save that MCP server"));
+    }
+    const saved = (await response.json().catch(() => null)) as { server?: { id?: string } } | null;
+    if (!saved?.server?.id) {
+      throw new Error("Unable to save that MCP server");
+    }
+    setMcpSavedId(saved.server.id);
+    return saved.server.id;
+  }, [mcpDraft, mcpSavedId]);
+
   const testMcpDraft = useCallback(async () => {
     setIsTesting(true);
     setMcpTest(null);
     try {
+      const serverId = await persistMcpDraft();
       const response = await fetch("/api/mcp-servers/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildMcpServerPayload(mcpDraft))
+        body: JSON.stringify({ serverId })
       });
       const payload = (await response.json().catch(() => null)) as
-        | { success?: boolean; requiresAuth?: boolean; text?: string; error?: string }
+        | { success?: boolean; requiresAuth?: boolean; text?: string; error?: string; detail?: string }
         | null;
 
       // requiresAuth comes back as HTTP 200 with success:false, so !ok is not
@@ -224,7 +252,7 @@ export function OnboardingFlow({
         setMcpTest({
           state: "auth-required",
           message:
-            "This server needs authentication. Save it here, then finish connecting in Settings › MCP servers."
+            "This server needs authentication. Finish connecting in Settings › MCP servers."
         });
         return;
       }
@@ -232,26 +260,28 @@ export function OnboardingFlow({
         setMcpTest({ state: "success", message: payload.text ?? "Connected." });
         return;
       }
+      const failure = [payload?.error, payload?.detail]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(" — ");
       setMcpTest({
         state: "error",
-        message: payload?.error?.trim() || "Could not reach that server."
+        message: failure || "Could not reach that server."
+      });
+    } catch (error) {
+      setMcpTest({
+        state: "error",
+        message: error instanceof Error ? error.message : "Could not reach that server."
       });
     } finally {
       setIsTesting(false);
     }
-  }, [mcpDraft]);
+  }, [persistMcpDraft]);
 
   const saveMcpServer = useCallback(async () => {
     setIsBusy(true);
     try {
-      const response = await fetch("/api/mcp-servers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildMcpServerPayload(mcpDraft))
-      });
-      if (!response.ok) {
-        throw new Error(await readError(response, "Unable to save that MCP server"));
-      }
+      await persistMcpDraft();
       setMcpSaved(true);
       goNext();
     } catch (error) {
@@ -259,7 +289,7 @@ export function OnboardingFlow({
     } finally {
       setIsBusy(false);
     }
-  }, [goNext, mcpDraft, showToast]);
+  }, [goNext, persistMcpDraft, showToast]);
 
   const finish = useCallback(async () => {
     setIsBusy(true);

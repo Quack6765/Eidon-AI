@@ -68,6 +68,31 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
   );
 }
 
+export function getUserAllowAllTools(userId: string | null | undefined) {
+  if (!userId) {
+    return false;
+  }
+
+  const row = getDb()
+    .prepare("SELECT allow_all_tools FROM user_preferences WHERE user_id = ?")
+    .get(userId) as { allow_all_tools: number } | undefined;
+
+  return Boolean(row?.allow_all_tools);
+}
+
+export function setUserAllowAllTools(userId: string, allowAll: boolean) {
+  const timestamp = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO user_preferences (user_id, allow_all_tools, created_at, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         allow_all_tools = excluded.allow_all_tools,
+         updated_at = excluded.updated_at`
+    )
+    .run(userId, allowAll ? 1 : 0, timestamp, timestamp);
+}
+
 export function getUserPreferences(userId: string, defaults: GlobalPreferences) {
   ensureUserPreferences(userId, defaults);
   const row = getDb().prepare(`

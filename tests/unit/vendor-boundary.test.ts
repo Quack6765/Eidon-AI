@@ -43,6 +43,8 @@ const allowedVendorPathPrefixes = ["lib/provider-adapters/"];
 
 const allowedSharedLines: Record<string, RegExp[]> = {
   "app/layout.tsx": [/next\/font\/google/],
+  "components/settings/sections/notifications-section.tsx": [/PUSH_SERVICE_HOST_SUFFIXES/],
+  "lib/agent-computer.ts": [/"\/usr\/bin\/google-chrome(?:-stable)?"/, /"\/Applications\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome"/],
   "components/shared-conversation-view.tsx": [/github\.com\/Quack6765\/Eidon-AI/],
   "lib/constants.ts": [/github\.com\/Quack6765\/Eidon-AI\/releases/],
   "lib/release-highlights.ts": [/GITHUB_RELEASES_URL/],

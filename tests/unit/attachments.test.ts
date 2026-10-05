@@ -542,6 +542,8 @@ describe("attachment helpers", () => {
         content
       );
       expect(getAttachment(attachment.id)?.filename).toBe("local-notes.md");
+      expect(attachment.sourcePath).toBe(sourcePath);
+      expect(getAttachment(attachment.id)?.sourcePath).toBe(sourcePath);
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

@@ -138,6 +138,29 @@ describe("automation run continuity and templating", () => {
     });
     updateAutomation(automation.id, { nextRunAt: "2026-04-10T10:00:00.000Z" });
 
+    harness.startChatTurn.mockImplementationOnce(
+      async (
+        _manager: unknown,
+        conversationId: string,
+        _content: string,
+        _attachments: string[],
+        _personaId: string | undefined,
+        options: { onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void }
+      ) => {
+        const userMessage = createMessage({ conversationId, role: "user", content: "Previous: " });
+        const answer = createMessage({
+          conversationId,
+          role: "assistant",
+          content: "Everything is calm.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4
+        });
+        options.onMessagesCreated?.({ userMessageId: userMessage.id, assistantMessageId: answer.id });
+        return { status: "completed" } as ChatTurnResult;
+      }
+    );
+
     await harness.runOnce();
     const firstRun = (await waitForRunStatus(
       listAutomationRuns(automation.id)[0].id,
@@ -147,7 +170,7 @@ describe("automation run continuity and templating", () => {
     createMessage({
       conversationId: firstRun.conversationId!,
       role: "assistant",
-      content: "Everything is calm.",
+      content: "An unrelated chat reply in the same conversation.",
       thinkingContent: "",
       status: "completed",
       estimatedTokens: 4

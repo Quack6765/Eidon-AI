@@ -3,6 +3,8 @@
 import React, { useSyncExternalStore } from "react";
 import { MessageBubble } from "@/components/message-bubble";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
+import type { DelegationReplyIndex } from "@/lib/delegation-marker";
+import type { ReferenceCandidate } from "@/lib/reference-tokens";
 import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
   MemoryCategory,
@@ -39,13 +41,21 @@ function StreamingMessageImpl({
   onDismissMemoryProposal,
   onApproveAutomationProposal,
   onDismissAutomationProposal,
-  onForkAssistantMessage,
+  onApproveToolApproval,
+  onDismissToolApproval,
+  onSendMessageDraft,
+  onDiscardMessageDraft,
+  onForkMessage,
+  onRewindMessage,
   onRetryAssistantMessage,
   onRegenerateUserMessage,
   isUpdating,
   isForking,
   isRetrying,
-  isRegenerating
+  isRegenerating,
+  referenceCandidates,
+  computerConversationId,
+  delegationReplies
 }: {
   active: boolean;
   buffer: StreamBuffer;
@@ -68,13 +78,24 @@ function StreamingMessageImpl({
     overrides?: AutomationProposalOverrides
   ) => Promise<void>;
   onDismissAutomationProposal?: (actionId: string) => Promise<void>;
-  onForkAssistantMessage?: (messageId: string) => void;
+  onApproveToolApproval?: (
+    actionId: string,
+    options?: { allowAlways?: boolean }
+  ) => Promise<void>;
+  onDismissToolApproval?: (actionId: string) => Promise<void>;
+  onSendMessageDraft?: (actionId: string, fields?: Record<string, string>) => Promise<void>;
+  onDiscardMessageDraft?: (actionId: string) => Promise<void>;
+  onForkMessage?: (messageId: string) => void;
+  onRewindMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   onRegenerateUserMessage?: (messageId: string) => void;
   isUpdating?: boolean;
   isForking?: boolean;
   isRetrying?: boolean;
   isRegenerating?: boolean;
+  referenceCandidates?: ReferenceCandidate[];
+  computerConversationId?: string;
+  delegationReplies?: DelegationReplyIndex;
 }) {
   const snapshot = useSyncExternalStore(
     active ? buffer.subscribe : noopSubscribe,
@@ -112,13 +133,22 @@ function StreamingMessageImpl({
       onDismissMemoryProposal={onDismissMemoryProposal}
       onApproveAutomationProposal={onApproveAutomationProposal}
       onDismissAutomationProposal={onDismissAutomationProposal}
-      onForkAssistantMessage={onForkAssistantMessage}
+      onApproveToolApproval={onApproveToolApproval}
+      onDismissToolApproval={onDismissToolApproval}
+      onSendMessageDraft={onSendMessageDraft}
+      onDiscardMessageDraft={onDiscardMessageDraft}
+      onForkMessage={onForkMessage}
+      onRewindMessage={onRewindMessage}
       onRetryAssistantMessage={onRetryAssistantMessage}
       onRegenerateUserMessage={onRegenerateUserMessage}
       isUpdating={isUpdating}
       isForking={isForking}
       isRetrying={isRetrying}
       isRegenerating={isRegenerating}
+      referenceCandidates={referenceCandidates}
+      computerConversationId={computerConversationId}
+      computerLive={active}
+      delegationReplies={delegationReplies}
     />
   );
 }

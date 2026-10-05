@@ -219,11 +219,47 @@ export function AttachmentPreviewModal({
   onRetry
 }: AttachmentPreviewModalProps) {
   const buildAttachmentUrl = useAttachmentUrlBuilder();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    return () => {
+      if (previouslyFocused?.isConnected) {
+        previouslyFocused.focus();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled])")];
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        return;
+      }
+
+      const active = document.activeElement;
+      if (!dialogRef.current.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
@@ -233,10 +269,11 @@ export function AttachmentPreviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Attachment preview"
@@ -246,15 +283,18 @@ export function AttachmentPreviewModal({
         <div className="flex items-center justify-between gap-4 border-b border-white/8 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <button
+              ref={closeButtonRef}
               type="button"
               aria-label="Close attachment preview"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/75"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/75"
             >
               <X className="h-4 w-4" />
             </button>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-white">{attachment.filename}</div>
+              <div className="truncate text-sm font-medium text-white" title={attachment.filename}>
+                {attachment.filename}
+              </div>
               <div className="truncate text-xs text-white/50">{attachment.mimeType}</div>
             </div>
           </div>

@@ -11,7 +11,9 @@ export const PROVIDER_LOGO_PATHS: Record<ProviderPresetId, string> = {
   xiaomi_mimo: "/logos/xiaomi.svg",
   openai_official: "/logos/openai.svg",
   anthropic_official: "/logos/anthropic.svg",
-  opencode_go_anthropic: "/logos/opencode.svg"
+  opencode_go_anthropic: "/logos/opencode.svg",
+  command_code: "/logos/commandcode.svg",
+  command_code_anthropic: "/logos/commandcode.svg"
 };
 
 export const OAUTH_PROVIDER_LOGO_PATHS: Partial<Record<ProviderKind, string>> = {

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { getBot } from "@/lib/bots";
-import { resetBotBrowserSession } from "@/lib/bot-sandbox";
+import { botBrowserTarget, resetUserBrowser } from "@/lib/agent-computer";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
@@ -23,6 +23,6 @@ export async function POST(
     return badRequest("Bot not found", 404);
   }
 
-  await resetBotBrowserSession(bot);
+  await resetUserBrowser(botBrowserTarget(bot).ownerKey);
   return ok({ reset: true });
 }

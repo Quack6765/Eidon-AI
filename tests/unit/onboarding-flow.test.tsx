@@ -224,7 +224,7 @@ describe("onboarding flow", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic \(/ }));
     const model = screen.getByLabelText("Model") as HTMLInputElement;
-    expect(model.value).toBe("claude-opus-4-8");
+    expect(model.value).toBe("claude-sonnet-5-5");
 
     // Switching preset swaps in that preset's suggestion.
     fireEvent.click(screen.getByRole("radio", { name: /^OpenAI \(/ }));
@@ -282,7 +282,7 @@ describe("onboarding flow", () => {
 
     // The named vendors and the sign-in option stay in their own group.
     const presets = screen.getByRole("radiogroup", { name: "Model provider" });
-    expect(within(presets).getAllByRole("radio")).toHaveLength(10);
+    expect(within(presets).getAllByRole("radio")).toHaveLength(12);
   });
 
   it("shows each preset's brand logo on its tile", async () => {
@@ -301,6 +301,8 @@ describe("onboarding flow", () => {
       "/logos/openai.svg",
       "/logos/anthropic.svg",
       "/logos/opencode.svg",
+      "/logos/commandcode.svg",
+      "/logos/commandcode.svg",
       "/logos/githubcopilot.svg"
     ]);
     expect(logos.every((logo) => logo.getAttribute("alt") === "")).toBe(true);
@@ -609,6 +611,16 @@ describe("onboarding flow", () => {
   });
 
   it("omits the JSON payload entirely when left blank", async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers" && (init as RequestInit)?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ server: { id: "mcp_onb" } })
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ settings: {} }) } as Response;
+    });
     renderFlow("admin");
     await gotoMcpStep();
 
@@ -623,16 +635,30 @@ describe("onboarding flow", () => {
         vi.mocked(global.fetch).mock.calls.some(([url]) => String(url) === "/api/mcp-servers/test")
       ).toBe(true)
     );
-    const call = vi
+    const createCall = vi
+      .mocked(global.fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url) === "/api/mcp-servers" && (init as RequestInit)?.method === "POST"
+      );
+    const body = JSON.parse(String((createCall?.[1] as RequestInit).body)) as Record<string, unknown>;
+    expect("headers" in body).toBe(false);
+
+    const testCall = vi
       .mocked(global.fetch)
       .mock.calls.find(([url]) => String(url) === "/api/mcp-servers/test");
-    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as Record<string, unknown>;
-    expect("headers" in body).toBe(false);
+    expect(JSON.parse(String((testCall?.[1] as RequestInit).body))).toEqual({ serverId: "mcp_onb" });
   });
 
   it("treats an HTTP 200 requiresAuth MCP response as needing authentication", async () => {
-    vi.mocked(global.fetch).mockImplementation(async (input) => {
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
       const url = String(input);
+      if (url === "/api/mcp-servers" && (init as RequestInit)?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ server: { id: "mcp_onb" } })
+        } as Response;
+      }
       if (url === "/api/mcp-servers/test") {
         return {
           ok: true,

@@ -4,8 +4,8 @@ export const releaseNote: ReleaseHighlight = {
   version: "v4.0.1",
   date: "2026-09-04",
   bullets: [
-    "Bots you hand work to now report progress live, and longer jobs no longer stop with an error",
-    "Setup skips the provider and MCP steps you have already configured",
-    "The chat scrollbar no longer sits on screen while you are not scrolling"
+    "Live progress: you can follow a bot you handed work to as it reports in, and long jobs no longer error out",
+    "Shorter setup: you can skip the provider and MCP steps you have already configured",
+    "Cleaner chat: you no longer see the scrollbar when you are not scrolling"
   ]
 };

@@ -4,28 +4,30 @@ Every environment variable Eidon reads, how secrets are generated and stored, wh
 
 ## Environment variables
 
-Eidon parses and validates its environment at startup (`lib/env.ts`). Anything not listed here is not read by the app.
+Eidon parses and validates its environment at startup (`lib/env.ts`). Anything not listed here is not read by the app. Values come from the process environment first; anything missing is then read from `.env`, `.env.local`, and the mode-specific `.env.development`/`.env.production` variants, so a local `.env` works for `npm run dev`, `npm run start`, and Docker alike.
 
 | Variable | Purpose | Default | Required in production |
 | --- | --- | --- | --- |
 | `NODE_ENV` | `development`, `test`, or `production`. Production mode enforces the secret checks below. | `development` | Set to `production` (the Docker image already does) |
 | `PORT` | Port the server listens on. | `3000` in production; a random free port in 3000–4000 in development | No |
 | `TZ` | IANA timezone used for calendar automation schedules and date formatting. Must be a zone name such as `Europe/Paris`; fixed offsets like `+02:00` are rejected. | The host's system timezone, falling back to `UTC` | No |
-| `EIDON_PASSWORD_LOGIN_ENABLED` | `true` or `false`. Enables password login and the multi-user account system. | `false` (the Docker image sets `true`) | No, but `true` is the normal production mode |
+| `EIDON_PASSWORD_LOGIN_ENABLED` | Enables password login and the multi-user account system. Only the exact string `false` disables it; unset or any other value leaves authentication on. | `true` | No — authentication is enforced by default |
 | `EIDON_ADMIN_USERNAME` | Username of the environment super-admin. | `admin` | No |
 | `EIDON_ADMIN_PASSWORD` | Password of the environment super-admin. Minimum 8 characters. | Development-only placeholder | Yes |
 | `EIDON_SESSION_SECRET` | HMAC key for signing session JWTs. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Key material for encrypting stored provider credentials, MCP headers and env values, and MCP OAuth tokens. Minimum 32 characters. | Development-only placeholder | Yes |
 | `EIDON_DATA_DIR` | Directory holding the SQLite database and all runtime data. | `./.data` (the Docker image sets `/app/data`) | No |
+| `EIDON_BASE_URL` | Externally reachable base URL of the instance (for example `https://eidon.example.com`). Used for share links, notification deep links, MCP OAuth registration, and the default GitHub Copilot callback. Required in production; startup fails without it. | unset | Yes in production |
+| `EIDON_BROWSER_MEMORY_BUDGET_MB` | Memory the bots' browsers may use, in MB. Each signed-in user's browser counts about 500 MB and each extra bot tab about 120 MB; when the budget is full, a bot waits up to a minute for a slot and is then told the browser is busy. | The smaller of the container's cgroup memory limit and the host's total memory, minus 1200 MB, and at least 500 | No |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the GitHub Copilot provider. | unset | No |
-| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | unset | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | `${EIDON_BASE_URL}/api/providers/github/callback` | No |
 | `EIDON_EMBEDDING_MODEL` | Hugging Face model id used for local embeddings powering semantic recall. | `Xenova/paraphrase-multilingual-MiniLM-L12-v2` | No |
 | `EIDON_EMBEDDING_DISABLED` | Set to `1` to skip loading the embedding model entirely. Semantic recall and the `search_workspace` tool become unavailable. | unset | No |
 
 All three GitHub App variables must be set together. If any is missing, the GitHub Copilot provider type still appears in settings but **Connect GitHub** will not complete.
 
-The production image also sets `HOME`, `TMPDIR`, `XDG_RUNTIME_DIR`, and `AGENT_BROWSER_SOCKET_DIR` to paths inside `/app/data` so the non-root user has writable locations, and `NEXT_TELEMETRY_DISABLED=1`. You do not normally need to override these.
+The production image also sets `HOME`, `TMPDIR`, `XDG_RUNTIME_DIR`, and `AGENT_BROWSER_SOCKET_DIR` to paths inside `/app/data` so the non-root user has writable locations, `AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium` so `agent-browser` uses the bundled Chromium, and `NEXT_TELEMETRY_DISABLED=1`. You do not normally need to override these.
 
 `NEXT_PUBLIC_APP_VERSION` is a build argument, not a runtime variable. It is what the in-app version string displays. See [Development](./development.md) for the image channels that set it.
 
@@ -58,9 +60,40 @@ Everything Eidon persists lives under `EIDON_DATA_DIR` (`/app/data` in the image
 | `bot-workspaces/<user>/<bot>/` | One isolated file workspace per bot; this is the working directory for that bot's shell commands |
 | `model-cache/` | Downloaded local models: the embedding model, the local title-generation model, and the Canary speech-to-text model |
 | `home/`, `tmp/`, `runtime/` | `HOME`, `TMPDIR`, and `XDG_RUNTIME_DIR` for the container user |
-| `runtime/agent-browser/` | `agent-browser` control sockets, with `runtime/agent-browser/bots/<bot>/` giving each bot its own browser session |
+| `agent-computer/<user>/profile/` | One persistent browser profile per user: cookies, sign-ins and site data shared by that user's bots and chats. **Sign out everywhere** on a bot's page wipes it |
+| `runtime/agent-browser/` | `agent-browser` control sockets: `bots/<bot>/` for each bot's tab and `users/<user>/` for the user's regular chats |
 
 There is no external datastore, cache, or queue. One volume holds the whole workspace.
+
+## Running in a container
+
+Eidon runs a real Chromium for its built-in browser, which is the part of the app most sensitive to how a container is configured. Two things have to be right: shared memory, and a volume that persists.
+
+### Shared memory
+
+Docker gives a container a 64 MB `/dev/shm` unless told otherwise. Chromium writes its shared memory segments there, so on a default container a heavy page — a large web app, a video site, a long-running agent tab — dies with a tab crash or `Out of memory`. The error looks like a page failing to load, not like a memory problem, which makes it hard to diagnose.
+
+Eidon already passes `--disable-dev-shm-usage` and `--no-sandbox` to every Chromium it starts, on both the shared per-user browser and the ones the `agent-browser` CLI launches itself. That keeps Chromium working on a stock container, but it redirects those buffers to `TMPDIR`, which is `/app/data/tmp` — on the volume, and therefore on disk. A large page is then noticeably slower, and the page's scratch data counts against your volume.
+
+Give the container a real `/dev/shm` as well. It is cheap: it is tmpfs, not disk, and it is capped, so it cannot eat your disk.
+
+| Platform | How to set it |
+| --- | --- |
+| `docker run` | `--shm-size=1g` |
+| Docker Compose | `shm_size: "1gb"` in the service |
+| Rootless Podman | `--shm-size=1g`, or `podman run --shm-size=1g`; rootless Podman also ignores the AppArmor profile below |
+| Fly.io | Set a shared memory size on the machine or the app; on the LiteFS-backed default it is configured per app |
+| Railway, Render, Coolify, Dokploy, Portainer | A "shared memory" / "shm size" field on the service; if your provider exposes none, the shipped flags still keep the browser working, just on disk |
+| Kubernetes | Mount an `emptyDir` with `medium: Memory` and `sizeLimit: 1Gi` at `/dev/shm` |
+
+Nothing else needs relaxing. Chromium's setuid sandbox does not work as a non-root user in a container, which is why Eidon passes `--no-sandbox` rather than asking you to grant capabilities. The default Docker seccomp profile and AppArmor profile are both fine for a `--no-sandbox` Chromium; the commonly cited `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined` workarounds are only needed if you have re-enabled a sandboxed Chromium, and Eidon does not ask you to disable either profile.
+
+### Persistent models
+
+The first time you use semantic recall, conversation titles, or offline speech-to-text, Eidon downloads those models into `model-cache/` inside the data directory — roughly 210 MB of ONNX runtime, 270 MB for the title model, and 207 MB for speech. That is under `EIDON_DATA_DIR`, so mounting `/app/data` is all it takes: restarts and container recreates reuse what was already downloaded, and the files never re-download.
+
+If your platform gives you an ephemeral filesystem with a separate volume, or you deploy without a volume at all, that ~690 MB is re-fetched from `huggingface.co` on every cold start. Mount a volume at `/app/data` before the first start, not after, or you pay the download once anyway.
+
 
 ## Security and storage notes
 

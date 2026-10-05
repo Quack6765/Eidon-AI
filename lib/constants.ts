@@ -1,5 +1,7 @@
 export const APP_NAME = "Eidon";
 
+export const RESTART_RESUME_NOTICE_HEADER = "[Resumed after a server restart]";
+
 export const GITHUB_RELEASES_URL = "https://github.com/Quack6765/Eidon-AI/releases";
 
 export function getAppVersion(): string {
@@ -11,7 +13,7 @@ export const SESSION_TOKEN_ISSUER = "eidon";
 export const SESSION_TOKEN_AUDIENCE = "eidon-session";
 export const SESSION_TOKEN_USE = "session";
 export const MOBILE_API_VERSION = "v1";
-export const MOBILE_API_MINIMUM_SERVER_VERSION = "3.7.0";
+export const MOBILE_API_MINIMUM_SERVER_VERSION = "5.0.0";
 export const MOBILE_SESSION_TOKEN_AUDIENCE = "eidon-mobile-v1";
 export const MOBILE_SESSION_TOKEN_USE = "mobile_session";
 export const MOBILE_SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30;
@@ -30,6 +32,8 @@ export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const MAX_ATTACHMENT_TEXT_RATIO = 0.25;
 export const MAX_CHAT_MESSAGE_CHARS = 150_000;
 export const MAX_ATTACHMENT_IDS_PER_MESSAGE = 100;
+export const MAX_PROMPT_IMAGES = 8;
+export const MAX_BASELINE_IMAGES = 4;
 export const MAX_CHAT_REQUEST_BYTES = 1024 * 1024;
 export const MAX_UPLOAD_REQUEST_BYTES = 128 * 1024 * 1024;
 export const MAX_RESEARCH_TOOL_STEPS = 120;

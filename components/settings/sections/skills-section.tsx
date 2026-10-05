@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, FileText, Upload, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,39 @@ function emptySkillDraft(): SkillDraft {
   };
 }
 
+type SkillMaintenanceConfig = {
+  enabled: boolean;
+  intervalHours: number;
+  minIdleHours: number;
+  staleAfterDays: number;
+  archiveAfterDays: number;
+  consolidate: boolean;
+  archiveTtlDays: number;
+  backup: { enabled: boolean; keep: number };
+  backgroundReview: { enabled: boolean };
+  ledger: boolean;
+};
+
+type SkillMaintenancePatch = Omit<Partial<SkillMaintenanceConfig>, "backup" | "backgroundReview"> & {
+  backup?: { enabled?: boolean; keep?: number };
+  backgroundReview?: { enabled?: boolean };
+};
+
+const MAINTENANCE_FIELDS: Array<{
+  key: "enabled" | "consolidate" | "staleAfterDays" | "archiveAfterDays" | "archiveTtlDays" | "intervalHours" | "minIdleHours";
+  label: string;
+  hint: string;
+  kind: "toggle" | "days" | "hours";
+}> = [
+  { key: "enabled", label: "Run skill maintenance", hint: "Keeps the library tidy: unused skills go stale, then archived and recoverable.", kind: "toggle" },
+  { key: "staleAfterDays", label: "Mark unused skills stale after", hint: "A skill that has not been loaded for this long is flagged as stale.", kind: "days" },
+  { key: "archiveAfterDays", label: "Archive unused skills after", hint: "Archived skills leave the skill list but are never deleted, and can be restored.", kind: "days" },
+  { key: "archiveTtlDays", label: "Delete archived skills after", hint: "0 keeps archives forever.", kind: "days" },
+  { key: "intervalHours", label: "Run maintenance every", hint: "", kind: "hours" },
+  { key: "minIdleHours", label: "Only when idle for", hint: "Maintenance never runs while you are working.", kind: "hours" },
+  { key: "consolidate", label: "Merge near-duplicate skills", hint: "Lets maintenance fold narrow sibling skills into one umbrella skill. Off by default.", kind: "toggle" }
+];
+
 export function SkillsSection() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillName, setSkillName] = useState("");
@@ -58,6 +91,50 @@ export function SkillsSection() {
   const toast = useToastState();
   const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
+  const [maintenance, setMaintenance] = useState<SkillMaintenanceConfig | null>(null);
+  const [maintenanceStatus, setMaintenanceStatus] = useState("");
+
+  const loadMaintenance = useCallback(async () => {
+    try {
+      const response = await fetch("/api/skills/maintenance");
+      if (!response.ok) {
+        setMaintenanceStatus("Unable to load skill maintenance settings");
+        return;
+      }
+      const payload = (await response.json()) as { config?: SkillMaintenanceConfig };
+      if (payload.config) {
+        setMaintenance(payload.config);
+      }
+    } catch {
+      setMaintenanceStatus("Unable to load skill maintenance settings");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMaintenance();
+  }, [loadMaintenance]);
+
+  async function patchMaintenance(patch: SkillMaintenancePatch) {
+    if (!maintenance) return;
+    const next = {
+      ...maintenance,
+      ...patch,
+      backup: { ...maintenance.backup, ...(patch.backup ?? {}) },
+      backgroundReview: { ...maintenance.backgroundReview, ...(patch.backgroundReview ?? {}) }
+    };
+    setMaintenance(next);
+
+    try {
+      const response = await fetch("/api/skills/maintenance", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      setMaintenanceStatus(response.ok ? "Saved." : "Could not save skill maintenance settings");
+    } catch {
+      setMaintenanceStatus("Could not save skill maintenance settings");
+    }
+  }
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -475,13 +552,99 @@ export function SkillsSection() {
                 />
               </>
             ) : (
-              <div className="flex flex-col items-center justify-center py-24 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
-                  <FileText className="h-5 w-5 text-[var(--muted)]" />
+              <div className="space-y-4">
+                <div className="flex flex-col items-center justify-center pb-6 pt-10 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
+                    <FileText className="h-5 w-5 text-[var(--muted)]" />
+                  </div>
+                  <p className="text-[0.85rem] text-[var(--muted)]">
+                    Select a skill or add a new one
+                  </p>
                 </div>
-                <p className="text-[0.85rem] text-[var(--muted)]">
-                  Select a skill or add a new one
-                </p>
+
+                <section className="rounded-xl border border-white/6 bg-white/[0.02] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text)]">Skill maintenance</h3>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                    How skills are kept from piling up. Skills are only archived, never deleted, and any
+                    archived skill can be restored.
+                  </p>
+
+                  {maintenance === null ? (
+                    <p className="mt-3 text-xs text-[var(--muted)]">Loading…</p>
+                  ) : (
+                    <div className="mt-4 space-y-4">
+                      {MAINTENANCE_FIELDS.map((field) => (
+                        <div key={field.key} className="space-y-1.5">
+                          {field.kind === "toggle" ? (
+                            <label className="flex cursor-pointer items-start gap-2.5">
+                              <input
+                                type="checkbox"
+                                checked={Boolean((maintenance as Record<string, unknown>)[field.key])}
+                                onChange={(event) => patchMaintenance({ [field.key]: event.target.checked })}
+                                className="mt-0.5 h-4 w-4 rounded border-white/15 bg-white/[0.03] accent-[var(--accent)]"
+                              />
+                              <span className="text-sm text-[var(--text)]">{field.label}</span>
+                            </label>
+                          ) : (
+                            <>
+                              <label className={fieldLabel}>{field.label}</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={Number((maintenance as Record<string, unknown>)[field.key])}
+                                onChange={(event) =>
+                                  patchMaintenance({ [field.key]: Math.max(0, Number(event.target.value) || 0) })
+                                }
+                                className={`${inputLike} !w-28`}
+                              />
+                            </>
+                          )}
+                          {field.hint ? (
+                            <p className="text-[11px] leading-4 text-[var(--muted)]">{field.hint}</p>
+                          ) : null}
+                        </div>
+                      ))}
+
+                      <div className="space-y-1.5">
+                        <label className="flex cursor-pointer items-start gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={maintenance.backgroundReview.enabled}
+                            onChange={(event) =>
+                              patchMaintenance({ backgroundReview: { enabled: event.target.checked } })
+                            }
+                            className="mt-0.5 h-4 w-4 rounded border-white/15 bg-white/[0.03] accent-[var(--accent)]"
+                          />
+                          <span className="text-sm text-[var(--text)]">Learn from each task</span>
+                        </label>
+                        <p className="text-[11px] leading-4 text-[var(--muted)]">
+                          After a task, an agent reviews what it did and saves or improves a skill when the
+                          workflow will come up again. One-off work is never saved.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className={fieldLabel}>Keep this many maintenance backups</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={maintenance.backup.keep}
+                          onChange={(event) =>
+                            patchMaintenance({ backup: { keep: Math.max(0, Number(event.target.value) || 0) } })
+                          }
+                          className={`${inputLike} !w-28`}
+                        />
+                        <p className="text-[11px] leading-4 text-[var(--muted)]">
+                          Taken before every maintenance run, so a run can be rolled back.
+                        </p>
+                      </div>
+
+                      {maintenanceStatus ? (
+                        <p className="text-[11px] text-[var(--muted)]">{maintenanceStatus}</p>
+                      ) : null}
+                    </div>
+                  )}
+                </section>
               </div>
             )}
           </div>

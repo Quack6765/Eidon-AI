@@ -4,8 +4,14 @@ import { z } from "zod";
 import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 
 import { requireUser } from "@/lib/auth";
-import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
+import {
+  assertFutureRunAt,
+  deleteAutomation,
+  getAutomation,
+  updateAutomation
+} from "@/lib/automations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
+import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
@@ -20,15 +26,17 @@ const updateSchema = z.object({
   providerProfileId: z.string().min(1).optional(),
   personaId: z.string().min(1).nullable().optional(),
   botId: z.string().min(1).nullable().optional(),
-  scheduleKind: z.enum(["interval", "calendar"]).optional(),
+  scheduleKind: z.enum(["interval", "calendar", "once"]).optional(),
   intervalMinutes: z.number().int().nullable().optional(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+  runAt: z.string().datetime({ offset: true }).nullable().optional(),
   continuePreviousConversation: z.boolean().optional(),
   enabled: z.boolean().optional(),
   research: z.boolean().optional(),
-  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional()
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional(),
+  notifyConfig: notifyConfigInputSchema.optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid automation update"
@@ -84,6 +92,12 @@ export async function PATCH(
   }
 
   try {
+    if (body.data.runAt !== undefined || body.data.scheduleKind !== undefined) {
+      assertFutureRunAt(
+        body.data.scheduleKind ?? automation.scheduleKind,
+        body.data.runAt === undefined ? automation.runAt : body.data.runAt
+      );
+    }
     const updated = updateAutomation(automation.id, body.data, user.id);
     return ok({ automation: updated });
   } catch (error) {

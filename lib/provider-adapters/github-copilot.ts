@@ -1,9 +1,11 @@
 import { buildCopilotTools } from "@/lib/copilot-tools";
+import { getAttachmentDataUrl } from "@/lib/attachments";
 import {
   ensureFreshGithubAccessToken,
   runGithubCopilotChat,
   streamGithubCopilotChat
 } from "@/lib/github-copilot";
+import type { CopilotMessageAttachment } from "@/lib/github-copilot";
 import { listGithubCopilotModels } from "@/lib/github-copilot";
 import {
   cancelGithubProviderConnectionFlow,
@@ -76,9 +78,36 @@ export async function* streamGithubCopilotResponse(
   const { settings, promptMessages } = input;
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
   const freshSettings = await ensureFreshGithubAccessToken(settings, input.abortSignal);
-  const messageTexts = promptMessages.map((m) =>
-    typeof m.content === "string" ? m.content : m.content.map((p) => "text" in p ? p.text : "").join("")
-  );
+  const messageAttachments = new Map<string, CopilotMessageAttachment>();
+  const messageTexts = promptMessages.map((m) => {
+    if (typeof m.content === "string") {
+      return m.content;
+    }
+
+    return m.content
+      .map((part) => {
+        if (part.type === "text") {
+          return part.text;
+        }
+
+        if (!messageAttachments.has(part.relativePath)) {
+          try {
+            const dataUrl = getAttachmentDataUrl({
+              relativePath: part.relativePath,
+              mimeType: part.mimeType
+            });
+            messageAttachments.set(part.relativePath, {
+              data: dataUrl.slice(dataUrl.indexOf(",") + 1),
+              mimeType: part.mimeType,
+              displayName: part.filename
+            });
+          } catch {}
+        }
+
+        return `Attached image: ${part.filename}`;
+      })
+      .join("");
+  });
 
   type CopilotEvent = {
     type: string;
@@ -137,7 +166,7 @@ export async function* streamGithubCopilotResponse(
   function inferCopilotActionKind(toolName: string): MessageActionKind {
     if (toolName === "execute_shell_command") return "shell_command";
     if (toolName === "load_skill") return "skill_load";
-    if (toolName === "save_skill") return "save_skill";
+    if (toolName === "skill_manage") return "skill_manage";
     if (toolName === "create_memory" || toolName === "update_memory" || toolName === "delete_memory") {
       return toolName;
     }
@@ -148,6 +177,7 @@ export async function* streamGithubCopilotResponse(
     ...freshSettings,
     systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
     messages: messageTexts.map((content) => ({ role: "user" as const, content })),
+    ...(messageAttachments.size ? { attachments: [...messageAttachments.values()] } : {}),
     abortSignal: input.abortSignal,
     ...(copilotTools?.length ? { tools: copilotTools } : {}),
     onEvent: (rawEvent: unknown) => {

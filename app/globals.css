@@ -413,6 +413,79 @@ html.ios-pwa .app-shell {
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
+[data-streamdown="mermaid"] [role="application"] {
+  will-change: auto !important;
+}
+
+[data-streamdown="mermaid"] > div {
+  transform: translate(var(--diagram-zoom-x, 0px), var(--diagram-zoom-y, 0px)) scale(var(--diagram-zoom-g, 1)) !important;
+}
+
+[data-streamdown="mermaid"] [role="application"] > div {
+  width: 100%;
+}
+
+[data-streamdown="mermaid"] {
+  pointer-events: none !important;
+}
+
+[data-streamdown="mermaid"] > div > div.absolute {
+  display: none !important;
+}
+
+[data-streamdown="mermaid-block-actions"] {
+  pointer-events: none !important;
+}
+
+[data-streamdown="mermaid-block-actions"] button {
+  pointer-events: auto !important;
+}
+
+[data-streamdown="mermaid-block"] > div:last-child {
+  cursor: pointer;
+}
+
+[data-streamdown="mermaid-block"] {
+  touch-action: pan-y;
+}
+
+body:has(> div.fixed.inset-0.z-50) .app-shell {
+  visibility: hidden;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] {
+  pointer-events: auto !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] [role="application"] {
+  pointer-events: none !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] > div > div.absolute {
+  display: flex !important;
+}
+
+body > div.fixed.inset-0.z-50 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  touch-action: none;
+}
+
+[data-streamdown="mermaid"] [role="application"] {
+  transition: none !important;
+  transform-origin: var(--diagram-zoom-origin, center center) !important;
+}
+
+body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] [role="application"] > div > svg {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 100% !important;
+}
+
+[data-streamdown="mermaid"] .labelBkg span.edgeLabel {
+  color: #f4f4f5 !important;
+}
+
 .markdown-body [data-streamdown="mermaid-block"] .bg-red-50 {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -821,5 +894,127 @@ html.ios-pwa .app-shell {
   }
   html {
     @apply font-sans;
+  }
+}
+
+.bot-avatar[data-anim="off"][data-anim] * {
+  animation: none !important;
+}
+.bot-avatar > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes bot-look {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  14% {
+    transform: translateX(2px) rotate(4deg);
+  }
+  30% {
+    transform: translateX(-1px) rotate(-1.5deg);
+  }
+  46% {
+    transform: translateX(-2px) rotate(-4deg);
+  }
+  62% {
+    transform: translateX(1px) rotate(2deg);
+  }
+  78% {
+    transform: translateX(2px) rotate(4deg);
+  }
+  90% {
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+@keyframes bot-eyes {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10% {
+    transform: translateX(2.5px);
+  }
+  26% {
+    transform: translateX(-2.5px);
+  }
+  42% {
+    transform: translateX(1.5px);
+  }
+  58% {
+    transform: translateX(-2px);
+  }
+  74% {
+    transform: translateX(2.5px);
+  }
+  88% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes bot-blink {
+  0%,
+  40% {
+    opacity: 0;
+  }
+  42% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0;
+  }
+  48% {
+    opacity: 1;
+  }
+  52%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes vb-lift {
+  0%,
+  86.9%,
+  95%,
+  100% {
+    transform: translateY(0);
+  }
+  87%,
+  94.9% {
+    transform: translateY(-2.5px);
+  }
+}
+
+@keyframes vb-stretch {
+  0%,
+  85.9%,
+  96%,
+  100% {
+    transform: translateY(0);
+  }
+  86%,
+  95.9% {
+    transform: translateY(-2.5px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bot-avatar[data-anim="on"] .vb-upper {
+    animation: vb-stretch 7s linear infinite;
+  }
+  .bot-avatar[data-anim="on"] .vb-head {
+    transform-box: view-box;
+    transform-origin: 63.5px 70px;
+    animation: vb-lift 7s linear infinite, bot-look 4s ease-in-out infinite;
+  }
+  .bot-avatar[data-anim="on"] .bot-eyes {
+    animation: bot-eyes 4s ease-in-out infinite;
+  }
+  .bot-avatar[data-anim="on"] .vb-blink-medium {
+    animation: bot-blink 3s linear infinite;
   }
 }

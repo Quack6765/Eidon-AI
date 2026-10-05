@@ -182,6 +182,23 @@ describe("github copilot helpers", () => {
     expect(url.searchParams.get("scope")).toBe("read:user");
   });
 
+  it("derives the github authorize redirect URI from the base URL when no callback is set", () => {
+    const explicitCallback = process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    delete process.env.EIDON_GITHUB_APP_CALLBACK_URL;
+    process.env.EIDON_BASE_URL = "https://eidon.example.com";
+    try {
+      const url = new URL(getGithubAuthorizeUrl("state-token"));
+      expect(url.searchParams.get("redirect_uri")).toBe(
+        "https://eidon.example.com/api/providers/github/callback"
+      );
+    } finally {
+      delete process.env.EIDON_BASE_URL;
+      if (explicitCallback !== undefined) {
+        process.env.EIDON_GITHUB_APP_CALLBACK_URL = explicitCallback;
+      }
+    }
+  });
+
   it("exchanges an oauth code for tokens", async () => {
     vi.mocked(global.fetch).mockResolvedValue({
       json: async () => ({ access_token: "ghu_new" })
@@ -439,10 +456,47 @@ describe("github copilot helpers", () => {
       onPermissionRequest: expect.any(Function)
     });
     const onPermissionRequest = client.createSession.mock.calls[0]?.[0]?.onPermissionRequest;
-    expect(onPermissionRequest()).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "read" })).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "custom-tool" })).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "shell" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
+    expect(onPermissionRequest({ kind: "mcp" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
+    expect(onPermissionRequest({ kind: "custom-tool", toolName: "unknown_tool" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
     expect(session.send).toHaveBeenCalledWith({
       prompt: "First line\nSecond line"
     });
+    expect(client.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends image attachments as blobs and retries text-only when the send rejects them", async () => {
+    const session: MockSession = {
+      send: vi.fn()
+        .mockRejectedValueOnce(new Error("attachments unsupported"))
+        .mockResolvedValue("ok")
+    };
+    const client = createMockClient({
+      createSession: vi.fn().mockResolvedValue(session)
+    });
+    copilotClientCtor.mockImplementation(() => client);
+
+    await expect(
+      runGithubCopilotChat({
+        ...createProfile(),
+        messages: [{ role: "user", content: "look at this" }],
+        attachments: [{ data: "aGVsbG8=", mimeType: "image/jpeg", displayName: "photo.jpg" }]
+      })
+    ).resolves.toBe("ok");
+
+    expect(session.send).toHaveBeenNthCalledWith(1, {
+      prompt: "look at this",
+      attachments: [{ type: "blob", data: "aGVsbG8=", mimeType: "image/jpeg", displayName: "photo.jpg" }]
+    });
+    expect(session.send).toHaveBeenNthCalledWith(2, { prompt: "look at this" });
     expect(client.stop).toHaveBeenCalledTimes(1);
   });
 

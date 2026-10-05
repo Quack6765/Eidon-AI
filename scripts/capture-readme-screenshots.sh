@@ -10,7 +10,12 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCREENSHOT_DIR="$PROJECT_DIR/.github/readme"
 DEV_SERVER_FILE="$PROJECT_DIR/.dev-server"
-EIDON_DATA_DIR="$PROJECT_DIR/.context/readme-demo-data"
+# Kept short on purpose: bot browsers listen on a unix socket under the data dir,
+# and macOS rejects socket paths over 103 bytes.
+EIDON_DATA_DIR="/tmp/eidon-readme-demo"
+# The seed runs without .env while the dev server loads it, so pin the secret for both.
+DEMO_ENCRYPTION_SECRET="readme-demo-encryption-secret-000000000000"
+MOCK_PROVIDER_PID=""
 # Pinned so the screenshots never inherit a real admin identity from .env.
 DEMO_ADMIN_USERNAME="admin"
 DEV_SERVER_PID=""
@@ -32,16 +37,28 @@ mkdir -p "$SCREENSHOT_DIR"
 cleanup() {
     echo "==> Cleaning up..."
     "$AB" close --all 2>/dev/null || true
+    if [ -n "$MOCK_PROVIDER_PID" ]; then
+        kill "$MOCK_PROVIDER_PID" 2>/dev/null || true
+    fi
     if [ -n "$DEV_SERVER_PID" ] && kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
         kill "$DEV_SERVER_PID" 2>/dev/null || true
         wait "$DEV_SERVER_PID" 2>/dev/null || true
     fi
     rm -f "$DEV_SERVER_FILE"
+    pkill -f "$EIDON_DATA_DIR" 2>/dev/null || true
+    sleep 2
+    rm -rf "$EIDON_DATA_DIR"
 }
 trap cleanup EXIT
 
+echo "==> Starting mock model provider..."
+MOCK_PROVIDER_PORT=$(node -e 'const s=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
+node "$PROJECT_DIR/scripts/readme-mock-provider.mjs" "$MOCK_PROVIDER_PORT" >/dev/null 2>&1 &
+MOCK_PROVIDER_PID=$!
+
 echo "==> Seeding README demo data..."
-SEED_RAW=$(EIDON_DATA_DIR="$EIDON_DATA_DIR" EIDON_ADMIN_USERNAME="$DEMO_ADMIN_USERNAME" \
+SEED_RAW=$(README_DEMO_PROVIDER_URL="http://127.0.0.1:$MOCK_PROVIDER_PORT/v1" EIDON_ENCRYPTION_SECRET="$DEMO_ENCRYPTION_SECRET" \
+    EIDON_DATA_DIR="$EIDON_DATA_DIR" EIDON_ADMIN_USERNAME="$DEMO_ADMIN_USERNAME" \
     npm run seed:readme-demo --prefix "$PROJECT_DIR" --silent)
 # Migrations log to stdout on a fresh data dir, so keep only the trailing JSON object.
 SEED_OUTPUT=$(echo "$SEED_RAW" | sed -n '/^{$/,$p')
@@ -54,26 +71,23 @@ fi
 seeded() { echo "$SEED_OUTPUT" | jq -r ".seeded.$1"; }
 
 PRIMARY_CONV_ID=$(seeded primaryConversationId)
-RESEARCH_CONV_ID=$(seeded researchConversationId)
 RESEARCH_DRAFT_CONV_ID=$(seeded researchDraftConversationId)
 RESEARCH_DRAFT_QUESTION=$(echo "$SEED_OUTPUT" | jq -r '.fixtures.researchDraftQuestion')
-VISUALS_MERMAID_CONV_ID=$(seeded visualsMermaidConversationId)
-VISUALS_CODE_CONV_ID=$(seeded visualsCodeConversationId)
 AUTOMATION_ID=$(seeded automationId)
-AUTOMATION_RUN_ID=$(seeded automationRunId)
 CHIEF_BOT_ID=$(seeded chiefBotId)
 CHIEF_CONV_ID=$(seeded chiefConversationId)
 INBOX_TRIAGE_BOT_ID=$(seeded inboxTriageBotId)
+RELEASE_WATCH_BOT_ID=$(seeded releaseWatchBotId)
+RESEARCH_DESK_BOT_ID=$(seeded researchDeskBotId)
 
 echo "  primary conversation:  $PRIMARY_CONV_ID"
-echo "  research conversation: $RESEARCH_CONV_ID"
-echo "  automation:            $AUTOMATION_ID (run $AUTOMATION_RUN_ID)"
+echo "  automation:            $AUTOMATION_ID"
 echo "  chief bot:             $CHIEF_BOT_ID"
 echo "  inbox triage bot:      $INBOX_TRIAGE_BOT_ID"
 
 echo "==> Starting dev server..."
 rm -f "$DEV_SERVER_FILE"
-EIDON_DATA_DIR="$EIDON_DATA_DIR" EIDON_ADMIN_USERNAME="$DEMO_ADMIN_USERNAME" \
+EIDON_ENCRYPTION_SECRET="$DEMO_ENCRYPTION_SECRET" EIDON_DATA_DIR="$EIDON_DATA_DIR" EIDON_ADMIN_USERNAME="$DEMO_ADMIN_USERNAME" \
     npm run dev --prefix "$PROJECT_DIR" > /tmp/eidon-screenshot-dev.log 2>&1 &
 DEV_SERVER_PID=$!
 
@@ -144,26 +158,20 @@ scroll_transcript_to_top() {
     "$AB" wait 600 >/dev/null
 }
 
-# Settings list items are buttons whose accessible name holds the full text, so a
-# prefix match is enough even when the label is visually truncated.
-select_list_item() {
-    "$AB" find text "$1" click >/dev/null 2>&1 || {
-        echo "  WARNING: could not select list item \"$1\"" >&2
-        return 1
-    }
-    "$AB" wait 1200 >/dev/null
+scroll_transcript_to_bottom() {
+    "$AB" eval "document.querySelector('.conversation-scroller')?.scrollTo({ top: 1e6 })" >/dev/null 2>&1 || true
+    "$AB" wait 600 >/dev/null
 }
 
 run_prep() {
     case "$1" in
         "") return 0 ;;
         top) scroll_transcript_to_top ;;
-        pick:*) select_list_item "${1#pick:}" || true ;;
         *) echo "  WARNING: unknown prep step \"$1\"" >&2 ;;
     esac
 }
 
-# shot <file> <route> <expected-text> [sidebar|nosidebar] [top|pick:<text>]
+# shot <file> <route> <expected-text> [sidebar|nosidebar] [top]
 shot() {
     local file="$1"
     local route="$2"
@@ -196,17 +204,11 @@ shot() {
 echo "==> Desktop shots (${DESKTOP_WIDTH}x${DESKTOP_HEIGHT})..."
 set_viewport "$DESKTOP_WIDTH" "$DESKTOP_HEIGHT"
 shot "desktop-chat.png"           "/chat/$PRIMARY_CONV_ID"                            "April launch"          sidebar top
-shot "desktop-agents.png"         "/agents"                                            "Chief of Staff"
+shot "desktop-agents.png"         "/agents/roster"                                     "Chief of Staff"
+shot "desktop-agent-login.png"    "/agents/$RELEASE_WATCH_BOT_ID"                     "You returned control"    sidebar top
 shot "desktop-agent-proposal.png" "/agents/$INBOX_TRIAGE_BOT_ID"                       "Schedule automation"   
 shot "desktop-delegation.png"     "/agents/$CHIEF_BOT_ID"                              "Splitting this in two" sidebar top
-shot "desktop-research.png"       "/chat/$RESEARCH_CONV_ID"                            "Research plan"        sidebar top
 shot "desktop-automations.png"    "/automations/$AUTOMATION_ID"                        "Run history"
-shot "desktop-automation-run.png" "/automations/$AUTOMATION_ID/runs/$AUTOMATION_RUN_ID" "Nightly sweep complete"
-shot "desktop-mermaid.png"        "/chat/$VISUALS_MERMAID_CONV_ID"                     "request lifecycle"     sidebar top
-shot "desktop-code.png"           "/chat/$VISUALS_CODE_CONV_ID"                        "token-bucket limiter"  sidebar top
-shot "desktop-providers.png"      "/settings/providers"                                "OpenRouter"
-shot "desktop-mcp.png"            "/settings/mcp-servers"                              "Linear Cloud"          sidebar "pick:Linear Cloud"
-shot "desktop-memories.png"       "/settings/memories"                                 "Prefers short, direct"  sidebar "pick:Prefers short, direct answers"
 
 echo "==> Deep research pre-flight (driven through the composer)..."
 capture_research_plan() {
@@ -274,8 +276,67 @@ capture_research_plan
 echo "==> Mobile shots (${MOBILE_WIDTH}x${MOBILE_HEIGHT})..."
 set_viewport "$MOBILE_WIDTH" "$MOBILE_HEIGHT"
 shot "mobile-chat.png"     "/chat/$PRIMARY_CONV_ID" "April launch"   nosidebar
-shot "mobile-agents.png"   "/agents"                "Chief of Staff" nosidebar
-shot "mobile-settings.png" "/settings/providers"    "OpenRouter"     nosidebar
+
+# The live view only exists while a turn is running, so this drives a real turn
+# through the composer against the mock provider. The bot opens a local page in its
+# own browser, then pauses on a hand-off, which keeps the live frame on screen.
+capture_live_browser() {
+    local desktop_file="desktop-agent-browser.png"
+    local mobile_file="mobile-agent-browser.png"
+    local route="/agents/$RESEARCH_DESK_BOT_ID"
+
+    printf '  %-28s' "$desktop_file"
+    set_viewport "$DESKTOP_WIDTH" "$DESKTOP_HEIGHT"
+    "$AB" open "$BASE_URL$route" >/dev/null
+    "$AB" wait --load networkidle >/dev/null
+    "$AB" wait 1500 >/dev/null
+    ensure_sidebar_open || true
+
+    "$AB" fill "textarea" "Check the payments dashboard for failed payouts before we ship." >/dev/null 2>&1 || true
+    "$AB" wait 400 >/dev/null
+    "$AB" press Enter >/dev/null 2>&1 || true
+
+    if ! wait_for_text "Allow once"; then
+        echo "FAILED (no tool approval card)"
+        FAILURES+=("$desktop_file")
+        return 0
+    fi
+    "$AB" find text "Allow always" click >/dev/null 2>&1 || true
+
+    if ! wait_for_text "Take over"; then
+        echo "FAILED (hand-off card never appeared)"
+        FAILURES+=("$desktop_file")
+        return 0
+    fi
+    if ! wait_for_text "Live"; then
+        echo "FAILED (browser never went live)"
+        FAILURES+=("$desktop_file")
+        return 0
+    fi
+
+    scroll_transcript_to_bottom
+    "$AB" wait 1500 >/dev/null
+    "$AB" screenshot "$SCREENSHOT_DIR/$desktop_file" >/dev/null
+    echo "ok"
+
+    printf '  %-28s' "$mobile_file"
+    set_viewport "$MOBILE_WIDTH" "$MOBILE_HEIGHT"
+    "$AB" open "$BASE_URL$route" >/dev/null
+    "$AB" wait --load networkidle >/dev/null
+    "$AB" wait 1500 >/dev/null
+    if ! wait_for_text "Live"; then
+        echo "FAILED (browser never went live on mobile)"
+        FAILURES+=("$mobile_file")
+        return 0
+    fi
+    scroll_transcript_to_top
+    "$AB" wait 1500 >/dev/null
+    "$AB" screenshot "$SCREENSHOT_DIR/$mobile_file" >/dev/null
+    echo "ok"
+}
+
+echo "==> Live browser (real turn against the mock provider)..."
+capture_live_browser
 
 echo "==> Post-processing..."
 npx tsx "$PROJECT_DIR/scripts/process-readme-images.ts"

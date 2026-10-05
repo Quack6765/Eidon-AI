@@ -60,7 +60,7 @@ describe("provider profile editor", () => {
 
     const deepseek = applyPresetToProviderProfile(openAi, "deepseek");
 
-    expect(deepseek.model).toBe("deepseek-v4-flash");
+    expect(deepseek.model).toBe("deepseek-flash");
     expect(deepseek.visionMode).toBe("none");
   });
 

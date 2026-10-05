@@ -250,6 +250,18 @@ export function deleteQueuedMessage({
   return result.changes > 0;
 }
 
+export function claimQueuedRedirectMessage(conversationId: string, queuedMessageIds: ReadonlySet<string>) {
+  if (queuedMessageIds.size === 0) return null;
+  return getDb().transaction(() => {
+    const next = listQueuedMessages(conversationId).find(
+      (message) => message.status === "pending" && queuedMessageIds.has(message.id)
+    );
+    if (!next) return null;
+    deleteQueuedMessage({ conversationId, queuedMessageId: next.id });
+    return next;
+  })();
+}
+
 export function failQueuedMessage({
   conversationId,
   queuedMessageId,

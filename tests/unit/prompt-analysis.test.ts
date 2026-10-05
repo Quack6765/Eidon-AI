@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { BUILTIN_AGENT_BROWSER_SKILL } from "@/lib/db-builtin-skills";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { filterSkillsForTurn } from "@/lib/prompt-analysis";
 import type { PromptMessage, Skill } from "@/lib/types";
 
@@ -67,9 +67,8 @@ describe("DEFAULT_BOT_BASE_SYSTEM_PROMPT proactive browser validation", () => {
     expect(DEFAULT_BOT_BASE_SYSTEM_PROMPT).toMatch(/never ask the user to check or validate/i);
   });
 
-  it("keeps the dedicated browser session instruction", () => {
-    expect(DEFAULT_BOT_BASE_SYSTEM_PROMPT).toContain(
-      "You have your own dedicated browser session and file workspace"
-    );
+  it("tells the bot it has its own tab in a browser whose sign-ins are shared", () => {
+    expect(DEFAULT_BOT_BASE_SYSTEM_PROMPT).toContain("You have your own browser tab and file workspace");
+    expect(DEFAULT_BOT_BASE_SYSTEM_PROMPT).toContain("its sign-ins are shared with the user's other bots");
   });
 });

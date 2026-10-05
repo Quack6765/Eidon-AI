@@ -52,10 +52,13 @@ function notifyReleaseWaiters(conversationId: string) {
 
 export function createChatTurnControl(conversationId: string, abortController = new AbortController()) {
   let stopped = false;
+  const redirectIds = new Set<string>();
 
   return {
     conversationId,
     abortController,
+    botRunId: null as string | null,
+    redirectIds,
     get stopped() {
       return stopped;
     },
@@ -100,8 +103,19 @@ export function hasActiveChatTurn(conversationId: string) {
   return getActiveTurns().has(conversationId);
 }
 
+export function getActiveChatTurn(conversationId: string) {
+  return getActiveTurns().get(conversationId) ?? null;
+}
+
 export function requestStop(conversationId: string) {
   getActiveTurns().get(conversationId)?.requestStop();
+}
+
+export function requestRedirect(conversationId: string, queuedMessageId: string) {
+  const control = getActiveTurns().get(conversationId);
+  if (!control || control.stopped) return false;
+  control.redirectIds.add(queuedMessageId);
+  return true;
 }
 
 export function waitForChatTurnRelease(conversationId: string, timeoutMs: number): Promise<void> {

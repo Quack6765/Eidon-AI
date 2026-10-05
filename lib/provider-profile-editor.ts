@@ -1,5 +1,6 @@
 import {
   createProviderProfileDraft,
+  DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset,
   PROVIDER_CATALOG,
@@ -120,6 +121,8 @@ export function applyPresetToProviderProfile(
       : {};
   return {
     ...profile,
+    temperature: DEFAULT_PROFILE_BEHAVIOR.temperature,
+    maxOutputTokens: DEFAULT_PROFILE_BEHAVIOR.maxOutputTokens,
     ...behavior,
     visionMode: values.visionMode ?? resolveDefaultVisionMode({
       providerKind: profile.providerKind,

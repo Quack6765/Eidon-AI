@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { compileImageInstruction, extractJsonObject } from "@/lib/image-generation/compile-image-instruction";
 import type { RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
@@ -46,6 +49,51 @@ describe("compileImageInstruction", () => {
     callProviderText.mockReset();
   });
 
+  it("describes images attached to the latest user request with dimensions and edit-input note", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"make a noir poster like this photo","mode":"edit","assistantText":"","count":1}
+\`\`\`
+`);
+
+    const relativePath = "conv_desc/att_desc_photo.png";
+    const absolutePath = path.resolve(process.env.EIDON_DATA_DIR!, "attachments", relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.copyFileSync(path.resolve("tests/fixtures/images/tiny.png"), absolutePath);
+
+    try {
+      await compileImageInstruction({
+        settings: profile,
+        promptMessages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "make a poster like this" },
+              {
+                type: "image",
+                attachmentId: "att_desc",
+                filename: "photo.png",
+                mimeType: "image/png",
+                relativePath
+              }
+            ]
+          }
+        ],
+        callProviderText
+      });
+
+      const prompt = callProviderText.mock.calls[0][0].prompt;
+      expect(prompt).toContain("Images attached to the latest user request");
+      expect(prompt).toContain("photo.png (8x8)");
+      expect(prompt).toContain("provided to the image backend as edit inputs");
+    } finally {
+      fs.rmSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments"), {
+        recursive: true,
+        force: true
+      });
+    }
+  });
+
   it("builds image instructions from the latest user message only", async () => {
     callProviderText.mockResolvedValue(`
 \`\`\`json
@@ -90,6 +138,39 @@ describe("compileImageInstruction", () => {
     expect(prompt).toContain("Relevant earlier user image requests:");
     expect(prompt).toContain("user: generate a picture of a mage");
     expect(prompt).toContain("Latest user request:\nuser: make the previous mage noir");
+  });
+
+  it("includes prior context and an edit hint for short follow-up revisions", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"pixel theme version of the previous scene","mode":"edit","assistantText":"","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [
+        { role: "user", content: "generate a picture of a mage" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_prev", name: "generate_image", arguments: "{}" }]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_prev",
+          content: "Successfully generated 1 image. Generated 1 image: mage.png"
+        },
+        { role: "user", content: "No, use a pixel theme." }
+      ],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("Relevant earlier user image requests:");
+    expect(prompt).toContain("user: generate a picture of a mage");
+    expect(prompt).toContain("short follow-up revising a recently generated image");
+    expect(prompt).toContain("Latest user request:\nuser: No, use a pixel theme.");
   });
 
   it("extracts fenced JSON and defaults optional fields", async () => {
@@ -150,6 +231,88 @@ describe("compileImageInstruction", () => {
         callProviderText
       })
     ).rejects.toThrow("Provider returned invalid image instruction JSON");
+  });
+  it("parses typed input slots and anchor placement with defaults", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"inputs":[{"filename":"base.png","role":"canvas","label":"base photo"},{"filename":"logo.png","role":"content","label":"the logo"}],"placement":{"kind":"anchor","anchor":"bottom-right","widthPercent":22}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo in the bottom-right" }],
+      callProviderText
+    });
+
+    expect(instruction.inputs).toEqual([
+      { filename: "base.png", role: "canvas", label: "base photo" },
+      { filename: "logo.png", role: "content", label: "the logo" }
+    ]);
+    expect(instruction.placement).toEqual({
+      kind: "anchor",
+      anchor: "bottom-right",
+      widthPercent: 22,
+      opacity: 1,
+      rotationDeg: 0,
+      marginPercent: 3,
+      restyle: true
+    });
+  });
+
+  it("parses semantic placement hints", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"placement":{"kind":"semantic","hint":"onto the black t-shirt"}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo on her jacket" }],
+      callProviderText
+    });
+
+    expect(instruction.placement).toEqual({ kind: "semantic", hint: "onto the black t-shirt" });
+  });
+
+  it("drops malformed inputs and placement instead of failing the whole instruction", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"add the logo","mode":"edit","count":1,"inputs":"oops","placement":{"kind":"anchor"}}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "put my logo somewhere" }],
+      callProviderText
+    });
+
+    expect(instruction.inputs).toBeUndefined();
+    expect(instruction.placement).toBeUndefined();
+    expect(instruction.imagePrompt).toBe("add the logo");
+  });
+
+  it("documents the slot and placement fields in the compiler prompt", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"make a poster","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [{ role: "user", content: "make a poster" }],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("- inputs: optional array");
+    expect(prompt).toContain("- placement: optional");
+    expect(prompt).toContain('\"kind\": \"anchor\"');
+    expect(prompt).toContain('\"kind\": \"semantic\"');
+    expect(prompt).toContain("never where the element is placed");
   });
 });
 

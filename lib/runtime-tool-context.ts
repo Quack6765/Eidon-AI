@@ -5,6 +5,7 @@ import type {
   RuntimeAppSettings,
   RuntimeProviderProfile,
   Skill,
+  ToolApprovalContext,
   VisionMode
 } from "@/lib/types";
 
@@ -14,6 +15,7 @@ export type RuntimeToolContext = {
   appSettings?: RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
+  toolApproval?: ToolApprovalContext;
   promptMessages?: PromptMessage[];
   mcpToolSets: ToolSet[];
   skills: Skill[];
@@ -22,9 +24,6 @@ export type RuntimeToolContext = {
   effectiveVisionMode: VisionMode;
   memoryUserId?: string | null;
   imageGenerationToolEnabled?: boolean;
-  restrictToGenerateImage?: boolean;
-  imageGenerationActionHandle?: string;
-  hasVisibleImageGenerationAction?: boolean;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onActionComplete?: (
     handle: string | undefined,

@@ -1,8 +1,10 @@
-import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
+import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
+import { MAX_ATTACHMENT_TEXT_RATIO, MAX_BASELINE_IMAGES, MAX_PROMPT_IMAGES } from "@/lib/constants";
 import { listMemoriesForPrompt } from "@/lib/memories";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
 import { buildAutomationProposalGuidance } from "@/lib/automation-guidance";
+import { env } from "@/lib/env";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
@@ -22,8 +24,8 @@ import {
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
 } from "@/lib/compaction-turns";
-import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { buildToolResultMessage } from "@/lib/tool-executors";
+import { describeMessageDraftForPrompt } from "@/lib/message-draft-display";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { computeCompactionLimit, estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
@@ -35,6 +37,7 @@ import type {
   MemoryNode,
   MemoryRigor,
   Message,
+  MessageAttachment,
   PromptMessage,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -215,23 +218,33 @@ async function condenseMemoryNodes(
 }
 
 export const MAX_TOOL_RESULT_CHARS = 8000;
-const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command"]);
+const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command", "image_generation"]);
 
 function collectReplayableActions(actions: MessageAction[] | undefined): MessageAction[] {
   return (actions ?? [])
     .filter(
       (action) =>
-        REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
-        action.status === "completed" &&
-        action.resultSummary.trim().length > 0
+        action.kind === "draft_message" ||
+        (REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
+          action.status === "completed" &&
+          action.resultSummary.trim().length > 0)
     )
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function getReplayedToolResult(action: MessageAction) {
+  return action.kind === "draft_message" ? describeMessageDraftForPrompt(action) : action.resultSummary;
 }
 
 function toProviderToolCall(action: MessageAction): ProviderToolCall {
   return {
     id: action.id,
-    name: action.toolName ?? (action.kind === "shell_command" ? "execute_shell_command" : action.label),
+    name: action.toolName ??
+      (action.kind === "shell_command"
+        ? "execute_shell_command"
+        : action.kind === "image_generation"
+          ? "generate_image"
+          : action.label),
     arguments: JSON.stringify(action.arguments ?? {})
   };
 }
@@ -241,9 +254,52 @@ function truncateToolResult(text: string): string {
   return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n[…truncated]`;
 }
 
+function getStoredAssistantImageAttachments(conversationId: string): MessageAttachment[] {
+  try {
+    const messages = listMessages(conversationId);
+    return getMostRecentAssistantImageAttachments(messages, getLatestUserMessageIndex(messages));
+  } catch {
+    return [];
+  }
+}
+
+function resolveBaselineImages(
+  input: { messages: Message[]; conversationId?: string },
+  latestUserMessageIndex: number
+): MessageAttachment[] {
+  const fromPrompt = getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex);
+  const baseline = fromPrompt.length
+    ? fromPrompt
+    : input.conversationId
+      ? getStoredAssistantImageAttachments(input.conversationId)
+      : [];
+  return baseline.slice(0, MAX_BASELINE_IMAGES);
+}
+
+function selectPromptImageIds(
+  messages: Message[],
+  baselineImages: MessageAttachment[]
+): Set<string> {
+  const included = new Set<string>(baselineImages.map((attachment) => attachment.id));
+
+  for (let index = messages.length - 1; index >= 0 && included.size < MAX_PROMPT_IMAGES; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.kind !== "image") continue;
+      included.add(attachment.id);
+      if (included.size >= MAX_PROMPT_IMAGES) break;
+    }
+  }
+
+  return included;
+}
+
 export function buildPromptMessages(input: {
   systemPrompt: string;
   personaContent?: string;
+  conversationId?: string;
   messages: Message[];
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
@@ -278,7 +334,7 @@ export function buildPromptMessages(input: {
     systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
 
-  systemParts.push(buildAutomationProposalGuidance());
+  systemParts.push(buildAutomationProposalGuidance(env.TZ));
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(
@@ -299,12 +355,8 @@ export function buildPromptMessages(input: {
     { role: "system", content: systemParts.join("\n\n") }
   ];
   const latestUserMessageIndex = getLatestUserMessageIndex(input.messages);
-  const latestUserMessage = latestUserMessageIndex >= 0 ? input.messages[latestUserMessageIndex] : null;
-  const referencedAssistantImages = latestUserMessage &&
-    latestUserMessage.role === "user" &&
-    referencesEarlierImageInChat(latestUserMessage.content)
-    ? getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex)
-    : [];
+  const baselineImages = resolveBaselineImages(input, latestUserMessageIndex);
+  const includedImageIds = selectPromptImageIds(input.messages, baselineImages);
 
   input.messages.forEach((message, index) => {
     if (message.role === "system") return;
@@ -315,14 +367,15 @@ export function buildPromptMessages(input: {
       }
 
       const replayableActions = collectReplayableActions(message.actions);
+      const content = appendDeliveredFileLinks(message.content, message.attachments);
 
-      if (!message.content.trim() && replayableActions.length === 0) {
+      if (!content.trim() && replayableActions.length === 0) {
         return;
       }
 
       promptMessages.push({
         role: "assistant",
-        content: message.content,
+        content,
         ...(replayableActions.length
           ? { toolCalls: replayableActions.map(toProviderToolCall) }
           : {})
@@ -330,7 +383,7 @@ export function buildPromptMessages(input: {
 
       for (const action of replayableActions) {
         promptMessages.push(
-          buildToolResultMessage(action.id, truncateToolResult(action.resultSummary))
+          buildToolResultMessage(action.id, truncateToolResult(getReplayedToolResult(action)))
         );
       }
       return;
@@ -341,7 +394,10 @@ export function buildPromptMessages(input: {
       content: buildUserPromptContent(
         message,
         remainingAttachmentTextTokens,
-        index === latestUserMessageIndex ? referencedAssistantImages : []
+        {
+          baselineImages: index === latestUserMessageIndex ? baselineImages : [],
+          includedImageIds
+        }
       )
     });
   });
@@ -379,6 +435,7 @@ function computeFirstPassContext(
   const promptMessages = buildPromptMessages({
     systemPrompt: settings.systemPrompt,
     personaContent,
+    conversationId,
     messages: promptHistoryMessages,
     activeMemoryNodes,
     maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
@@ -458,6 +515,7 @@ export async function ensureCompactedContext(
       buildPromptMessages({
         systemPrompt: settings.systemPrompt,
         personaContent,
+        conversationId,
         messages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),

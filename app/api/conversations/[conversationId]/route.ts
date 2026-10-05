@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
+import { getBotByConversationId } from "@/lib/bots";
 import {
   deleteConversation,
   deleteConversationIfEmpty,
@@ -63,6 +64,10 @@ export async function DELETE(
     return badRequest("Conversation not found", 404);
   }
 
+  if (getBotByConversationId(conversation.id)) {
+    return badRequest("A bot's conversation can't be deleted on its own", 409);
+  }
+
   const deleted = onlyIfEmpty
     ? deleteConversationIfEmpty(params.conversationId, user.id)
     : deleteConversation(params.conversationId, user.id);
@@ -117,6 +122,10 @@ export async function PATCH(
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
+  }
+
+  if (body.data.isTemporary && conversation.conversationOrigin !== "manual") {
+    return badRequest("Only regular chats can be made temporary", 409);
   }
 
   if (body.data.folderId !== undefined) {

@@ -9,7 +9,10 @@ test("redirects to login, signs in, opens settings, and creates a chat", async (
   await page.getByPlaceholder("Username").fill("admin");
   await page.getByPlaceholder("Password").fill(EIDON_TEST_PASSWORD);
   await page.getByRole("button", { name: "Proceed" }).click();
-  await page.waitForURL("http://localhost:3117/", { timeout: 15000 });
+  await page.waitForURL(/\/(onboarding)?\/?$/, { timeout: 15000 });
+  await page.request.put("/api/onboarding", { data: { completed: true } });
+  await page.goto("/");
+  await expect(page).toHaveURL("http://localhost:3117/");
 
   await expect(page.getByRole("link", { name: "Open settings" })).toBeVisible({ timeout: 10000 });
 

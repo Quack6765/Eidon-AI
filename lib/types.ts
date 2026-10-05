@@ -62,7 +62,7 @@ export type UserRole = "admin" | "user";
 
 export type AuthSource = "env_super_admin" | "local";
 
-export type AutomationScheduleKind = "interval" | "calendar";
+export type AutomationScheduleKind = "interval" | "calendar" | "once";
 
 export type AutomationCalendarFrequency = "daily" | "weekly";
 
@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan";
+export type MessageActionKind = "skill_load" | "skill_manage" | "skill_review" | "mcp_tool_call" | "shell_command" | "tool_approval" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan" | "draft_message" | "computer_handoff" | "secret_request";
 
 export type ChatResearchOptions = {
   plan?: string[];
@@ -159,7 +159,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
 
 export type BotRunTriggerSource = "dm" | "delegated" | "routine";
 
-export type BotRunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+export type BotRunStatus = "queued" | "running" | "waiting_user" | "completed" | "failed" | "stopped";
 
 export type Bot = {
   id: string;
@@ -171,7 +171,8 @@ export type Bot = {
   systemPrompt: string;
   isChief: boolean;
   homeConversationId: string;
-  pendingInputSeenAt: string | null;
+  lastReadAt: string | null;
+  lastResultAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -185,11 +186,19 @@ export type BotRun = {
   startedAt: string | null;
   finishedAt: string | null;
   parentMessageId: string | null;
+  requestedByBotId: string | null;
   errorMessage: string | null;
   createdAt: string;
 };
 
-export type BotStatus = "idle" | "queued" | "running";
+export type BotStatus = "idle" | "queued" | "running" | "waiting_user";
+
+export type PendingBotApproval = {
+  botId: string;
+  botName: string;
+  conversationId: string;
+  action: MessageAction;
+};
 
 export type TurnActivity = {
   startedAt: string;
@@ -209,6 +218,7 @@ export type BotSummary = {
   providerProfileId: string | null;
   status: BotStatus;
   waitingForInput: boolean;
+  unread: boolean;
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -238,6 +248,47 @@ export type ConversationSearchResult = Conversation & {
   matchSnippet?: string;
 };
 
+export type NotifySecretRef = { set: true };
+
+export type NtfyNotifyChannel = {
+  id?: string;
+  kind: "ntfy";
+  server?: string;
+  topic: string;
+  priority?: number;
+  includeSummary?: boolean;
+};
+
+export type WebhookNotifyChannel = {
+  id?: string;
+  kind: "webhook";
+  url: string | NotifySecretRef;
+  headers?: Record<string, string | NotifySecretRef>;
+  includeSummary?: boolean;
+};
+
+export type PushoverNotifyChannel = {
+  id?: string;
+  kind: "pushover";
+  device?: string;
+  priority?: number;
+  includeSummary?: boolean;
+};
+
+export type PushNotifyChannel = {
+  id?: string;
+  kind: "push";
+  includeSummary?: boolean;
+};
+
+export type NotifyChannel =
+  | NtfyNotifyChannel
+  | WebhookNotifyChannel
+  | PushoverNotifyChannel
+  | PushNotifyChannel;
+
+export type NotifyConfig = { channels: NotifyChannel[] };
+
 export type Automation = {
   id: string;
   name: string;
@@ -250,6 +301,7 @@ export type Automation = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt: string | null;
   continuePreviousConversation: boolean;
   enabled: boolean;
   research: boolean;
@@ -259,6 +311,7 @@ export type Automation = {
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
   lastStatus: AutomationRunStatus | "paused" | null;
+  notifyConfig: NotifyConfig;
   createdAt: string;
   updatedAt: string;
 };
@@ -375,6 +428,19 @@ export type McpToolCallResult = {
   isError?: boolean;
 };
 
+export type SkillLifecycleState = "active" | "stale" | "archived";
+
+export type SkillProvenance = "agent" | "learn" | "installed" | null;
+
+export type SkillUsage = {
+  useCount: number;
+  viewCount: number;
+  lastUsedAt: string | null;
+  lastViewedAt: string | null;
+  patchCount: number;
+  lastPatchedAt: string | null;
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -383,6 +449,10 @@ export type Skill = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  state?: SkillLifecycleState;
+  pinned?: boolean;
+  createdBy?: SkillProvenance;
+  usage?: SkillUsage;
 };
 
 export type Persona = {
@@ -423,6 +493,7 @@ export type AutomationProposalPayload = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  runAt?: string | null;
   providerProfileId: string;
   personaId: string | null;
   continuePreviousConversation?: boolean;
@@ -430,7 +501,90 @@ export type AutomationProposalPayload = {
   automationId?: string | null;
 };
 
-export type ProposalPayload = MemoryProposalPayload | AutomationProposalPayload;
+export type ToolApprovalScope = "shell" | "mcp";
+
+export type ToolApprovalResolution = "once" | "always" | "denied" | "expired" | "stopped";
+
+export type ToolApprovalRule = {
+  id: string;
+  userId: string | null;
+  scope: ToolApprovalScope;
+  family: string;
+  createdAt: string;
+};
+
+export type ToolApprovalProposalPayload = {
+  operation: "tool_approval";
+  scope: ToolApprovalScope;
+  families: string[];
+  classified: boolean;
+  command?: string;
+  mcpServerId?: string;
+  mcpServerName?: string;
+  mcpToolName?: string;
+  arguments?: Record<string, unknown> | null;
+  resolution?: ToolApprovalResolution;
+};
+
+export type DelegationChain = {
+  messagesSent: number;
+};
+
+export type ToolApprovalContext = {
+  userId: string | null;
+  unattended: boolean;
+  timeoutMs?: number;
+  onWaitChange?: (waiting: boolean) => Promise<void> | void;
+};
+
+export type MessageDraftFieldFormat = "text" | "multiline" | "list";
+
+export type MessageDraftField = {
+  key: string;
+  label: string;
+  format: MessageDraftFieldFormat;
+  required: boolean;
+};
+
+export type MessageDraftProposalPayload = {
+  operation: "message_draft";
+  mcpServerId: string;
+  mcpServerName: string;
+  mcpToolName: string;
+  toolLabel: string;
+  arguments: Record<string, unknown>;
+  fields: MessageDraftField[];
+  sendError?: string | null;
+};
+
+export type ComputerHandoffResolution = "returned" | "expired" | "stopped";
+
+export type ComputerHandoffProposalPayload = {
+  operation: "computer_handoff";
+  reason: string;
+  resolution?: ComputerHandoffResolution;
+  note?: string;
+};
+
+export type SecretRequestResolution = "filled" | "declined" | "expired" | "stopped";
+
+export type SecretRequestProposalPayload = {
+  operation: "secret_request";
+  label: string;
+  origin: string;
+  target: string;
+  save: boolean;
+  resolution?: SecretRequestResolution;
+  saved?: boolean;
+};
+
+export type ProposalPayload =
+  | MemoryProposalPayload
+  | AutomationProposalPayload
+  | ToolApprovalProposalPayload
+  | MessageDraftProposalPayload
+  | ComputerHandoffProposalPayload
+  | SecretRequestProposalPayload;
 
 export type UserMemory = {
   id: string;
@@ -464,6 +618,11 @@ export type ConversationSnapshot = {
   queuedMessages: QueuedMessage[];
 };
 
+export type ComposerDraft = {
+  content: string;
+  attachments: MessageAttachment[];
+};
+
 export type MessageAttachment = {
   id: string;
   conversationId: string;
@@ -475,7 +634,19 @@ export type MessageAttachment = {
   relativePath: string;
   kind: AttachmentKind;
   extractedText: string;
+  sourcePath?: string | null;
   createdAt: string;
+};
+
+export type ComputerControlOwner = "bot" | "user";
+
+export type ComputerState = {
+  type: "computer_state";
+  live: boolean;
+  controlOwner: ComputerControlOwner;
+  url: string | null;
+  caption: string | null;
+  viewport: { width: number; height: number } | null;
 };
 
 export type MessageAction = {

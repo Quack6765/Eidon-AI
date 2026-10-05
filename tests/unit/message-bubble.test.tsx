@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { MessageBubble, parseDelegationWakeMessage } from "@/components/message-bubble";
 import { ingestBotsPayload, resetDelegationStatusForTests } from "@/hooks/use-delegation-status";
+import { buildBotAvatarUrl } from "@/lib/bot-avatar";
 import type { Message } from "@/lib/types";
 
 function createAssistantMessage(): Message {
@@ -297,6 +298,7 @@ describe("message bubble bot action cards", () => {
           providerProfileId: null,
           status: "running",
           waitingForInput: false,
+          unread: false,
           lastRunAt: startedAt,
           createdAt: startedAt,
           updatedAt: startedAt
@@ -312,6 +314,7 @@ describe("message bubble bot action cards", () => {
           startedAt,
           finishedAt: null,
           parentMessageId: "msg_assistant",
+          requestedByBotId: null,
           errorMessage: null,
           createdAt: startedAt
         }
@@ -479,7 +482,7 @@ describe("message bubble bot action cards", () => {
 describe("delegation event lines", () => {
   type TimelineAction = {
     id: string;
-    kind: "delegate_task" | "create_bot" | "update_bot";
+    kind: "message_bot" | "delegate_task" | "create_bot" | "update_bot";
     status: "running" | "pending" | "completed" | "error" | "stopped";
     label: string;
     detail: string;
@@ -499,7 +502,8 @@ describe("delegation event lines", () => {
         status: action.status,
         serverId: null,
         skillId: null,
-        toolName: action.kind === "delegate_task" ? "delegate_task" : null,
+        toolName:
+          action.kind === "delegate_task" || action.kind === "message_bot" ? action.kind : null,
         label: action.label,
         detail: action.detail,
         arguments: action.arguments ?? null,
@@ -551,38 +555,64 @@ describe("delegation event lines", () => {
     expect(line.querySelector(".animate-spin")).toBeNull();
   });
 
-  it("renders a failed delegate_task action with the error tint and icon", () => {
+  it("renders an errored delegation neutrally because the reply chip carries the failure", () => {
     render(
       React.createElement(MessageBubble, {
         message: createDelegationMessage([
           {
             id: "action_delegate_error",
-            kind: "delegate_task",
+            kind: "message_bot",
             status: "error",
             label: "Messaged Inbox Bot",
-            detail: "→ Inbox Bot: Triage the inbox"
+            detail: "→ Inbox Bot: Triage the inbox",
+            arguments: { bot: "Inbox Bot", message: "Triage the inbox" }
           }
         ])
       })
     );
 
     const line = screen.getByTestId("delegate-action-line");
-    const lineText = line.querySelector("span");
-    expect(lineText?.className).toContain("text-red-300/70");
-    expect(line.querySelector(".text-red-400")).not.toBeNull();
+    expect(line.dataset.actionStatus).toBe("error");
+    expect(line.querySelector('[class*="text-red-300"]')).toBeNull();
+    expect(line.querySelector(".text-red-400")).toBeNull();
     expect(line.querySelector(".animate-spin")).toBeNull();
   });
 
-  it("toggles the completed delegate_task result summary from the event line", () => {
+  it("keeps the red treatment on a delegation the user stopped", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_delegate_stopped",
+            kind: "message_bot",
+            status: "stopped",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Triage the inbox",
+            arguments: { bot: "Inbox Bot", message: "Triage the inbox" },
+            resultSummary: "Stopped by you before it finished."
+          }
+        ])
+      })
+    );
+
+    const line = screen.getByTestId("delegate-action-line");
+    expect(line.dataset.actionStatus).toBe("stopped");
+    expect(line.querySelector('[class*="text-red-300"]')).not.toBeNull();
+    expect(line.querySelector(".text-red-400")).not.toBeNull();
+    expect(line).toHaveTextContent("Messaged Inbox Bot");
+  });
+
+  it("toggles the message that was sent from the delegation event line", () => {
     render(
       React.createElement(MessageBubble, {
         message: createDelegationMessage([
           {
             id: "action_delegate_summary",
-            kind: "delegate_task",
+            kind: "message_bot",
             status: "completed",
             label: "Messaged Inbox Bot",
             detail: "→ Inbox Bot: Triage the inbox",
+            arguments: { bot: "Inbox Bot", message: "Triage the inbox and flag anything urgent" },
             resultSummary: "Triaged 12 emails and filed 3 replies."
           }
         ])
@@ -591,15 +621,81 @@ describe("delegation event lines", () => {
 
     const toggle = screen.getByRole("button", { name: /Messaged Inbox Bot/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("Triaged 12 emails and filed 3 replies.")).toBeNull();
+    expect(screen.queryByText("Triage the inbox and flag anything urgent")).toBeNull();
 
     fireEvent.click(toggle);
 
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Triaged 12 emails and filed 3 replies.")).toBeInTheDocument();
+    expect(screen.getByText("Triage the inbox and flag anything urgent")).toBeInTheDocument();
+    expect(screen.queryByText("Triaged 12 emails and filed 3 replies.")).toBeNull();
   });
 
-  it("lets a failed delegate line expand to reveal the failure reason", () => {
+  it("expands a still-running delegation to show the message that was sent", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_delegate_pending_sent",
+            kind: "message_bot",
+            status: "pending",
+            label: "Messaged Inbox Bot",
+            detail: "",
+            arguments: { bot: "Inbox Bot", message: "Summarise yesterday's replies." }
+          }
+        ])
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: /Messaged Inbox Bot/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("Summarise yesterday's replies.")).toBeInTheDocument();
+  });
+
+  it("expands a legacy delegate_task row through its task_prompt argument", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_delegate_legacy",
+            kind: "delegate_task",
+            status: "completed",
+            label: "Messaged Inbox Bot",
+            detail: "",
+            arguments: { task_prompt: "Triage the inbox." }
+          }
+        ])
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Messaged Inbox Bot/ }));
+
+    expect(screen.getByText("Triage the inbox.")).toBeInTheDocument();
+  });
+
+  it("falls back to the detail line when no argument carries the sent message", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_delegate_detail_fallback",
+            kind: "message_bot",
+            status: "completed",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Tell a joke"
+          }
+        ])
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Messaged Inbox Bot/ }));
+
+    expect(screen.getByText("Tell a joke")).toBeInTheDocument();
+  });
+
+  it("lets a failed delegate line expand to the sent message", () => {
     render(
       React.createElement(MessageBubble, {
         message: createDelegationMessage([
@@ -609,6 +705,7 @@ describe("delegation event lines", () => {
             status: "error",
             label: "Messaged Inbox Bot",
             detail: "→ Inbox Bot: Tell a joke",
+            arguments: { bot: "Inbox Bot", message: "Tell a joke." },
             resultSummary: "The bot run failed: 401 Incorrect API key provided."
           }
         ])
@@ -620,7 +717,7 @@ describe("delegation event lines", () => {
 
     fireEvent.click(toggle);
 
-    expect(screen.getByText("The bot run failed: 401 Incorrect API key provided.")).toBeInTheDocument();
+    expect(screen.getByText("Tell a joke.")).toBeInTheDocument();
     expect(screen.getByTestId("delegate-action-line").dataset.actionStatus).toBe("error");
   });
 
@@ -645,7 +742,7 @@ describe("delegation event lines", () => {
     });
     const avatar = line.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/inbox-seed.svg");
+    expect(avatar?.getAttribute("src")).toBe(buildBotAvatarUrl("inbox-seed"));
     expect(line.querySelector("[data-inline-avatar]")?.className).toContain("ml-1.5 mr-1.5");
     expect(line).toHaveTextContent("Messaged Inbox Bot");
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -674,13 +771,14 @@ describe("delegation event lines", () => {
     expect(line).toHaveTextContent("Messaged Ghost Bot");
   });
 
-  it("renders delegated bot replies as an arrival indicator without the message content", async () => {
+  it("renders delegated bot replies as a collapsed disclosure of the received message", async () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createUserMessage(),
           id: "msg_wake",
-          content: "[Message from Research Bot]\nHere is the relayed answer with **bold** text."
+          content:
+            "[Message from Research Bot]\nHere is the relayed answer with **bold** text.\n---\n(Automated delivery: this is the reply from the bot you messaged earlier with message_bot. Process it silently.)"
         }
       })
     );
@@ -688,17 +786,172 @@ describe("delegation event lines", () => {
     const wake = screen.getByTestId("delegation-wake-message");
     expect(wake).toHaveTextContent("Message from Research Bot");
     expect(wake).not.toHaveTextContent("Here is the relayed answer");
-    await waitFor(() => {
-      expect(wake.querySelector("[data-inline-avatar]")).not.toBeNull();
-    });
-    const avatar = wake.querySelector("[data-inline-avatar] img");
-    expect(avatar).not.toBeNull();
-    expect(avatar?.getAttribute("src")).toBe("/api/avatars/research-seed.svg");
+
+    const toggle = screen.getByRole("button", { name: /Message from Research Bot/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(wake.querySelector('[class*="text-white/35"]')).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(wake).toHaveTextContent("Here is the relayed answer with **bold** text.");
+    expect(wake).not.toHaveTextContent("Automated delivery");
     expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Regenerate response" })).toBeNull();
     expect(container.querySelector(".rounded-2xl")).toBeNull();
     expect(wake.querySelector(".markdown-body")).toBeNull();
+
+    await waitFor(() => {
+      expect(wake.querySelector("[data-inline-avatar]")).not.toBeNull();
+    });
+    const avatar = wake.querySelector("[data-inline-avatar] img");
+    expect(avatar).not.toBeNull();
+    expect(avatar?.getAttribute("src")).toBe(buildBotAvatarUrl("research-seed"));
+  });
+
+  it("expands a chief-to-worker marker to the message the bot received", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_wake_chief",
+          content: "[Message from Chief of Staff]\nReview the Q3 revenue model, please."
+        }
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: /Message from Chief of Staff/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByTestId("delegation-wake-message")).toHaveTextContent(
+      "Review the Q3 revenue model, please."
+    );
+  });
+
+  it("tints a failed delegation reply in red when expanded", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_wake_failed",
+          content: "[Message from Research Bot]\nThe task failed: 401 Incorrect API key provided."
+        }
+      })
+    );
+
+    const wake = screen.getByTestId("delegation-wake-message");
+    fireEvent.click(screen.getByRole("button", { name: /Message from Research Bot/ }));
+
+    expect(wake.querySelector('[class*="text-red-300/60"]')).not.toBeNull();
+    expect(wake).toHaveTextContent("The task failed: 401 Incorrect API key provided.");
+  });
+
+  it("keeps a paired reply chip styled identically to an unpaired one", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_wake_linked",
+          content: "[Message from Research Bot]\nThe answer."
+        },
+        delegationReplies: {
+          links: new Map([["msg_wake_linked", { actionId: "action_1", parentMessageId: "msg_assistant" }]]),
+          repliedActionIds: new Set(["action_1"])
+        }
+      })
+    );
+
+    const wake = screen.getByTestId("delegation-wake-message");
+    expect(wake.dataset.replyToActionId).toBe("action_1");
+    expect(wake.className).toBe("flex w-full min-w-0 flex-col items-stretch gap-2");
+    expect(wake.querySelector(".justify-center")).not.toBeNull();
+    expect(wake.querySelector(".justify-start")).toBeNull();
+  });
+
+  it("leaves an unmatched reply chip rendered as the same centered line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_wake_unlinked",
+          content: "[Message from Research Bot]\nThe answer."
+        }
+      })
+    );
+
+    const wake = screen.getByTestId("delegation-wake-message");
+    expect(wake.dataset.replyToActionId).toBeUndefined();
+    expect(wake.className).toBe("flex w-full min-w-0 flex-col items-stretch gap-2");
+    expect(wake.querySelector(".justify-center")).not.toBeNull();
+    expect(wake).toHaveTextContent("Message from Research Bot");
+  });
+
+  it("marks a delegation line that has been answered", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_answered",
+            kind: "message_bot",
+            status: "completed",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Triage the inbox",
+            arguments: { bot: "Inbox Bot", message: "Triage the inbox" }
+          }
+        ]),
+        delegationReplies: {
+          links: new Map([["msg_wake", { actionId: "action_answered", parentMessageId: "msg_assistant" }]]),
+          repliedActionIds: new Set(["action_answered"])
+        }
+      })
+    );
+
+    expect(screen.getByTestId("delegate-action-line").dataset.replied).toBe("true");
+  });
+
+  it("leaves an unanswered delegation line unmarked", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_unanswered",
+            kind: "message_bot",
+            status: "completed",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Triage the inbox",
+            arguments: { bot: "Inbox Bot", message: "Triage the inbox" }
+          }
+        ]),
+        delegationReplies: {
+          links: new Map(),
+          repliedActionIds: new Set()
+        }
+      })
+    );
+
+    expect(screen.getByTestId("delegate-action-line").dataset.replied).toBeUndefined();
+  });
+
+  it("renders a restart resume notice as a marker without the automated instructions", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          id: "msg_resume",
+          content: "[Resumed after a server restart]\nContinue from where you left off instead of starting over."
+        }
+      })
+    );
+
+    const marker = screen.getByTestId("restart-resume-message");
+    expect(marker).toHaveTextContent("Resumed after a server restart");
+    expect(marker).not.toHaveTextContent("Continue from where you left off");
+    expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(container.querySelector(".rounded-2xl")).toBeNull();
   });
 
   it("keeps normal user messages as bubbles when the marker pattern does not match", () => {
@@ -719,13 +972,132 @@ describe("delegation event lines", () => {
   it("only treats a leading bracketed first line as a delegation wake marker", () => {
     expect(parseDelegationWakeMessage("[Message from Research Bot]\nAnswer")).toEqual({
       botName: "Research Bot",
-      content: "Answer"
+      content: "Answer",
+      failed: false
     });
     expect(parseDelegationWakeMessage("[Message from Research Bot]")).toEqual({
       botName: "Research Bot",
-      content: ""
+      content: "",
+      failed: false
     });
     expect(parseDelegationWakeMessage("Hello [Message from Research Bot]\nAnswer")).toBeNull();
     expect(parseDelegationWakeMessage("[Message from ]\nAnswer")).toBeNull();
+  });
+});
+
+describe("MessageBubble reference tokens", () => {
+  it("tints known @bot and /skill tokens in user messages but leaves code alone", () => {
+    const message = {
+      ...createUserMessage(),
+      content: "Ask @Chief of Staff to run /daily-report, not `/daily-report` or @Nobody."
+    };
+    const { container } = render(
+      <MessageBubble
+        message={message}
+        referenceCandidates={[
+          { trigger: "@", name: "Chief of Staff" },
+          { trigger: "/", name: "daily-report" }
+        ]}
+      />
+    );
+
+    const marks = Array.from(container.querySelectorAll("[data-reference-kind]"));
+    expect(marks.map((mark) => [mark.getAttribute("data-reference-kind"), mark.textContent])).toEqual([
+      ["bot", "@Chief of Staff"],
+      ["skill", "/daily-report"]
+    ]);
+    expect(container.querySelector("code")).toHaveTextContent("/daily-report");
+  });
+
+  it("tints tokens once references arrive after the first render", () => {
+    const message = { ...createUserMessage(), content: "Ask @Writer now" };
+    const { container, rerender } = render(<MessageBubble message={message} referenceCandidates={[]} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    rerender(<MessageBubble message={message} referenceCandidates={[{ trigger: "@", name: "Writer" }]} />);
+
+    expect(container.querySelector("[data-reference-kind='bot']")).toHaveTextContent("@Writer");
+  });
+
+  it("renders plain text when no references are known", () => {
+    const message = { ...createUserMessage(), content: "Ask @Chief of Staff" };
+    const { container } = render(<MessageBubble message={message} />);
+
+    expect(container.querySelector("[data-reference-kind]")).toBeNull();
+    expect(container).toHaveTextContent("Ask @Chief of Staff");
+  });
+});
+
+describe("message bubble drafts", () => {
+  function createDraftMessage(): Message {
+    return {
+      ...createAssistantMessage(),
+      content: "Here is the draft for Sarah.",
+      actions: [
+        {
+          id: "act_draft",
+          messageId: "msg_assistant",
+          kind: "draft_message",
+          status: "pending",
+          serverId: "mcp_gmail",
+          skillId: null,
+          toolName: "draft_message",
+          label: "Message draft for Gmail",
+          detail: "",
+          arguments: null,
+          resultSummary: "",
+          sortOrder: 0,
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          proposalState: "pending",
+          proposalPayload: {
+            operation: "message_draft",
+            mcpServerId: "mcp_gmail",
+            mcpServerName: "Gmail",
+            mcpToolName: "send_email",
+            toolLabel: "Send email",
+            arguments: { subject: "Q3 recap", body: "Hi Sarah" },
+            fields: [
+              { key: "subject", label: "Subject", format: "text", required: true },
+              { key: "body", label: "Body", format: "multiline", required: true }
+            ]
+          },
+          proposalUpdatedAt: null
+        }
+      ]
+    };
+  }
+
+  it("renders a pending draft card after the reply and sends through the bubble handler", async () => {
+    const onSendMessageDraft = vi.fn().mockResolvedValue(undefined);
+    render(
+      React.createElement(MessageBubble, {
+        message: createDraftMessage(),
+        onSendMessageDraft,
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const card = screen.getByTestId("message-draft-card");
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Here is the draft for Sarah.");
+    expect(card).toHaveTextContent("Ready to send");
+    expect(card).toHaveTextContent("Q3 recap");
+    expect(screen.queryByText(/1 tool/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSendMessageDraft).toHaveBeenCalledWith("act_draft", undefined));
+  });
+
+  it("hides the draft card while the reply is still streaming", () => {
+    const message = { ...createDraftMessage(), status: "streaming" as const };
+    render(
+      React.createElement(MessageBubble, {
+        message,
+        streamingTimeline: message.actions!.map((action) => ({ ...action, timelineKind: "action" as const })),
+        streamingAnswer: ""
+      })
+    );
+
+    expect(screen.queryByTestId("message-draft-card")).not.toBeInTheDocument();
   });
 });

@@ -106,12 +106,25 @@ export function buildFileAttachmentPart(attachment: MessageAttachment): PromptCo
   };
 }
 
+function buildOmittedImagePart(attachment: MessageAttachment): PromptContentPart {
+  return {
+    type: "text",
+    text: `[image omitted from context to save tokens: ${attachment.filename} — file remains attached to this message]`
+  };
+}
+
 export function buildUserPromptContent(
   message: Pick<Message, "content" | "attachments">,
   remainingAttachmentTextTokens: { value: number },
-  referencedAssistantImages: MessageAttachment[] = []
+  options: {
+    baselineImages?: MessageAttachment[];
+    includedImageIds?: ReadonlySet<string>;
+  } = {}
 ): PromptMessage["content"] {
+  const { baselineImages = [], includedImageIds } = options;
   const parts: PromptContentPart[] = [];
+  const isImageIncluded = (attachment: MessageAttachment) =>
+    !includedImageIds || includedImageIds.has(attachment.id);
 
   if (message.content) {
     parts.push({
@@ -120,18 +133,22 @@ export function buildUserPromptContent(
     });
   }
 
-  referencedAssistantImages.forEach((attachment) => {
+  baselineImages.forEach((attachment) => {
     parts.push({
       type: "text",
       text: `Previous image reference: ${attachment.filename}`
     });
-    parts.push({
-      type: "image",
-      attachmentId: attachment.id,
-      filename: attachment.filename,
-      mimeType: attachment.mimeType,
-      relativePath: attachment.relativePath
-    });
+    if (isImageIncluded(attachment)) {
+      parts.push({
+        type: "image",
+        attachmentId: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        relativePath: attachment.relativePath
+      });
+      return;
+    }
+    parts.push(buildOmittedImagePart(attachment));
   });
 
   (message.attachments ?? []).forEach((attachment) => {
@@ -140,13 +157,17 @@ export function buildUserPromptContent(
         type: "text",
         text: `Attached image: ${attachment.filename}`
       });
-      parts.push({
-        type: "image",
-        attachmentId: attachment.id,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        relativePath: attachment.relativePath
-      });
+      if (isImageIncluded(attachment)) {
+        parts.push({
+          type: "image",
+          attachmentId: attachment.id,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          relativePath: attachment.relativePath
+        });
+        return;
+      }
+      parts.push(buildOmittedImagePart(attachment));
       return;
     }
 

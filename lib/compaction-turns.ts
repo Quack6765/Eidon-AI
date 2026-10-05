@@ -77,12 +77,24 @@ function renderActionOutcome(action: MessageAction) {
   return parts.join("\n");
 }
 
+function renderImageMentions(message: Message, label: string) {
+  const images = (message.attachments ?? []).filter((attachment) => attachment.kind === "image");
+  if (!images.length) {
+    return null;
+  }
+  return `${label}: ${images.map((attachment) => attachment.filename).join(", ")}`;
+}
+
 export function renderCompletedTurn(turn: CompletedTurn) {
   const blocks: string[] = [];
   const userContent = turn.user.content.trim();
   const assistantContent = turn.assistant.content.trim();
 
-  blocks.push([`[user] ${turn.user.id}`, userContent].filter(Boolean).join("\n"));
+  blocks.push(
+    [`[user] ${turn.user.id}`, userContent, renderImageMentions(turn.user, "User attached images")]
+      .filter(Boolean)
+      .join("\n")
+  );
 
   const assistantBlocks = [`[assistant] ${turn.assistant.id}`];
   if (assistantContent) {
@@ -92,6 +104,16 @@ export function renderCompletedTurn(turn: CompletedTurn) {
   (turn.assistant.actions ?? []).forEach((action) => {
     assistantBlocks.push(renderActionOutcome(action));
   });
+
+  const generatedImages = renderImageMentions(
+    turn.assistant,
+    (turn.assistant.actions ?? []).some((action) => action.kind === "image_generation")
+      ? "Generated images"
+      : "Assistant attached images"
+  );
+  if (generatedImages) {
+    assistantBlocks.push(generatedImages);
+  }
 
   if (assistantBlocks.length > 1) {
     blocks.push(assistantBlocks.join("\n\n"));

@@ -35,11 +35,12 @@ describe("provider presets", () => {
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://ollama.com/v1");
-    expect(profile.model).toBe("glm-4.7:cloud");
+    expect(profile.model).toBe("deepseek-v4.1-flash:cloud");
     expect(profile.apiMode).toBe("chat_completions");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(64000);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1.3);
   });
 
   it("applies the GLM Coding Plan preset values without overwriting the name", () => {
@@ -47,11 +48,12 @@ describe("provider presets", () => {
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
-    expect(profile.model).toBe("glm-5.1");
+    expect(profile.model).toBe("glm-5.3-flash");
     expect(profile.apiMode).toBe("chat_completions");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(200000);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1);
   });
 
   it("applies the official OpenAI preset values without overwriting the name", () => {
@@ -79,7 +81,7 @@ describe("provider presets", () => {
     expect(profile.reasoningSummaryEnabled).toBe(
       DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled
     );
-    expect(profile.modelContextLimit).toBe(200000);
+    expect(profile.modelContextLimit).toBe(1_000_000);
   });
 
   it("applies the OpenCode Go preset values without overwriting the name", () => {
@@ -87,11 +89,12 @@ describe("provider presets", () => {
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://opencode.ai/zen/go/v1");
-    expect(profile.model).toBe("kimi-k2.6");
+    expect(profile.model).toBe("deepseek-v4.1-flash");
     expect(profile.apiMode).toBe("chat_completions");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(200000);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1.3);
   });
 
   it("matches a profile back to the OpenCode Go preset when the provider fields align", () => {
@@ -150,8 +153,26 @@ describe("provider presets", () => {
     expect(profile.systemPrompt).toBe(original.systemPrompt);
     expect(profile.compactionThreshold).toBe(original.compactionThreshold);
     expect(profile.freshTailCount).toBe(original.freshTailCount);
-    expect(profile.temperature).toBe(original.temperature);
-    expect(profile.maxOutputTokens).toBe(original.maxOutputTokens);
+  });
+
+  it("resets sampled values the preset does not specify instead of keeping stale ones", () => {
+    const original = createProfile();
+    const deepseek = applyProviderPreset(original, "deepseek");
+    expect(deepseek.temperature).toBe(1.3);
+    expect(deepseek.maxOutputTokens).toBe(384000);
+
+    const glm = applyProviderPreset(deepseek, "glm_coding_plan");
+    expect(glm.model).toBe("glm-5.3-flash");
+    expect(glm.modelContextLimit).toBe(1_000_000);
+    expect(glm.temperature).toBe(1);
+    expect(glm.maxOutputTokens).toBe(65536);
+  });
+
+  it("seeds new profiles with the researched context and output defaults", () => {
+    const copilot = createProviderProfileDraft({ providerKind: "github_copilot" });
+
+    expect(copilot.modelContextLimit).toBe(1_000_000);
+    expect(copilot.maxOutputTokens).toBe(65536);
   });
 
   it("overwrites temperature and maxOutputTokens when the preset defines them", () => {
@@ -159,7 +180,7 @@ describe("provider presets", () => {
     const profile = applyProviderPreset(original, "deepseek");
 
     expect(profile.temperature).toBe(1.3);
-    expect(profile.maxOutputTokens).toBe(8192);
+    expect(profile.maxOutputTokens).toBe(384000);
     expect(profile.systemPrompt).toBe(original.systemPrompt);
     expect(profile.compactionThreshold).toBe(original.compactionThreshold);
     expect(profile.freshTailCount).toBe(original.freshTailCount);
@@ -187,7 +208,7 @@ describe("provider presets", () => {
     const profile = {
       ...createProfile(),
       ...getProviderPreset("ollama_cloud").values,
-      model: "glm-4.7:cloud-custom"
+      model: "deepseek-v4.1-flash:cloud-custom"
     };
 
     expect(getMatchingProviderPresetId(profile)).toBeNull();
@@ -227,7 +248,7 @@ describe("provider presets", () => {
     );
 
     expect(profile.apiBaseUrl).toBe("https://api.anthropic.com");
-    expect(profile.model).toBe("claude-opus-4-8");
+    expect(profile.model).toBe("claude-sonnet-5-5");
   });
 
   it("applies the OpenCode Go Anthropic preset to an anthropic profile", () => {
@@ -237,7 +258,7 @@ describe("provider presets", () => {
     );
 
     expect(profile.apiBaseUrl).toBe("https://opencode.ai/zen/go");
-    expect(profile.model).toBe("qwen3.7-max");
+    expect(profile.model).toBe("qwen3.8-max");
   });
 
   it("does not apply an anthropic preset to an openai_compatible profile", () => {
@@ -273,13 +294,13 @@ describe("provider presets", () => {
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.deepseek.com");
-    expect(profile.model).toBe("deepseek-v4-flash");
+    expect(profile.model).toBe("deepseek-flash");
     expect(profile.apiMode).toBe("chat_completions");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
     expect(profile.modelContextLimit).toBe(1_000_000);
     expect(profile.temperature).toBe(1.3);
-    expect(profile.maxOutputTokens).toBe(8192);
+    expect(profile.maxOutputTokens).toBe(384_000);
   });
 
   it("matches a profile back to the DeepSeek preset when the provider fields align", () => {
@@ -307,13 +328,13 @@ describe("provider presets", () => {
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.xiaomimimo.com/v1");
-    expect(profile.model).toBe("mimo-v2.5");
+    expect(profile.model).toBe("mimo-v2.6-flash");
     expect(profile.apiMode).toBe("chat_completions");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
     expect(profile.modelContextLimit).toBe(1_048_576);
     expect(profile.temperature).toBe(1.0);
-    expect(profile.maxOutputTokens).toBe(131_072);
+    expect(profile.maxOutputTokens).toBe(128_000);
     expect(profile.visionMode).toBe("native");
   });
 
@@ -324,6 +345,86 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("xiaomi_mimo");
+  });
+
+  it("applies the Command Code preset values without overwriting the name", () => {
+    const profile = applyProviderPreset(createProfile(), "command_code");
+
+    expect(profile.name).toBe("Original profile");
+    expect(profile.apiBaseUrl).toBe("https://api.commandcode.ai/provider/v1");
+    expect(profile.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(profile.apiMode).toBe("chat_completions");
+    expect(profile.reasoningEffort).toBe("medium");
+    expect(profile.reasoningSummaryEnabled).toBe(true);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1.3);
+    expect(profile.maxOutputTokens).toBe(384_000);
+  });
+
+  it("matches a profile back to the Command Code preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("command_code").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("command_code");
+  });
+
+  it("uses responses for Command Code GPT-5 models", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "gpt-5.6-luna"
+    })).toBe("responses");
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1/",
+      apiMode: "chat_completions",
+      model: "gpt-5.4-mini"
+    })).toBe("responses");
+  });
+
+  it("keeps Command Code non-GPT models on chat completions", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "deepseek/deepseek-v4.1-flash"
+    })).toBe("chat_completions");
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      apiMode: "chat_completions",
+      model: "zai-org/GLM-5.3"
+    })).toBe("chat_completions");
+  });
+
+  it("applies the Command Code Anthropic preset to an anthropic profile", () => {
+    const profile = applyProviderPreset(
+      { ...createProfile(), providerKind: "anthropic" },
+      "command_code_anthropic"
+    );
+
+    expect(profile.apiBaseUrl).toBe("https://api.commandcode.ai/provider");
+    expect(profile.model).toBe("claude-sonnet-5-5");
+    expect(profile.modelContextLimit).toBe(1_000_000);
+  });
+
+  it("keeps the two Command Code presets apart when matching", () => {
+    const openAiCompatible = {
+      ...createProfile(),
+      providerKind: "openai_compatible" as const,
+      ...getProviderPreset("command_code").values
+    };
+    const anthropic = {
+      ...createProfile(),
+      providerKind: "anthropic" as const,
+      ...getProviderPreset("command_code_anthropic").values
+    };
+
+    expect(getMatchingProviderPresetId(openAiCompatible)).toBe("command_code");
+    expect(getMatchingProviderPresetId(anthropic)).toBe("command_code_anthropic");
   });
 });
 

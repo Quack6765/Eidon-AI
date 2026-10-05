@@ -145,19 +145,21 @@ describe("skills section", () => {
       description: "Normalized description",
       content: "Normalized instructions"
     });
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
+    let saved = false;
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/api/skills/maintenance")) {
+        return { ok: true, json: async () => ({ config: null }) } as Response;
+      }
+      if (init?.method === "POST") {
+        saved = true;
+        return { ok: true, json: async () => ({ skill: created }) } as Response;
+      }
+      return {
         ok: true,
-        json: async () => ({ skills: [] })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ skill: created })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ skills: [normalized] })
-      } as Response);
+        json: async () => (saved ? { skills: [normalized] } : { skills: [] })
+      } as Response;
+    });
 
     render(React.createElement(SkillsSection));
     await screen.findByText("0 skills");

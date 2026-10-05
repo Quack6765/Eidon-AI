@@ -10,8 +10,10 @@ seed-native-test.cjs
 .context/
 .impeccable/
 .data
+.data-workspaces
 .cache/
 .test-data
+.test-data-workspaces
 .e2e-data/
 .superpowers/
 .worktrees/

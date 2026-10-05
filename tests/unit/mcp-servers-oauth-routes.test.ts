@@ -33,6 +33,7 @@ vi.mock("@/lib/mcp-oauth", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   testMcpServerConnection: mocks.testMcpServerConnection,
+  guardedMcpFetch: vi.fn(),
   evictMcpClientsByServerId: mocks.evictMcpClientsByServerId,
   getConnectedClient: mocks.getConnectedClient,
   disconnectMcpServer: vi.fn()
@@ -224,58 +225,6 @@ describe("mcp oauth routes", () => {
       expect(mocks.markMcpOAuthConnectionConnected).toHaveBeenCalledWith(server.id);
     });
 
-    it("tests drafts against the stored server identity when the url matches", async () => {
-      const server = await seedHttpServer();
-      mocks.testMcpServerConnection.mockResolvedValue({
-        protocolVersion: "2025-03-26",
-        serverInfo: null,
-        sessionId: null,
-        toolCount: 0,
-        tools: [],
-        stderr: undefined
-      });
-
-      const matchingResponse = await testRoute(
-        new Request("http://eidon.test/api/mcp-servers/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            serverId: server.id,
-            draft: {
-              transport: "streamable_http",
-              name: server.name,
-              url: server.url,
-              headersAction: "preserve"
-            }
-          })
-        })
-      );
-      expect(matchingResponse.status).toBe(200);
-      expect(mocks.testMcpServerConnection).toHaveBeenCalledWith(
-        expect.objectContaining({ id: server.id })
-      );
-
-      mocks.testMcpServerConnection.mockClear();
-      const changedUrlResponse = await testRoute(
-        new Request("http://eidon.test/api/mcp-servers/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            serverId: server.id,
-            draft: {
-              transport: "streamable_http",
-              name: server.name,
-              url: "https://elsewhere.example.com/mcp"
-            }
-          })
-        })
-      );
-      expect(changedUrlResponse.status).toBe(200);
-      expect(mocks.testMcpServerConnection).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "draft" })
-      );
-    });
-
     it("returns requiresAuth when the server 401s and supports OAuth", async () => {
       const server = await seedHttpServer();
       mocks.testMcpServerConnection.mockRejectedValue(
@@ -319,7 +268,10 @@ describe("mcp oauth routes", () => {
 
       expect(response.status).toBe(502);
       const body = await response.json();
-      expect(body.error).toContain("requires authentication");
+      expect(body).toEqual({
+        error: "MCP connection test failed",
+        detail: expect.stringContaining("requires authentication")
+      });
     });
   });
 });

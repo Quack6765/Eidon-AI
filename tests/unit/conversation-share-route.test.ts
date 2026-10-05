@@ -16,6 +16,34 @@ describe("conversation share route", () => {
     requireUserMock.mockReset();
   });
 
+  it("serves canonical share URLs from the configured base URL", async () => {
+    process.env.EIDON_BASE_URL = "https://eidon.example.com";
+    try {
+      const user = await createLocalUser({
+        username: "share-route-canonical",
+        password: "Password123!",
+        role: "user"
+      });
+      requireUserMock.mockResolvedValue(user);
+      const conversation = createConversation("Canonical share", null, {}, user.id);
+      const { PATCH } = await import("@/app/api/conversations/[conversationId]/share/route");
+
+      const response = await PATCH(
+        new Request(`http://localhost/api/conversations/${conversation.id}/share`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      const body = await response.json();
+      expect(body.url).toBe(`https://eidon.example.com/share/${body.token}`);
+    } finally {
+      delete process.env.EIDON_BASE_URL;
+    }
+  });
+
   it("enables and disables sharing for the authenticated owner", async () => {
     const user = await createLocalUser({
       username: "share-route-owner",

@@ -7,19 +7,20 @@ import {
   findMarkdownTargets,
   isExternalMarkdownTarget,
   normalizeProtectedMarkdownContentOutsideCodeBlocks,
-  parseAssistantDataImageTarget
+  parseAssistantDataImageTarget,
+  type ParsedMarkdownTarget
 } from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
+import { isPathInsideRoot } from "@/lib/local-shell";
 import type { MessageAttachment } from "@/lib/types";
 
 const GENERATED_IMAGE_DISPLAY_NAME = "generated image";
-const FILE_TIMESTAMP_TOLERANCE_MS = 5_000;
 
 type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
   content: string;
   workspaceRoot?: string;
-  authorizedLocalPaths?: string[];
+  authorizedRoots?: string[];
   existingAttachments?: MessageAttachment[];
   tidyWhitespace?: boolean;
 };
@@ -45,9 +46,53 @@ function normalizeRoot(rootPath: string) {
   }
 }
 
-function isPathInsideRoot(candidatePath: string, rootPath: string) {
-  const relativePath = path.relative(rootPath, candidatePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+function isInsideAuthorizedRoot(canonicalPath: string, authorizedRoots: string[]) {
+  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
+
+  return authorizedRoots.some((authorizedRoot) => {
+    let root: string;
+    try {
+      root = fs.realpathSync(authorizedRoot);
+    } catch {
+      return false;
+    }
+
+    if (canonicalPath === root || !isPathInsideRoot(canonicalPath, root)) {
+      return false;
+    }
+
+    const rootIsInsideAppData = root !== appDataRoot && isPathInsideRoot(root, appDataRoot);
+    return rootIsInsideAppData || !isPathInsideRoot(canonicalPath, appDataRoot);
+  });
+}
+
+function keptLinkText(match: ParsedMarkdownTarget, outcomes: LocalTargetOutcome[]) {
+  const delivered = outcomes.every((outcome) => outcome.type === "attach" || outcome.type === "already_attached");
+  if (!match.label || !delivered) {
+    return "";
+  }
+
+  const target = decodeMarkdownTarget(match.target.trim());
+  return match.label.includes(target) ? path.basename(target) : match.label;
+}
+
+export function formatMarkdownFileLink(label: string, filePath: string) {
+  const target = /[\s()<>]/.test(filePath)
+    ? `<${filePath.replace(/[<>]/g, (character) => encodeURIComponent(character))}>`
+    : filePath;
+  return `[${label.replace(/[[\]\\]/g, "\\$&")}](${target})`;
+}
+
+export function appendDeliveredFileLinks(content: string, attachments: MessageAttachment[] = []) {
+  const links = attachments.flatMap((attachment) =>
+    attachment.sourcePath ? [formatMarkdownFileLink(path.basename(attachment.sourcePath), attachment.sourcePath)] : []
+  );
+
+  if (links.length === 0) {
+    return content;
+  }
+
+  return [content.trim(), links.join("\n")].filter(Boolean).join("\n\n");
 }
 
 function collapseWhitespace(content: string) {
@@ -59,7 +104,7 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
 
   if (deniedNames.size > 0) {
     const deniedList = [...deniedNames].map((name) => `\`${name}\``).join(", ");
-    parts.push(`I couldn't attach ${deniedList} because the file was not produced by a completed tool action in this turn.`);
+    parts.push(`I couldn't attach ${deniedList} because the file is outside the workspaces I can share files from.`);
   }
 
   if (failedNames.size > 0) {
@@ -77,9 +122,7 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
 export async function importAssistantLocalFileAttachment(input: {
   conversationId: string;
   sourcePath: string;
-  authorizedLocalPaths: string[];
-  createdAfter?: string;
-  createdBefore?: string;
+  authorizedRoots: string[];
   existingAttachments?: MessageAttachment[];
 }): Promise<LocalTargetOutcome> {
   if (isExternalMarkdownTarget(input.sourcePath) || !path.isAbsolute(input.sourcePath)) {
@@ -94,39 +137,18 @@ export async function importAssistantLocalFileAttachment(input: {
   }
 
   const displayName = path.basename(input.sourcePath) || input.sourcePath;
-  if ((input.existingAttachments ?? []).some((attachment) => attachment.filename === displayName)) {
+  if ((input.existingAttachments ?? []).some((attachment) =>
+    attachment.sourcePath ? attachment.sourcePath === canonicalPath : attachment.filename === displayName
+  )) {
     return { type: "already_attached", displayName };
   }
 
-  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
-  const blockedByAppData = appDataRoot ? isPathInsideRoot(canonicalPath, appDataRoot) : false;
-  const authorizedPaths = new Set(
-    input.authorizedLocalPaths.flatMap((authorizedPath) => {
-      try {
-        return [fs.realpathSync(authorizedPath)];
-      } catch {
-        return [];
-      }
-    })
-  );
-
-  if (!authorizedPaths.has(canonicalPath) || blockedByAppData) {
+  if (!isInsideAuthorizedRoot(canonicalPath, input.authorizedRoots)) {
     return { type: "deny", displayName };
   }
 
   try {
     if (fs.lstatSync(input.sourcePath).isSymbolicLink()) {
-      return { type: "deny", displayName };
-    }
-
-    const stats = fs.statSync(canonicalPath);
-    const createdAfter = input.createdAfter ? new Date(input.createdAfter).getTime() : null;
-    const createdBefore = input.createdBefore ? new Date(input.createdBefore).getTime() : null;
-
-    if (
-      (createdAfter !== null && stats.mtimeMs < createdAfter - FILE_TIMESTAMP_TOLERANCE_MS) ||
-      (createdBefore !== null && stats.mtimeMs > createdBefore + FILE_TIMESTAMP_TOLERANCE_MS)
-    ) {
       return { type: "deny", displayName };
     }
   } catch {
@@ -225,7 +247,7 @@ export async function inferAssistantLocalAttachments(
     const outcome = await importAssistantLocalFileAttachment({
       conversationId: input.conversationId,
       sourcePath: decodedTarget,
-      authorizedLocalPaths: input.authorizedLocalPaths ?? [],
+      authorizedRoots: input.authorizedRoots ?? [],
       existingAttachments: [...(input.existingAttachments ?? []), ...attachments]
     });
 
@@ -259,7 +281,7 @@ export async function inferAssistantLocalAttachments(
         continue;
       }
 
-      parts.push(segment.slice(cursor, match.start));
+      parts.push(segment.slice(cursor, match.start), keptLinkText(match, outcomes));
 
       for (const outcome of outcomes) {
         if (outcome.type === "deny") {

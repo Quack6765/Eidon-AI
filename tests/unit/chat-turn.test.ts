@@ -640,7 +640,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("stopped");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
@@ -1019,7 +1019,7 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.content).toBe(
-        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file was not produced by a completed tool action in this turn."
+        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file is outside the workspaces I can share files from."
       );
       expect(assistant?.attachments).toEqual([]);
     } finally {
@@ -1664,7 +1664,7 @@ describe("chat-turn", () => {
     const { updateProviderCatalog } = await import("@/lib/settings");
     const { getConversationManager } = await import("@/lib/ws-singleton");
     const { startChatTurn } = await import("@/lib/chat-turn");
-    const { buildDelegationWakeContent, deliverDelegationWake } = await import("@/lib/bot-delegation");
+    const { buildDelegationWakeContent, deliverWakeMessage } = await import("@/lib/bot-delegation");
 
     const { profileId, profile } = setupProviderProfile();
     updateProviderCatalog({
@@ -1718,7 +1718,7 @@ describe("chat-turn", () => {
       }
     });
 
-    const wake = deliverDelegationWake({
+    const wake = deliverWakeMessage({
       recipientConversationId: conversation.id,
       ownerUserId: user.id,
       content: buildDelegationWakeContent("Ona Operator", {
@@ -1835,7 +1835,7 @@ describe("chat-turn", () => {
       const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistantMessage?.status).toBe("completed");
       expect(assistantMessage?.content).toBe(
-        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file is outside the workspaces I can share files from."
       );
       expect(assistantMessage?.attachments).toEqual([]);
     } finally {
@@ -1880,7 +1880,7 @@ describe("chat-turn", () => {
     expect(assistantMessage?.status).toBe("completed");
     expect(assistantMessage?.attachments).toEqual([]);
     expect(assistantMessage?.content).toBe(
-      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file was not produced by a completed tool action in this turn."
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file is outside the workspaces I can share files from."
     );
   });
 
@@ -2243,7 +2243,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
       expect(assistant?.content).toBe(
-        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file was not produced by a completed tool action in this turn."
+        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file is outside the workspaces I can share files from."
       );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
@@ -2399,6 +2399,71 @@ describe("chat-turn", () => {
       expect(action).toEqual(expect.objectContaining({ label: "Load skill" }));
       expect(segments[0].sortOrder).toBeLessThan(action!.sortOrder);
       expect(action!.sortOrder).toBeLessThan(segments[1].sortOrder);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
+  it("keeps narration streamed before a stream retry as a timeline segment", async () => {
+    const { createLocalUser: createRetryUser } = await import("@/lib/users");
+    const user = await createRetryUser({
+      username: "route-retry-user",
+      password: "password-retry-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route retry", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text?: string }) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
+      }) => {
+        input.onEvent?.({ type: "answer_delta", text: "Let me check the docs." });
+        input.onEvent?.({ type: "stream_retry" });
+        input.onEvent?.({ type: "answer_delta", text: "Here are the results." });
+        await input.onAnswerSegment?.("Here are the results.");
+        return {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Find the docs", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      const segments = assistant?.textSegments ?? [];
+
+      expect(segments.map((segment) => segment.content)).toEqual([
+        "Let me check the docs.",
+        "Here are the results."
+      ]);
+      expect(assistant?.content).toContain("Let me check the docs.");
+      expect(assistant?.content).toContain("Here are the results.");
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
     }

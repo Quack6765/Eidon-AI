@@ -2,18 +2,29 @@ import { z } from "zod";
 
 import { createAttachments } from "@/lib/attachments";
 import { requireUser } from "@/lib/auth";
-import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
+import {
+  RequestBodyInterruptedError,
+  RequestBodyTooLargeError,
+  readRequestBodyWithLimit
+} from "@/lib/bounded-request";
 import { MAX_ATTACHMENTS_PER_UPLOAD, MAX_UPLOAD_REQUEST_BYTES } from "@/lib/constants";
 import { getConversation } from "@/lib/conversations";
 import { badRequest, ok, payloadTooLarge } from "@/lib/http";
+import { parseMultipartFormData } from "@/lib/multipart-form";
 
 const formSchema = z.object({
   conversationId: z.string().min(1)
 });
 
 async function parseFormData(request: Request): Promise<FormData> {
-  const body = await readRequestBodyWithLimit(request, MAX_UPLOAD_REQUEST_BYTES);
-  return new Response(body, { headers: request.headers }).formData();
+  let body: ArrayBuffer;
+  try {
+    body = await readRequestBodyWithLimit(request, MAX_UPLOAD_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) throw error;
+    throw new RequestBodyInterruptedError();
+  }
+  return parseMultipartFormData(body, request.headers.get("content-type"));
 }
 
 export async function POST(request: Request) {
@@ -29,7 +40,9 @@ export async function POST(request: Request) {
     formData = await parseFormData(request);
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error.message);
-    return badRequest("Invalid attachment upload");
+    if (error instanceof RequestBodyInterruptedError) return badRequest(error.message);
+    console.error("Attachment upload body could not be parsed:", error);
+    return badRequest("Invalid attachment upload (unparseable multipart body)");
   }
 
   const parsed = formSchema.safeParse({
@@ -37,7 +50,7 @@ export async function POST(request: Request) {
   });
 
   if (!parsed.success) {
-    return badRequest("Invalid attachment upload");
+    return badRequest("Invalid attachment upload (missing conversationId)");
   }
 
   if (!getConversation(parsed.data.conversationId, user.id)) {

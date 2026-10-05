@@ -6,7 +6,9 @@ import {
 import { renderAutomationPrompt } from "@/lib/automation-prompt-templating";
 import {
   attachConversationToRun,
+  attachResultMessageToRun,
   claimAutomationRun,
+  commitOneTimeAutomationSlot,
   commitScheduledAutomationSlots,
   countAutomationRuns,
   createAutomationRun,
@@ -19,6 +21,7 @@ import {
   listDueAutomations,
   listQueuedAutomationRuns,
   MAX_AUTOMATION_CATCH_UP_RUNS,
+  pruneExpiredOneTimeAutomations,
   updateAutomation,
   updateAutomationRunStatus
 } from "@/lib/automations";
@@ -30,9 +33,12 @@ import { getBot } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
+  getBotRun,
   updateBotRunStatus
 } from "@/lib/bot-runs";
-import type { BotRun } from "@/lib/types";
+import { runBotTurn } from "@/lib/bot-delegation";
+import { createPausableTimeout } from "@/lib/pausable-timeout";
+import { buildRestartResumeNotice } from "@/lib/interrupted-work";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import { requestStop } from "@/lib/chat-turn-control";
@@ -185,6 +191,19 @@ async function executeAutomationRun(
       return;
     }
 
+    const resumedConversation = run.conversationId
+      ? getConversation(run.conversationId, automationOwnerId ?? undefined)
+      : null;
+    const restartNotice = resumedConversation ? buildRestartResumeNotice(resumedConversation.id) : undefined;
+    if (restartNotice === null) {
+      updateAutomationRunStatus(runId, {
+        status: "failed",
+        errorMessage: "Automation run was interrupted by repeated server restarts",
+        finishedAt: dependencies.now().toISOString()
+      });
+      return;
+    }
+
     const setupTransaction = getDb().transaction((): { id: string } | null => {
       const startedAt = dependencies.now().toISOString();
       if (!claimAutomationRun(run.id, startedAt)) {
@@ -204,9 +223,9 @@ async function executeAutomationRun(
         const reusableConversationId = automation.continuePreviousConversation
           ? getReusableAutomationConversationId(automation.id, run.id)
           : null;
-        const reusableConversation = reusableConversationId
-          ? getConversation(reusableConversationId, automationOwnerId ?? undefined)
-          : null;
+        const reusableConversation =
+          resumedConversation ??
+          (reusableConversationId ? getConversation(reusableConversationId, automationOwnerId ?? undefined) : null);
 
         if (reusableConversation) {
           conversationId = reusableConversation.id;
@@ -224,14 +243,8 @@ async function executeAutomationRun(
       return { id: conversationId };
     });
     const conversation = setupTransaction.immediate();
-
-    if (botRunState.runId) {
-      const runningBotRun = updateBotRunStatus(botRunState.runId, {
-        status: "running",
-        startedAt: dependencies.now().toISOString()
-      });
-      if (runningBotRun) broadcastBotRunUpdate(runningBotRun);
-    }
+    const queuedBotRun = botRunState.runId ? getBotRun(botRunState.runId) : null;
+    if (queuedBotRun) broadcastBotRunUpdate(queuedBotRun);
 
     if (!conversation) {
       const current = getAutomationRun(run.id);
@@ -245,15 +258,19 @@ async function executeAutomationRun(
       return;
     }
 
-    let timeout: ReturnType<typeof setTimeout> | null = null;
     const runTimeoutMs = resolveAutomationRunTimeoutMs(automation, dependencies.runTimeoutMs);
-    const turnOptions = {
-      ...(bot ? { botRun: { record: false as const } } : {}),
-      ...(automation.research
-        ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }
-        : {})
-    };
-    const prompt = renderAutomationPrompt({
+    let turn: ReturnType<StartChatTurn> | null = null;
+    let rejectDeadline: (error: Error) => void = () => {};
+    const deadline = new Promise<never>((_resolve, reject) => {
+      rejectDeadline = reject;
+    });
+    const expireRun = () => rejectDeadline(new AutomationRunDeadlineError(turn ?? Promise.resolve()));
+    const research = automation.research
+      ? { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) }
+      : undefined;
+    const recordResultMessage = ({ assistantMessageId }: { assistantMessageId: string }) =>
+      attachResultMessageToRun(run.id, assistantMessageId);
+    const prompt = restartNotice ?? renderAutomationPrompt({
       prompt: automation.prompt,
       date: new Intl.DateTimeFormat("en-CA", {
         timeZone: dependencies.timeZone ?? env.TZ,
@@ -264,27 +281,44 @@ async function executeAutomationRun(
       runNumber: countAutomationRuns(automation.id),
       previousResult: getPreviousAutomationRunResult(automation.id, run.id)
     });
-    const turn = dependencies.startChatTurn(
-      dependencies.manager,
-      conversation.id,
-      prompt,
-      [],
-      automation.personaId ?? undefined,
-      Object.keys(turnOptions).length ? turnOptions : undefined
-    );
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        requestStop(conversation.id);
-        reject(new AutomationRunDeadlineError(turn));
-      }, runTimeoutMs);
-    });
+    const deadlineTimer = bot
+      ? null
+      : createPausableTimeout(() => {
+          requestStop(conversation.id);
+          expireRun();
+        }, runTimeoutMs);
     let result: Awaited<ReturnType<StartChatTurn>>;
     try {
+      turn = bot && botRunState.runId
+        ? runBotTurn({
+            bot,
+            runId: botRunState.runId,
+            ownerUserId: getAutomationOwnerKey(automation.id),
+            content: prompt,
+            timeoutMs: runTimeoutMs,
+            personaId: automation.personaId ?? undefined,
+            providerProfileId: automation.providerProfileId,
+            research,
+            startChatTurn: dependencies.startChatTurn,
+            onMessagesCreated: recordResultMessage,
+            onDeadline: expireRun
+          })
+        : dependencies.startChatTurn(
+            dependencies.manager,
+            conversation.id,
+            prompt,
+            [],
+            automation.personaId ?? undefined,
+            {
+              unattended: true,
+              providerProfileId: automation.providerProfileId,
+              onMessagesCreated: recordResultMessage,
+              ...(research ? { research } : {})
+            }
+          );
       result = await Promise.race([turn, deadline]);
     } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      deadlineTimer?.clear();
     }
 
     const completedAt = dependencies.now().toISOString();
@@ -346,12 +380,15 @@ function ensureNextRunAt(timeZone: string, nowIsoString: string) {
       continue;
     }
 
+    if (automation.scheduleKind === "once") {
+      continue;
+    }
+
     if (automation.nextRunAt && automation.nextRunAt <= nowIsoString) {
       continue;
     }
 
-    const anchorIsoString = automation.lastScheduledFor ?? automation.updatedAt ?? nowIsoString;
-    const expectedNextRunAt = getNextAutomationRunAt(automation, anchorIsoString, timeZone);
+    const expectedNextRunAt = getNextAutomationRunAt(automation, nowIsoString, timeZone);
 
     if (automation.nextRunAt === expectedNextRunAt) {
       continue;
@@ -368,6 +405,14 @@ function processDueAutomation(
 ) {
   if (!automation.nextRunAt) {
     return;
+  }
+
+  if (automation.scheduleKind === "once") {
+    return commitOneTimeAutomationSlot({
+      automationId: automation.id,
+      runAt: automation.runAt ?? automation.nextRunAt,
+      timestamp: nowIsoString
+    });
   }
 
   const catchUp = getAutomationCatchUpWindow(
@@ -585,6 +630,12 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
             error
           );
         }
+      }
+
+      try {
+        pruneExpiredOneTimeAutomations(nowIsoString);
+      } catch (error) {
+        console.error("Failed to prune expired one-time automations", error);
       }
 
       if (waitForExecutions) {

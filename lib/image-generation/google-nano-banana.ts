@@ -1,5 +1,7 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import type { ImageGenerationModelId } from "@/lib/image-generation/catalog";
+import { composeImagePrompt } from "./prompt-composer";
+import { orderReferenceImages } from "./slots";
 import type {
   CompiledImageInstruction,
   GenerateImageResult,
@@ -15,22 +17,22 @@ export async function generateGoogleNanoBananaImages(input: {
   abortSignal?: AbortSignal;
 }): Promise<GenerateImageResult> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey });
-  const editDirective = input.inputImages?.length
-    ? `Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: ${input.instruction.imagePrompt}`
-    : input.instruction.imagePrompt;
-  const contents = input.inputImages?.length
+  const slots = orderReferenceImages(input.inputImages ?? []);
+  const prompt = composeImagePrompt({ instruction: input.instruction, slots });
+  const contents = slots.length
     ? [
-        ...input.inputImages.map((image) => ({
+        ...slots.map((image) => ({
           inlineData: { mimeType: image.mimeType, data: image.bytes.toString("base64") }
         })),
-        { text: editDirective }
+        { text: prompt }
       ]
-    : input.instruction.imagePrompt;
+    : prompt;
   const request = {
     model: input.model,
     contents,
     config: {
       responseModalities: [Modality.IMAGE],
+      imageConfig: { aspectRatio: input.instruction.aspectRatio },
       abortSignal: input.abortSignal
     }
   };

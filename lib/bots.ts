@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { join } from "node:path";
 
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
@@ -7,22 +8,35 @@ import {
   createConversation,
   deleteConversation,
   getConversation,
+  listMessageActionsForMessageIds,
   renameConversation,
   updateConversationProviderProfile
 } from "@/lib/conversations";
-import { claimChatTurnStart, releaseChatTurnStart, requestStop } from "@/lib/chat-turn-control";
+import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
-import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
-import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { formatMarkdownFileLink } from "@/lib/assistant-local-attachments";
+import {
+  ensureBotWorkspace,
+  getBotWorkspaceDir,
+  getSharedBotWorkspaceDir,
+  removeBotWorkspace
+} from "@/lib/bot-sandbox";
+import { botBrowserTarget, closeBrowserSession } from "@/lib/agent-computer";
+import {
+  CHIEF_BOT_NAME,
+  DEFAULT_BOT_BASE_SYSTEM_PROMPT,
+  DEFAULT_CHIEF_DESCRIPTION,
+  DEFAULT_CHIEF_SYSTEM_PROMPT,
+  DEFAULT_CHIEF_TITLE
+} from "@/lib/bot-defaults";
 import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
-import type { Bot, BotStatus, BotSummary } from "@/lib/types";
+import type { Bot, BotStatus, BotSummary, PendingBotApproval } from "@/lib/types";
 
-export { DEFAULT_BOT_BASE_SYSTEM_PROMPT };
+export { CHIEF_BOT_NAME, DEFAULT_BOT_BASE_SYSTEM_PROMPT };
 
 export const MAX_BOTS_PER_USER = 25;
-export const CHIEF_BOT_NAME = "Chief of Staff";
 
 type BotRow = {
   id: string;
@@ -34,12 +48,13 @@ type BotRow = {
   system_prompt: string;
   is_chief: number;
   home_conversation_id: string;
-  pending_input_seen_at: string | null;
+  last_read_at: string | null;
+  last_result_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, pending_input_seen_at, created_at, updated_at`;
+const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, last_read_at, last_result_at, created_at, updated_at`;
 
 function rowToBot(row: BotRow): Bot {
   return {
@@ -52,7 +67,8 @@ function rowToBot(row: BotRow): Bot {
     systemPrompt: row.system_prompt,
     isChief: row.is_chief === 1,
     homeConversationId: row.home_conversation_id,
-    pendingInputSeenAt: row.pending_input_seen_at,
+    lastReadAt: row.last_read_at,
+    lastResultAt: row.last_result_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -135,10 +151,19 @@ function buildWorkerCommunicationBlock(bot: Bot) {
     "- Send a message to any other bot on the team, including the chief of staff, with message_bot. It returns immediately — the other bot works on it in the background and its reply arrives in your conversation as a new message.",
     "- When another bot messages you, answer normally in your regular response — your answer is delivered back to the sender automatically. Do not use message_bot to reply to a message; use it only to start a new exchange with another bot.",
     "- To see how a bot you messaged is doing, use check_bot instead of messaging it again.",
-    "- Only the chief of staff can create or edit bots. If a job needs a new teammate or a changed role, message the chief of staff directly.",
+    "- Only the chief of staff can create bots or change a teammate's role. You may update your own instructions with update_own_instructions when the user asks or your work has genuinely drifted — always tell the user what you changed. If a job needs a new teammate or a changed role, message the chief of staff directly.",
     "",
     ...rosterLines
   ].join("\n");
+}
+
+function buildChiefIdentityBlock(bot: Bot) {
+  return [
+    `You are ${bot.name}, the user's primary assistant coordinating a team of specialist bots.`,
+    bot.systemPrompt.trim() || DEFAULT_CHIEF_SYSTEM_PROMPT
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function buildChiefPolicyBlock(bot: Bot) {
@@ -148,21 +173,20 @@ function buildChiefPolicyBlock(bot: Bot) {
     : ["You currently have no specialist bots. When a lane of recurring work emerges, propose creating a focused bot for it — with the user's confirmation."];
 
   return [
-    `You are ${CHIEF_BOT_NAME}, the user's primary assistant coordinating a team of specialist bots.`,
-    "",
     "How you work:",
     "- Answer directly for quick questions and small tasks you can handle yourself.",
     "- Delegate substantive or recurring work to the specialist bot that owns that area using message_bot. It returns immediately: after sending, tell the user right away what you asked and that you will let them know once you have the answer, then continue with other work. The bot's reply arrives here as a new message — report it to the user directly in this conversation when it lands.",
     "- You can message several bots at once; they work in parallel and each reply arrives as its own message whenever that bot finishes. Report each reply as it lands and keep track of which bots you are still waiting on.",
     "- To see how a bot is doing, use check_bot — it reports its status, elapsed time, current step, and output so far without interrupting it. Never message a bot just to ask for a status update.",
     "- Never use message_bot to acknowledge, confirm, or send a bot's reply back to it. Your answers in this conversation are for the user; bots already receive their instructions and their own replies. Only call message_bot to give a bot new instructions or ask it a new question.",
-    "- When a bot's responsibilities change, update it with update_bot (rename it, or revise its title, description, or system prompt) instead of creating a duplicate.",
+    "- When a bot's responsibilities change, update it with update_bot (rename it, or revise its title, description, or instructions) instead of creating a duplicate.",
     "- Never message yourself.",
     "",
     "Creating a new bot is a significant, lasting decision — bias against it:",
     "- Propose a new bot only when all of these hold: the work is recurring (it will be needed multiple times), it deserves its own focused context and workspace (handling it yourself would clutter your own conversation), and no existing bot can own it.",
     "- Handle one-off tasks yourself, however large, and never propose a bot for work that will happen once or that is trivial for you.",
     "- Before calling create_bot, always propose the new bot to the user first — its name, title, what it would own, and why it meets this bar — and wait for their explicit confirmation in this conversation. If the user declines or is unsure, do not create it.",
+    "- Always write the new bot's specific instructions in the same create_bot call — its identity, what it owns, how it should work, its quality bar, and what to avoid. Never a generic placeholder.",
     "",
     ...rosterLines,
     "",
@@ -170,12 +194,26 @@ function buildChiefPolicyBlock(bot: Bot) {
   ].join("\n");
 }
 
+function buildFilesBlock(bot: Bot) {
+  const workspaceDir = getBotWorkspaceDir(bot);
+  const exampleLink = formatMarkdownFileLink("report.csv", join(workspaceDir, "report.csv"));
+  return [
+    "Files and results:",
+    `- Your workspace is ${workspaceDir}, the working directory of your shell commands. Keep your files there in project folders with descriptive names.`,
+    `- The team's shared workspace is ${getSharedBotWorkspaceDir(bot)}. Every bot on the team can read and write it: save files another bot needs there, and give that bot the exact path.`,
+    `- To deliver a file, save it in either workspace and link it by its absolute path inside a sentence of your reply, for example "The summary is in ${exampleLink}." It appears in the conversation as a file card the user can preview and download. Only files in your team's workspaces can be delivered.`,
+    "- The file card shows the delivered file, so refer to it by name in your reply. Do not paste its absolute path into the text unless the user asks for it.",
+    "- When asked to change a file you already delivered, edit that same file in place and link it again. Never save a copy or a renamed version.",
+    "- When a teammate's reply links files, link them again in your answer to pass them on."
+  ].join("\n");
+}
+
 export function buildBotSystemPrompt(bot: Bot, basePrompt?: string) {
   const base = basePrompt?.trim() || DEFAULT_BOT_BASE_SYSTEM_PROMPT;
   if (bot.isChief) {
-    return [base, buildChiefPolicyBlock(bot)].join("\n\n");
+    return [base, buildChiefIdentityBlock(bot), buildChiefPolicyBlock(bot), buildFilesBlock(bot)].join("\n\n");
   }
-  return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot)].join("\n\n");
+  return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot), buildFilesBlock(bot)].join("\n\n");
 }
 
 function countBots(userId?: string) {
@@ -226,7 +264,8 @@ function insertBot(input: {
     systemPrompt: input.systemPrompt,
     isChief: input.isChief,
     homeConversationId: input.homeConversationId,
-    pendingInputSeenAt: null,
+    lastReadAt: null,
+    lastResultAt: null,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -309,8 +348,8 @@ export function ensureChiefBot(userId?: string): Bot {
   return createBot(
     {
       name: CHIEF_BOT_NAME,
-      title: "Coordinates your team of bots",
-      description: "Answers directly or delegates work to specialist bots.",
+      title: DEFAULT_CHIEF_TITLE,
+      description: DEFAULT_CHIEF_DESCRIPTION,
       isChief: true
     },
     userId
@@ -399,7 +438,7 @@ export function deleteBot(botId: string, userId?: string): boolean {
 
   deleteConversation(bot.homeConversationId, userId ?? undefined);
   removeBotWorkspace(bot);
-  void removeBotBrowserSession(bot).catch(() => {});
+  void closeBrowserSession(botBrowserTarget(bot)).catch(() => {});
 
   void import("@/lib/automation-scheduler")
     .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
@@ -424,19 +463,6 @@ function delay(ms: number) {
   });
 }
 
-async function stopQueuedBotRuns(bot: Bot) {
-  const rows = getDb()
-    .prepare("SELECT id FROM bot_runs WHERE bot_id = ? AND status = 'queued'")
-    .all(bot.id) as Array<{ id: string }>;
-  if (!rows.length) return;
-
-  const { broadcastBotRunUpdate, updateBotRunStatus } = await import("@/lib/bot-runs");
-  for (const row of rows) {
-    const run = updateBotRunStatus(row.id, { status: "stopped", finishedAt: nowIso() });
-    if (run) broadcastBotRunUpdate(run);
-  }
-}
-
 async function claimTurnForClear(conversationId: string) {
   const deadline = Date.now() + CLEAR_CONTEXT_WAIT_TIMEOUT_MS;
   for (;;) {
@@ -451,8 +477,7 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
   const bot = getBot(botId, userId);
   if (!bot) throw new Error("Bot not found");
 
-  await stopQueuedBotRuns(bot);
-
+  const { stopBotWork } = await import("@/lib/bot-runs");
   const manager = getConversationManager();
   getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(bot.homeConversationId);
   manager.broadcast(bot.homeConversationId, {
@@ -461,7 +486,7 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
     queuedMessages: []
   });
 
-  requestStop(bot.homeConversationId);
+  stopBotWork(bot);
 
   const control = await claimTurnForClear(bot.homeConversationId);
   if (!control) {
@@ -494,6 +519,11 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
 }
 
 export function getBotStatus(bot: Bot): BotStatus {
+  const waitingRun = getDb()
+    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_user' LIMIT 1")
+    .get(bot.id);
+  if (waitingRun && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
+
   const conversation = getConversation(bot.homeConversationId);
   if (conversation?.isActive) return "running";
 
@@ -512,29 +542,73 @@ export function getBotLastRunAt(botId: string): string | null {
   return row?.last_at ?? null;
 }
 
-export function getBotPendingInputAt(bot: Bot): string | null {
-  const row = getDb()
-    .prepare(
-      `SELECT MAX(COALESCE(ma.proposal_updated_at, ma.started_at)) AS pending_at
-       FROM message_actions ma
-       INNER JOIN messages m ON m.id = ma.message_id
-       WHERE m.conversation_id = ? AND ma.status = 'pending' AND ma.proposal_state = 'pending'`
-    )
-    .get(bot.homeConversationId) as { pending_at: string | null } | undefined;
-  return row?.pending_at ?? null;
+const PENDING_INPUT_CONDITION = "ma.status = 'pending' AND ma.proposal_state = 'pending'";
+const PENDING_TOOL_APPROVAL_CONDITION = `ma.kind = 'tool_approval' AND ${PENDING_INPUT_CONDITION}`;
+const PENDING_USER_WAIT_CONDITION = `ma.kind IN ('tool_approval', 'computer_handoff', 'secret_request') AND ${PENDING_INPUT_CONDITION}`;
+
+function hasPendingAction(bot: Bot, condition: string) {
+  return Boolean(
+    getDb()
+      .prepare(
+        `SELECT 1 FROM message_actions ma
+         INNER JOIN messages m ON m.id = ma.message_id
+         WHERE m.conversation_id = ? AND ${condition}
+         LIMIT 1`
+      )
+      .get(bot.homeConversationId)
+  );
 }
 
-export function markBotPendingInputSeen(botId: string, userId?: string): Bot | null {
+export function listPendingBotApprovals(input: { userId?: string; botId?: string } = {}): PendingBotApproval[] {
+  const filters = [PENDING_TOOL_APPROVAL_CONDITION];
+  const values: string[] = [];
+  if (input.userId) {
+    filters.push("b.user_id = ?");
+    values.push(input.userId);
+  }
+  if (input.botId) {
+    filters.push("b.id = ?");
+    values.push(input.botId);
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT ma.id AS action_id, ma.message_id, b.id AS bot_id, b.name AS bot_name, b.home_conversation_id
+       FROM message_actions ma
+       INNER JOIN messages m ON m.id = ma.message_id
+       INNER JOIN bots b ON b.home_conversation_id = m.conversation_id
+       WHERE ${filters.join(" AND ")}
+       ORDER BY ma.started_at ASC, ma.id ASC`
+    )
+    .all(...values) as Array<{
+    action_id: string;
+    message_id: string;
+    bot_id: string;
+    bot_name: string;
+    home_conversation_id: string;
+  }>;
+  const actions = new Map(
+    listMessageActionsForMessageIds([...new Set(rows.map((row) => row.message_id))]).map((action) => [action.id, action])
+  );
+  return rows.flatMap((row) => {
+    const action = actions.get(row.action_id);
+    return action
+      ? [{ botId: row.bot_id, botName: row.bot_name, conversationId: row.home_conversation_id, action }]
+      : [];
+  });
+}
+
+export function markBotRead(botId: string, userId?: string): Bot | null {
   const current = getBot(botId, userId);
   if (!current) return null;
-  getDb()
-    .prepare("UPDATE bots SET pending_input_seen_at = ? WHERE id = ?")
-    .run(nowIso(), botId);
+  getDb().prepare("UPDATE bots SET last_read_at = ? WHERE id = ?").run(nowIso(), botId);
   return getBot(botId, userId);
 }
 
+export function recordBotResult(botId: string) {
+  getDb().prepare("UPDATE bots SET last_result_at = ? WHERE id = ?").run(nowIso(), botId);
+}
+
 export function toBotSummary(bot: Bot): BotSummary {
-  const pendingInputAt = getBotPendingInputAt(bot);
   return {
     providerProfileId: getConversation(bot.homeConversationId)?.providerProfileId ?? null,
     id: bot.id,
@@ -545,9 +619,8 @@ export function toBotSummary(bot: Bot): BotSummary {
     isChief: bot.isChief,
     homeConversationId: bot.homeConversationId,
     status: getBotStatus(bot),
-    waitingForInput:
-      pendingInputAt !== null &&
-      (bot.pendingInputSeenAt === null || pendingInputAt > bot.pendingInputSeenAt),
+    waitingForInput: hasPendingAction(bot, PENDING_INPUT_CONDITION),
+    unread: bot.lastResultAt !== null && (bot.lastReadAt === null || bot.lastResultAt > bot.lastReadAt),
     lastRunAt: getBotLastRunAt(bot.id),
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt

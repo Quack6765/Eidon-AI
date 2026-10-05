@@ -1,5 +1,6 @@
 import { createAutomation, type CreateAutomationInput } from "@/lib/automations";
 import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
+import { getBot } from "@/lib/bots";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
@@ -21,6 +22,7 @@ export type AutomationProposalOverrides = {
   calendarFrequency?: AutomationCalendarFrequency | null;
   timeOfDay?: string | null;
   daysOfWeek?: number[];
+  runAt?: string | null;
   continuePreviousConversation?: boolean;
 };
 
@@ -44,7 +46,9 @@ export function isAutomationProposalPayload(
   return (
     typeof candidate.name === "string" &&
     typeof candidate.prompt === "string" &&
-    (candidate.scheduleKind === "interval" || candidate.scheduleKind === "calendar") &&
+    (candidate.scheduleKind === "interval" ||
+      candidate.scheduleKind === "calendar" ||
+      candidate.scheduleKind === "once") &&
     typeof candidate.providerProfileId === "string" &&
     typeof candidate.continuePreviousConversation === "boolean"
   );
@@ -71,8 +75,10 @@ function parseAutomationProposalPayload(rawPayload: string | null): AutomationPr
       daysOfWeek: Array.isArray(parsed.daysOfWeek)
         ? parsed.daysOfWeek.filter((day) => Number.isInteger(day))
         : [],
+      runAt: typeof parsed.runAt === "string" ? parsed.runAt : null,
       providerProfileId: parsed.providerProfileId,
       personaId: typeof parsed.personaId === "string" ? parsed.personaId : null,
+      botId: typeof parsed.botId === "string" ? parsed.botId : null,
       continuePreviousConversation: parsed.continuePreviousConversation,
       automationId: typeof parsed.automationId === "string" ? parsed.automationId : null
     };
@@ -155,6 +161,7 @@ function applyAutomationProposalOverrides(
         : proposalPayload.calendarFrequency,
     timeOfDay: overrides.timeOfDay !== undefined ? overrides.timeOfDay : proposalPayload.timeOfDay,
     daysOfWeek: overrides.daysOfWeek ?? proposalPayload.daysOfWeek,
+    runAt: overrides.runAt !== undefined ? overrides.runAt : proposalPayload.runAt,
     continuePreviousConversation:
       overrides.continuePreviousConversation ?? proposalPayload.continuePreviousConversation
   };
@@ -176,16 +183,22 @@ export function approveAutomationProposal(
     throw new Error("Persona not found");
   }
 
+  if (finalPayload.botId && !getBot(finalPayload.botId, userId)) {
+    throw new Error("Bot not found");
+  }
+
   const createInput: CreateAutomationInput = {
     name: finalPayload.name,
     prompt: finalPayload.prompt,
     providerProfileId: finalPayload.providerProfileId,
     personaId: finalPayload.personaId,
+    botId: finalPayload.botId,
     scheduleKind: finalPayload.scheduleKind,
     intervalMinutes: finalPayload.intervalMinutes,
     calendarFrequency: finalPayload.calendarFrequency,
     timeOfDay: finalPayload.timeOfDay,
     daysOfWeek: finalPayload.daysOfWeek,
+    runAt: finalPayload.runAt ?? null,
     continuePreviousConversation: finalPayload.continuePreviousConversation
   };
 

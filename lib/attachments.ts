@@ -12,6 +12,11 @@ import {
 import { getDb } from "@/lib/db";
 import { syncDirectory } from "@/lib/durable-fs";
 import { env } from "@/lib/env";
+import {
+  isProviderSafeImageMimeType,
+  normalizeImageBytes,
+  sniffImageMimeType
+} from "@/lib/image-normalization";
 import { createId } from "@/lib/ids";
 import { queueSemanticIndex } from "@/lib/semantic-index";
 import { normalizeLineBreaks } from "@/lib/text-utils";
@@ -69,13 +74,19 @@ type AttachmentRow = {
   relative_path: string;
   kind: AttachmentKind;
   extracted_text: string;
+  source_path: string | null;
   created_at: string;
 };
+
+const ATTACHMENT_COLUMNS =
+  "id, conversation_id, message_id, filename, mime_type, byte_size, sha256, relative_path, kind, extracted_text, source_path, created_at";
+const PREFIXED_ATTACHMENT_COLUMNS = `a.${ATTACHMENT_COLUMNS.split(", ").join(", a.")}`;
 
 type CreateAttachmentInput = {
   filename: string;
   mimeType: string;
   bytes: Buffer;
+  sourcePath?: string | null;
 };
 
 export type AttachmentArtifactPublication = {
@@ -110,6 +121,7 @@ function rowToAttachment(row: AttachmentRow): MessageAttachment {
     relativePath: row.relative_path,
     kind: row.kind,
     extractedText: row.extracted_text,
+    sourcePath: row.source_path,
     createdAt: row.created_at
   };
 }
@@ -138,7 +150,7 @@ function sanitizeFilename(filename: string) {
   return base || "attachment";
 }
 
-function normalizeAttachmentKind(filename: string, mimeType: string): {
+export function normalizeAttachmentKind(filename: string, mimeType: string): {
   kind: AttachmentKind;
   mimeType: string;
 } {
@@ -172,7 +184,7 @@ function normalizeAttachmentKind(filename: string, mimeType: string): {
   };
 }
 
-async function extractText(bytes: Buffer, filename: string) {
+export async function extractFileText(bytes: Buffer, filename: string) {
   const extension = getExtension(filename);
 
   if (extension === ".pdf") {
@@ -322,11 +334,12 @@ export function publishAttachmentArtifacts(
 export function copyAttachmentsForConversationFork(input: {
   sourceMessages: Array<{ id: string; attachments?: MessageAttachment[] }>;
   targetConversationId: string;
-  targetMessageIdBySourceId: Map<string, string>;
+  targetMessageIdBySourceId: Map<string, string | null>;
 }) {
+  const unboundCreatedAt = nowIso();
   const records = input.sourceMessages.flatMap((message) => {
-    const messageId = input.targetMessageIdBySourceId.get(message.id);
-    if (!messageId) return [];
+    if (!input.targetMessageIdBySourceId.has(message.id)) return [];
+    const messageId = input.targetMessageIdBySourceId.get(message.id) ?? null;
     return (message.attachments ?? []).map((attachment) => {
       const id = createId("att");
       let bytes: Buffer;
@@ -355,7 +368,8 @@ export function copyAttachmentsForConversationFork(input: {
         ),
         kind: attachment.kind,
         extractedText: attachment.extractedText,
-        createdAt: attachment.createdAt,
+        sourcePath: attachment.sourcePath ?? null,
+        createdAt: messageId ? attachment.createdAt : unboundCreatedAt,
         bytes
       };
     });
@@ -368,8 +382,8 @@ export function copyAttachmentsForConversationFork(input: {
     const insert = getDb().prepare(`
       INSERT INTO message_attachments (
         id, conversation_id, message_id, filename, mime_type, byte_size,
-        sha256, relative_path, kind, extracted_text, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sha256, relative_path, kind, extracted_text, source_path, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     records.forEach((record) => insert.run(
       record.id,
@@ -382,6 +396,7 @@ export function copyAttachmentsForConversationFork(input: {
       record.relativePath,
       record.kind,
       record.extractedText,
+      record.sourcePath,
       record.createdAt
     ));
     records.forEach((record) => {
@@ -425,38 +440,14 @@ export function getAttachment(attachmentId: string, userId?: string) {
   const row = (userId
     ? getDb()
         .prepare(
-          `SELECT
-            a.id,
-            a.conversation_id,
-            a.message_id,
-            a.filename,
-            a.mime_type,
-            a.byte_size,
-            a.sha256,
-            a.relative_path,
-            a.kind,
-            a.extracted_text,
-            a.created_at
-           FROM message_attachments a
+          `SELECT ${PREFIXED_ATTACHMENT_COLUMNS} FROM message_attachments a
            JOIN conversations c ON c.id = a.conversation_id
            WHERE a.id = ? AND c.user_id = ?`
         )
         .get(attachmentId, userId)
     : getDb()
         .prepare(
-          `SELECT
-            id,
-            conversation_id,
-            message_id,
-            filename,
-            mime_type,
-            byte_size,
-            sha256,
-            relative_path,
-            kind,
-            extracted_text,
-            created_at
-           FROM message_attachments
+          `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
            WHERE id = ?`
         )
         .get(attachmentId)) as AttachmentRow | undefined;
@@ -472,19 +463,7 @@ export function listAttachmentsForMessageIds(messageIds: string[]) {
   const placeholders = messageIds.map(() => "?").join(", ");
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE message_id IN (${placeholders})
        ORDER BY created_at ASC`
     )
@@ -496,19 +475,7 @@ export function listAttachmentsForMessageIds(messageIds: string[]) {
 export function listAttachmentsForConversation(conversationId: string) {
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE conversation_id = ?
        ORDER BY created_at ASC`
     )
@@ -531,8 +498,9 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       relative_path,
       kind,
       extracted_text,
+      source_path,
       created_at
-    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const records: {
@@ -545,6 +513,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     relativePath: string;
     kind: AttachmentKind;
     extractedText: string;
+    sourcePath: string | null;
     createdAt: string;
     bytes: Buffer;
   }[] = [];
@@ -563,24 +532,29 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       throw new Error(`Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: ${filename}`);
     }
 
-    const normalized = normalizeAttachmentKind(filename, file.mimeType);
+    const normalizedImage = await normalizeImageBytes(file.bytes);
+    const bytes = normalizedImage ? normalizedImage.bytes : file.bytes;
+    const normalized = normalizedImage
+      ? { kind: "image" as const, mimeType: normalizedImage.mimeType }
+      : normalizeAttachmentKind(filename, file.mimeType);
     const id = createId("att");
     const relativePath = path.join(conversationId, `${id}_${filename}`);
-    const sha256 = createHash("sha256").update(file.bytes).digest("hex");
-    const extractedText = normalized.kind === "text" ? await extractText(file.bytes, filename) : "";
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const extractedText = normalized.kind === "text" ? await extractFileText(bytes, filename) : "";
 
     records.push({
       id,
       conversationId,
       filename,
       mimeType: normalized.mimeType,
-      byteSize: file.bytes.length,
+      byteSize: bytes.length,
       sha256,
       relativePath,
       kind: normalized.kind,
       extractedText,
+      sourcePath: file.sourcePath ?? null,
       createdAt: nowIso(),
-      bytes: file.bytes
+      bytes
     });
   }
 
@@ -606,6 +580,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
           record.relativePath,
           record.kind,
           record.extractedText,
+          record.sourcePath,
           record.createdAt
         );
       });
@@ -627,6 +602,7 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       relativePath: record.relativePath,
       kind: record.kind,
       extractedText: record.extractedText,
+      sourcePath: record.sourcePath,
       createdAt: record.createdAt
     }));
   } catch (error) {
@@ -665,7 +641,8 @@ export async function importAttachmentFromLocalFile(conversationId: string, sour
       {
         filename: path.basename(sourcePath),
         mimeType: "",
-        bytes
+        bytes,
+        sourcePath
       }
     ]);
 
@@ -683,19 +660,7 @@ export function bindAttachmentsToMessage(conversationId: string, messageId: stri
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = getDb()
     .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
+      `SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments
        WHERE id IN (${placeholders})`
     )
     .all(...attachmentIds) as AttachmentRow[];
@@ -841,7 +806,11 @@ export function resolveAbsoluteImagePathPart(
   }
 
   const extension = getExtension(realPath);
-  const mimeType = IMAGE_EXTENSION_TO_MIME.get(extension);
+  const sniffedMimeType = sniffImageMimeType(readFileHeader(realPath, 4096));
+  const mimeType =
+    sniffedMimeType && isProviderSafeImageMimeType(sniffedMimeType)
+      ? sniffedMimeType
+      : IMAGE_EXTENSION_TO_MIME.get(extension);
   if (!mimeType) {
     throw new Error(`Unsupported image type: ${path.basename(realPath)}`);
   }
@@ -916,4 +885,82 @@ export function readAttachmentText(
 export function getAttachmentDataUrl(attachment: Pick<MessageAttachment, "relativePath" | "mimeType">) {
   const buffer = readAttachmentBuffer(attachment);
   return `data:${attachment.mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function readFileHeader(absolutePath: string, length: number) {
+  const noFollowFlag = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
+  const descriptor = fs.openSync(absolutePath, fs.constants.O_RDONLY | noFollowFlag);
+  try {
+    const buffer = Buffer.alloc(length);
+    const bytesRead = fs.readSync(descriptor, buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function replaceAttachmentArtifact(relativePath: string, bytes: Buffer) {
+  const root = getAttachmentsRoot();
+  const finalPath = resolveSafeAttachmentFilePath(root, relativePath, false);
+  const directory = path.dirname(finalPath);
+  const tempPath = `${finalPath}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(tempPath, "wx", 0o600);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+  }
+  fs.renameSync(tempPath, finalPath);
+  syncDirectory(directory);
+}
+
+export async function normalizeStoredImageAttachments() {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT ${ATTACHMENT_COLUMNS} FROM message_attachments WHERE kind != ?`)
+    .all("image") as AttachmentRow[];
+
+  let normalized = 0;
+  let transcoded = 0;
+
+  for (const row of rows) {
+    let bytes: Buffer;
+    try {
+      bytes = readAttachmentBuffer({ relativePath: row.relative_path });
+    } catch {
+      continue;
+    }
+
+    const normalizedImage = await normalizeImageBytes(bytes);
+    if (!normalizedImage) {
+      continue;
+    }
+
+    if (!normalizedImage.bytes.equals(bytes)) {
+      try {
+        replaceAttachmentArtifact(row.relative_path, normalizedImage.bytes);
+      } catch (error) {
+        console.error(`Failed to rewrite stored image attachment ${row.id}:`, error);
+        continue;
+      }
+      transcoded += 1;
+    }
+
+    db.prepare(
+      "UPDATE message_attachments SET kind = ?, mime_type = ?, byte_size = ?, sha256 = ? WHERE id = ?"
+    ).run(
+      "image",
+      normalizedImage.mimeType,
+      normalizedImage.bytes.length,
+      createHash("sha256").update(normalizedImage.bytes).digest("hex"),
+      row.id
+    );
+    normalized += 1;
+  }
+
+  return { scanned: rows.length, normalized, transcoded };
 }

@@ -7,6 +7,8 @@ import { approveMemoryProposal } from "@/lib/memory-proposals";
 import {
   approveAutomationProposal
 } from "@/lib/automation-proposals";
+import { approveToolApproval } from "@/lib/tool-approvals";
+import { sendMessageDraft } from "@/lib/message-drafts";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -18,12 +20,15 @@ const bodySchema = z.object({
   category: z.enum(["personal", "preference", "work", "location", "other"]).optional(),
   name: z.string().trim().min(1).max(100).optional(),
   prompt: z.string().trim().min(1).optional(),
-  scheduleKind: z.enum(["interval", "calendar"]).optional(),
+  scheduleKind: z.enum(["interval", "calendar", "once"]).optional(),
   intervalMinutes: z.number().int().nullable().optional(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
-  continuePreviousConversation: z.boolean().optional()
+  runAt: z.string().datetime({ offset: true }).nullable().optional(),
+  continuePreviousConversation: z.boolean().optional(),
+  allowAlways: z.boolean().optional(),
+  fields: z.record(z.string(), z.string().max(100_000)).optional()
 });
 
 async function parseApprovalBody(request: Request) {
@@ -62,6 +67,16 @@ export async function POST(
     if (getMessageActionKind(params.actionId) === "create_automation") {
       const { action, automation } = approveAutomationProposal(params.actionId, body.data, user.id);
       return ok({ action, automation });
+    }
+
+    if (getMessageActionKind(params.actionId) === "tool_approval") {
+      const action = approveToolApproval(params.actionId, { allowAlways: body.data.allowAlways }, user.id);
+      return ok({ action });
+    }
+
+    if (getMessageActionKind(params.actionId) === "draft_message") {
+      const action = await sendMessageDraft(params.actionId, body.data.fields, user.id);
+      return ok({ action });
     }
 
     const action = approveMemoryProposal(params.actionId, body.data, user.id);

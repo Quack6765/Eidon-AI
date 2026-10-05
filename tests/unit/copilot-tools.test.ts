@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { buildCopilotTools } from "@/lib/copilot-tools";
+import { createToolApprovalRules } from "@/lib/tool-approvals";
 import type { McpServer, McpTool, Skill } from "@/lib/types";
 import {
   createRuntimeAppSettings,
@@ -170,9 +171,14 @@ describe("buildCopilotTools", () => {
     vi.mocked(parseSkillContentMetadata).mockReturnValue({
       name: "",
       description: "",
+      platforms: [],
+      tags: [],
       shellCommandPrefixes: []
     });
     vi.mocked(coerceEnumValues).mockImplementation((_schema: unknown, args: Record<string, unknown>) => args);
+
+    createToolApprovalRules(null, "shell", ["echo", "agent-browser", "rm", "boom"]);
+    createToolApprovalRules(null, "mcp", ["test_server:read_file", "test_server:search"]);
   });
 
   it("creates copilot tools from MCP tool sets", () => {
@@ -187,7 +193,7 @@ describe("buildCopilotTools", () => {
     expect(mcpTool).toBeDefined();
     expect(mcpTool!.description).toContain("read_file");
     expect(mcpTool!.handler).toBeInstanceOf(Function);
-    expect(mcpTool!.skipPermission).toBe(true);
+    expect(mcpTool!.skipPermission).toBeUndefined();
     expect(mcpTool!.parameters).toEqual({
       type: "object",
       properties: { path: { type: "string" } },
@@ -709,11 +715,13 @@ describe("buildCopilotTools", () => {
       if (content === "research skill content") {
         return {
           name: "Deep Research",
+          platforms: [],
+          tags: [],
           description: "Investigate a topic thoroughly",
           shellCommandPrefixes: []
         };
       }
-      return { name: "", description: "", shellCommandPrefixes: [] };
+      return { name: "", description: "", platforms: [], tags: [], shellCommandPrefixes: [] };
     });
 
     const skill = makeSkill({

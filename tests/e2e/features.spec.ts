@@ -39,6 +39,9 @@ async function signIn(page: import("@playwright/test").Page) {
     }
   ]);
 
+  const onboarding = await page.request.put("/api/onboarding", { data: { completed: true } });
+  expect(onboarding.ok()).toBeTruthy();
+
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
@@ -63,55 +66,45 @@ async function mockChatResponse(
   });
 }
 
+async function isInteractable(candidate: import("@playwright/test").Locator) {
+  if (!(await candidate.isVisible()) || !(await candidate.isEnabled())) return false;
+  const box = await candidate.boundingBox();
+  return Boolean(box) && box!.x >= 0 && box!.y >= 0;
+}
+
 async function createNewChat(page: import("@playwright/test").Page) {
   const newChatButtons = page.getByRole("button", { name: "New chat", exact: true });
   await expect(newChatButtons.first()).toBeVisible({ timeout: 10000 });
-  await expect
-    .poll(
-      async () => {
-        const buttonCount = await newChatButtons.count();
 
-        for (let index = 0; index < buttonCount; index += 1) {
-          const candidate = newChatButtons.nth(index);
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const buttonCount = await newChatButtons.count();
+    let target: import("@playwright/test").Locator | null = null;
 
-          if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
-            return index;
-          }
-        }
-
-        return -1;
-      },
-      { timeout: 10000 }
-    )
-    .not.toBe(-1);
-
-  let newChatButton: import("@playwright/test").Locator | null = null;
-  const buttonCount = await newChatButtons.count();
-
-  for (let index = 0; index < buttonCount; index += 1) {
-    const candidate = newChatButtons.nth(index);
-
-    if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
-      newChatButton = candidate;
-      break;
+    for (let index = 0; index < buttonCount; index += 1) {
+      const candidate = newChatButtons.nth(index);
+      if (await isInteractable(candidate)) {
+        target = candidate;
+        break;
+      }
     }
-  }
 
-  expect(newChatButton).not.toBeNull();
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await newChatButton!.click();
+    if (!target) {
+      await page.waitForTimeout(400);
+      continue;
+    }
 
     try {
+      await target.click({ timeout: 3000 });
       await expect(page).toHaveURL(/\/chat\//, { timeout: 4000 });
       return;
     } catch (error) {
-      if (attempt === 2) {
-        throw error;
-      }
-      await page.waitForTimeout(500);
+      lastError = error;
+      await page.waitForTimeout(400);
     }
   }
+
+  throw lastError ?? new Error("No interactable New chat button was found");
 }
 
 async function resetSidebarData(page: import("@playwright/test").Page) {
@@ -493,6 +486,7 @@ async function updateImageGenerationSettings(
   const credential = overrides.googleNanoBananaApiKey?.trim();
   const response = await page.request.put("/api/settings/general", {
     data: {
+      preferences: {},
       imageGeneration: {
         providerId: backend,
         configuration,
@@ -1126,8 +1120,8 @@ test.describe("Feature: Skills in settings", () => {
     // Add skill
     await page.getByLabel("Add skill").click();
     await page.getByPlaceholder("Skill name").fill("Test Skill");
-    await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for French output.");
-    await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
+    await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for English output.");
+    await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in English.");
     await page.getByRole("button", { name: "Save" }).last().click();
 
     await expect(page.getByRole("heading", { name: "Test Skill", exact: true })).toBeVisible({

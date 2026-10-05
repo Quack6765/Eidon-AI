@@ -8,20 +8,11 @@ import {
 import type { RuntimeAppSettings } from "@/lib/types";
 import { generateGoogleNanoBananaImages } from "./google-nano-banana";
 import { generateOpenAiGptImages } from "./openai-gpt-image";
-import type {
-  CompiledImageInstruction,
-  GenerateImageResult,
-  ImageGenerationReferenceImage
-} from "./types";
+import type { GenerateImageInput, GenerateImageResult } from "./types";
 
 export interface ImageGenerationProvider {
   getReadinessError(settings: RuntimeAppSettings): string | null;
-  generate(input: {
-    settings: RuntimeAppSettings;
-    instruction: CompiledImageInstruction;
-    inputImages?: ImageGenerationReferenceImage[];
-    abortSignal?: AbortSignal;
-  }): Promise<GenerateImageResult>;
+  generate(input: GenerateImageInput & { settings: RuntimeAppSettings }): Promise<GenerateImageResult>;
 }
 
 const IMAGE_GENERATION_PROVIDERS = {
@@ -50,18 +41,14 @@ const IMAGE_GENERATION_PROVIDERS = {
         quality: input.settings.imageGeneration.configuration.quality ?? DEFAULT_OPENAI_GPT_IMAGE_QUALITY,
         instruction: input.instruction,
         inputImages: input.inputImages,
+        mask: input.mask,
         abortSignal: input.abortSignal
       });
     }
   }
 } satisfies Record<Exclude<ImageGenerationProviderId, "disabled">, ImageGenerationProvider>;
 
-export function generateImages(input: {
-  settings: RuntimeAppSettings;
-  instruction: CompiledImageInstruction;
-  inputImages?: ImageGenerationReferenceImage[];
-  abortSignal?: AbortSignal;
-}) {
+export function generateImages(input: GenerateImageInput & { settings: RuntimeAppSettings }) {
   const providerId = input.settings.imageGeneration.providerId;
   if (providerId === "disabled") throw new Error("Image generation is disabled");
   const provider = IMAGE_GENERATION_PROVIDERS[providerId];
