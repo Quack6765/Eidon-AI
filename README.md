@@ -86,7 +86,7 @@ providers you already use.
 <tr>
 <td valign="top" width="50%">
 
-**⚡ Built in, for both**
+**⚡ Everything built-in**
 
 - Web search, page reading, and a built-in browser
 - Deep research with an editable plan
@@ -98,7 +98,7 @@ providers you already use.
 </td>
 <td valign="top" width="50%">
 
-**🏠 Yours to run**
+**🏠 Self-hosted**
 
 - One Docker image, one SQLite file, encrypted credentials
 - Multiple users with private data
