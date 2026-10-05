@@ -112,6 +112,11 @@ providers you already use.
 
 ## 🤖 Agents
 
+**Use agents for work you would hand to a person.** Ask a travel scout to find flights to Lisbon
+under $450 and check the hotels. Have an inbox triager sort your mail every morning and draft the
+replies. Send a research desk off to compare three vendors and come back with sources. Agents
+keep working while you do something else, and they ask you only when they need you.
+
 Build a team, or let the Chief of Staff build it. Each agent has its own chat, memory, files,
 and browser, and you step in whenever you want.
 
@@ -186,8 +191,11 @@ Every agent gets a real browser. Its cookies and logins are never shared with an
 
 ## 💬 Chat
 
-Not every question needs a team. For day-to-day questions and getting work done, open a normal
-conversation and just talk. No agents, no setup.
+**Use chat for the quick stuff.** Explain an error message, rewrite an email, summarize a PDF,
+plan a weekend, or think out loud about a decision. You ask, it answers, and you stay in the
+conversation the whole time.
+
+Not every question needs a team. Open a normal conversation and just talk. No agents, no setup.
 
 <img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
