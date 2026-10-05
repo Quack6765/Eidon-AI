@@ -34,7 +34,6 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/v1" ||
     pathname.startsWith("/api/v1/") ||
     pathname.startsWith("/logo") ||
-    pathname.startsWith("/eidon-banner") ||
     pathname === "/sw.js"
   ) {
     return NextResponse.next();
