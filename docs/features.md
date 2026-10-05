@@ -46,6 +46,13 @@ Only the Chief of Staff can call `create_bot` and `update_bot`. Other bots that 
 - its own workspace directory under `bot-workspaces/<user>/<bot>/`, which is the working directory for its shell commands
 - its own `agent-browser` session with a dedicated socket directory, so its cookies and logins are entirely separate from every other bot's
 
+**Browser control.** A bot drives its browser with `agent-browser`, and the thread groups its browser steps into one **Browser** card with the current page and a step count.
+
+- **Live view.** While a turn is running, the card shows the bot's tab as a live frame, streamed over a WebSocket. **Take control** opens a full-screen stage that relays your clicks and typing to the tab.
+- **Hand-offs.** A bot calls `request_takeover` when a step only you can do — sign-in, two-factor, CAPTCHA, payment. The thread shows a **Your turn in the browser** card with what the bot needs; you take over, finish the step, and return control with an optional note. The bot waits up to 30 minutes, and the card records whether you returned control, nobody took over, or the run was stopped.
+- **Secrets.** A bot calls `request_secret` to ask for a password or code. The thread shows a masked card; Eidon checks the bot's tab is on the requested site, focuses the field, and types your answer through the live stream, so the value never reaches the model, the conversation, or a command line. Saving it for a site lets bots fill it next time without asking; saved logins are listed and removable in settings.
+- **Sandbox.** Each bot's shell, browser daemon, and Chromium run sandboxed in the bot's own workspace, and the bot browsers are budgeted against the container's memory limit.
+
 **Shared skills.** The team shares one skill library at `bot-workspaces/<user>/shared/skills/` — shared with every agent on this team rather than kept per bot. Any bot can extend it with `skill_manage`, and an optional **Learn from each task** pass captures recurring workflows as skills after a run, marked **Skill review** in the timeline. Unused skills go stale and are archived — never deleted — by skill maintenance, and can be restored. See [MCP and skills](./mcp-and-skills.md#skills).
 
 **Status and visibility.** Each bot shows a live status of `idle`, `queued`, or `running`. A **Waiting for input** indicator appears when a bot has left a proposal pending your approval. Runs are recorded with their trigger source — a direct message, another bot's delegation, or a scheduled routine — plus timings and any error.
