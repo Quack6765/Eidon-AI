@@ -1,8 +1,6 @@
 <a name="readme-top"></a>
 
 <div align="center">
-  <img src="./public/eidon-banner.png" alt="Eidon" width="100%" />
-  <br />
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
 
   <p>
