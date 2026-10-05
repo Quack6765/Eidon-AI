@@ -56,6 +56,60 @@ their own browsers, and an **everyday chat** for the questions that do not need 
 as one Docker image, keeps your data in a single file on your server, and works with the model
 providers you already use.
 
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**🤖 A team of agents**
+
+- A Chief of Staff that delegates to specialist agents
+- Agents message each other to split the work
+- Each agent has its own browser, memory, and files
+- Watch an agent browse live and take over for logins
+- Passwords are typed in for the agent, never sent to the model
+- Approve commands and tools, and review drafts before they send
+
+</td>
+<td valign="top" width="50%">
+
+**💬 An everyday chat**
+
+- A plain conversation when you do not need a team
+- Memory that you approve, edit, and pin
+- Rewind, fork, or edit any message
+- Folders, search, personas, and temporary chats
+- Voice input, files, and images
+- Read-only share links
+
+</td>
+</tr>
+<tr>
+<td valign="top" width="50%">
+
+**⚡ Built in, for both**
+
+- Web search, page reading, and a built-in browser
+- Deep research with an editable plan
+- MCP servers and skills
+- Image generation and vision
+- Code, Mermaid diagrams, and LaTeX math
+- Scheduled automations and phone alerts
+
+</td>
+<td valign="top" width="50%">
+
+**🏠 Yours to run**
+
+- One Docker image, one SQLite file, encrypted credentials
+- Multiple users with private data
+- Works with OpenAI, Anthropic, OpenRouter, Ollama, and many more
+- Installable on your phone as an app
+- Free and open source, AGPL-3.0
+
+</td>
+</tr>
+</table>
+
 ## 🤖 Agents
 
 Build a team, or let the Chief of Staff build it. Each agent has its own chat, memory, files,
@@ -129,58 +183,6 @@ Every agent gets a real browser. Its cookies and logins are never shared with an
   skills nobody uses are tidied away.
 - **Files you can open.** What an agent produces lands in the chat as an attachment you can
   preview.
-
-## 🚀 Quick start
-
-```bash
-export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
-export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
-export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
-
-docker run -d --name eidon --restart unless-stopped \
-  -p 3000:3000 -v eidon-data:/app/data --shm-size=1g \
-  -e EIDON_ADMIN_USERNAME=admin \
-  -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
-  -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
-  -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
-  -e EIDON_BASE_URL="https://your-eidon-hostname.example.com" \
-  ghcr.io/quack6765/eidon-ai
-```
-
-`EIDON_BASE_URL` is required in production: it is the externally reachable address of your instance and is used for share links, notification deep links, and OAuth redirect URLs.
-
-`--shm-size=1g` is required for the built-in browser. Containers give `/dev/shm` 64 MB by default, and Chromium crashes on heavy pages with an out-of-memory error. See [Running in a container](./docs/configuration.md#running-in-a-container) for Compose, rootless Podman, Kubernetes, and the PaaS equivalents.
-
-Mounting `/app/data` is what keeps your database, attachments, browser profiles, and downloaded local models across restarts. Everything else is disposable.
-
-Open your Eidon URL, sign in, go to **Settings → Providers**, add a key, and start chatting.
-
-<details>
-<summary><kbd>Docker Compose</kbd></summary>
-```yaml
-services:
-  eidon:
-    image: ghcr.io/quack6765/eidon-ai
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    shm_size: "1gb"
-    environment:
-      EIDON_ADMIN_USERNAME: "admin"
-      EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
-      EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
-      EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
-      EIDON_BASE_URL: "https://your-eidon-hostname.example.com"
-    volumes:
-      - eidon-data:/app/data
-
-volumes:
-  eidon-data:
-```
-
-Full reference in [Configuration](./docs/configuration.md).
-
-</details>
 
 ## 💬 Chat
 
@@ -292,6 +294,59 @@ assistant.
 
 Set up as many as you like and switch between them in any chat, including Ollama or LM Studio
 running on your own machine. Setup for each one is in [Providers](./docs/providers.md).
+
+## 🚀 Quick start
+
+```bash
+export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
+export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
+
+docker run -d --name eidon --restart unless-stopped \
+  -p 3000:3000 -v eidon-data:/app/data --shm-size=1g \
+  -e EIDON_ADMIN_USERNAME=admin \
+  -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
+  -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
+  -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
+  -e EIDON_BASE_URL="https://your-eidon-hostname.example.com" \
+  ghcr.io/quack6765/eidon-ai
+```
+
+`EIDON_BASE_URL` is required in production: it is the externally reachable address of your instance and is used for share links, notification deep links, and OAuth redirect URLs.
+
+`--shm-size=1g` is required for the built-in browser. Containers give `/dev/shm` 64 MB by default, and Chromium crashes on heavy pages with an out-of-memory error. See [Running in a container](./docs/configuration.md#running-in-a-container) for Compose, rootless Podman, Kubernetes, and the PaaS equivalents.
+
+Mounting `/app/data` is what keeps your database, attachments, browser profiles, and downloaded local models across restarts. Everything else is disposable.
+
+Open your Eidon URL, sign in, go to **Settings → Providers**, add a key, and start chatting.
+
+<details>
+<summary><kbd>Docker Compose</kbd></summary>
+
+```yaml
+services:
+  eidon:
+    image: ghcr.io/quack6765/eidon-ai
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    shm_size: "1gb"
+    environment:
+      EIDON_ADMIN_USERNAME: "admin"
+      EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
+      EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
+      EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
+      EIDON_BASE_URL: "https://your-eidon-hostname.example.com"
+    volumes:
+      - eidon-data:/app/data
+
+volumes:
+  eidon-data:
+```
+
+Full reference in [Configuration](./docs/configuration.md).
+
+</details>
 
 ## 📚 Documentation
 
