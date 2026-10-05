@@ -434,10 +434,9 @@ export function ChatView({
       bufferSnapshot.thinkingTarget.length >= nextThinkingCandidate.length
         ? bufferSnapshot.thinkingTarget
         : nextThinkingCandidate;
-    const mergedTimeline = mergeStreamingSnapshotTimeline(
-      streamTimelineRef.current,
-      adoptedStream.timeline
-    );
+    const mergedTimeline = adopt
+      ? adoptedStream.timeline
+      : mergeStreamingSnapshotTimeline(streamTimelineRef.current, adoptedStream.timeline);
     const nextTimeline =
       mergedTimeline.at(-1)?.timelineKind === "action"
         ? completeStreamingThinkingPhase(

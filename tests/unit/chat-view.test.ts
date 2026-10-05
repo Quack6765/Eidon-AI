@@ -5105,6 +5105,235 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps intermediate narration in separate prose containers when a polling snapshot adopts a running turn", async () => {
+    const userMessage = createMessage({ id: "msg_user_poll", role: "user", content: "Read the file" });
+    const streamingAssistant = createMessage({
+      id: "msg_poll_adopt",
+      content: "",
+      status: "streaming",
+      timeline: []
+    });
+    const polledAssistant = createMessage({
+      id: "msg_poll_adopt",
+      content: "Let me check the file. The file says hello.",
+      status: "streaming",
+      timeline: [
+        {
+          id: "seg_first",
+          timelineKind: "text",
+          sortOrder: 0,
+          createdAt: new Date().toISOString(),
+          content: "Let me check the file. "
+        },
+        {
+          id: "act_read",
+          messageId: "msg_poll_adopt",
+          timelineKind: "action",
+          kind: "mcp_tool_call",
+          status: "running",
+          serverId: "fs",
+          skillId: null,
+          toolName: "read_page",
+          label: "Read page",
+          detail: "https://example.com/file",
+          arguments: null,
+          resultSummary: "",
+          sortOrder: 1,
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
+        },
+        {
+          id: "seg_second",
+          timelineKind: "text",
+          sortOrder: 2,
+          createdAt: new Date().toISOString(),
+          content: "The file says hello."
+        }
+      ]
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (String(input) === "/api/conversations/conv_1") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: { ...createPayload().conversation, isActive: true },
+            messages: [userMessage, polledAssistant]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ personas: [] }) } as Response);
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      })
+    );
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByTestId("assistant-message-content")).toHaveLength(2);
+      },
+      { timeout: 3000 }
+    );
+
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
+    expect(textBlocks[0]).toHaveTextContent("Let me check the file.");
+    expect(textBlocks[1]).toHaveTextContent("The file says hello.");
+    expect(screen.getByTestId("assistant-actions-shell")).toBeInTheDocument();
+  });
+
+  it("keeps streaming the adopted turn after a late-joined snapshot", async () => {
+    const userMessage = createMessage({ id: "msg_user_late", role: "user", content: "Read the file" });
+    const streamingAssistant = createMessage({
+      id: "msg_late_adopt",
+      content: "",
+      status: "streaming",
+      timeline: []
+    });
+    const polledAssistant = createMessage({
+      id: "msg_late_adopt",
+      content: "Let me check the file. The file says hello.",
+      status: "streaming",
+      timeline: [
+        {
+          id: "late_seg_first",
+          timelineKind: "text",
+          sortOrder: 0,
+          createdAt: new Date().toISOString(),
+          content: "Let me check the file. "
+        },
+        {
+          id: "late_act_read",
+          messageId: "msg_late_adopt",
+          timelineKind: "action",
+          kind: "mcp_tool_call",
+          status: "running",
+          serverId: "fs",
+          skillId: null,
+          toolName: "read_page",
+          label: "Read page",
+          detail: "https://example.com/file",
+          arguments: null,
+          resultSummary: "",
+          sortOrder: 1,
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
+        },
+        {
+          id: "late_seg_second",
+          timelineKind: "text",
+          sortOrder: 2,
+          createdAt: new Date().toISOString(),
+          content: "The file says hello."
+        }
+      ]
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (String(input) === "/api/conversations/conv_1") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: { ...createPayload().conversation, isActive: true },
+            messages: [userMessage, polledAssistant]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ personas: [] }) } as Response);
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: { ...createPayload().conversation, isActive: true },
+          messages: [userMessage, streamingAssistant]
+        })
+      })
+    );
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByTestId("assistant-message-content")).toHaveLength(2);
+      },
+      { timeout: 3000 }
+    );
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: " It works." }
+      });
+    });
+
+    await waitFor(() => {
+      const blocks = screen.getAllByTestId("assistant-message-content");
+      expect(blocks).toHaveLength(2);
+      expect(blocks[1]).toHaveTextContent("The file says hello. It works.");
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_start",
+          action: {
+            id: "late_act_second",
+            messageId: "msg_late_adopt",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=hello",
+            arguments: null,
+            resultSummary: "",
+            sortOrder: 3,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      const blocks = screen.getAllByTestId("assistant-message-content");
+      expect(blocks).toHaveLength(2);
+      expect(blocks[1]).toHaveTextContent("The file says hello. It works.");
+      expect(screen.getByText("web_search_exa")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: " The search confirms it." }
+      });
+    });
+
+    await waitFor(() => {
+      const blocks = screen.getAllByTestId("assistant-message-content");
+      expect(blocks).toHaveLength(3);
+      expect(blocks[2]).toHaveTextContent("The search confirms it.");
+    });
+  });
+
   it("renders answer text without duplication around tool actions during streaming", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
