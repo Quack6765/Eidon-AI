@@ -132,6 +132,42 @@ describe("chat-turn", () => {
     expect(messages[1].status).toBe("completed");
   });
 
+  it("stores the assistant message's own token estimate instead of the turn's provider usage", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const conv = createConversation(undefined, undefined, { providerProfileId: null });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return {
+          answer: "Hello",
+          thinking: "",
+          usage: { inputTokens: 120000, outputTokens: 1, reasoningTokens: 50 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    expect(assistant?.estimatedTokens).toBeGreaterThan(0);
+    expect(assistant?.estimatedTokens).toBeLessThan(100);
+  });
+
   it("applies the conversation reasoning effort override at turn start", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
