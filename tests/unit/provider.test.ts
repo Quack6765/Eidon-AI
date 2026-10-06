@@ -1310,7 +1310,7 @@ describe("provider integration", () => {
             name: "search_docs",
             description: "Search docs",
             parameters: { type: "object" },
-            strict: true
+            strict: false
           }
         ]
       }),
@@ -1886,7 +1886,7 @@ describe("provider integration", () => {
     });
   });
 
-  it("passes strict: true for tool definitions in responses API", async () => {
+  it("passes strict: false for tool definitions in responses API", async () => {
     responsesCreate.mockResolvedValue(
       createAsyncStream([{ type: "response.output_text.delta", delta: "result" }])
     );
@@ -1918,7 +1918,7 @@ describe("provider integration", () => {
     while (!(await stream.next()).done) {}
 
     const toolCall = responsesCreate.mock.calls[0][0];
-    expect(toolCall.tools[0].strict).toBe(true);
+    expect(toolCall.tools[0].strict).toBe(false);
   });
 
   it("does not emit duplicate action events for custom copilot tools", async () => {

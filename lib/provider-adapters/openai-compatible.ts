@@ -259,43 +259,20 @@ export async function* streamOpenAiCompatibleResponse(
       ...buildRequestParameters(settings)
     };
 
-    let stream: AsyncIterable<any>;
     if (input.tools?.length) {
-      const toResponseTools = (strict: boolean) =>
-        input.tools!.map((tool) => ({
-          type: "function",
-          name: tool.function.name,
-          description: tool.function.description,
-          parameters: tool.function.parameters ?? {},
-          strict
-        }));
-      responseCreateParams.tools = toResponseTools(true);
-
-      try {
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      } catch (createError) {
-        const isSchemaError =
-          createError instanceof Error &&
-          (createError.message.includes("strict") ||
-            createError.message.includes("schema") ||
-            createError.message.includes("additionalProperties") ||
-            (createError as any).status === 400);
-        if (!isSchemaError) throw createError;
-        responseCreateParams.tools = toResponseTools(false);
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      }
-    } else {
-      stream = await client.responses.create(
-        responseCreateParams as any,
-        { signal }
-      ) as unknown as AsyncIterable<any>;
+      responseCreateParams.tools = input.tools.map((tool) => ({
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters ?? {},
+        strict: false
+      }));
     }
+
+    const stream = await client.responses.create(
+      responseCreateParams as any,
+      { signal }
+    ) as unknown as AsyncIterable<any>;
 
     const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
 
