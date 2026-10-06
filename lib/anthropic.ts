@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimatePromptTokens } from "@/lib/tokenization";
@@ -228,7 +229,8 @@ function createAnthropicClient(settings: RuntimeProviderProfile, conversationId?
   return new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings),
-    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId)
+    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId),
+    ...providerHttpOptions
   });
 }
 

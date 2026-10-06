@@ -7,6 +7,7 @@ import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
 import Anthropic from "@anthropic-ai/sdk";
+import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
 import type {
   ProviderStreamInput,
@@ -41,7 +42,8 @@ export async function discoverAnthropicModels(settings: RuntimeProviderProfile) 
   const client = new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings),
-    defaultHeaders: getOpenCodeSessionHeaders(settings)
+    defaultHeaders: getOpenCodeSessionHeaders(settings),
+    ...providerHttpOptions
   });
   const models = await client.models.list();
   return models.data.map((model) => ({

@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
+import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
 import type { PromptMessage, ProviderProfile } from "@/lib/types";
 
@@ -9,7 +10,8 @@ export function createOpenAIClient(settings: ProviderProfile, apiKey: string, co
   return new OpenAI({
     apiKey,
     baseURL: getProviderApiBaseUrl(settings),
-    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId)
+    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId),
+    ...providerHttpOptions
   });
 }
 
