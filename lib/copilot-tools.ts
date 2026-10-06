@@ -38,7 +38,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
       ? getWebSearchPipeline(context.appSettings.webSearch.configuration).mode
       : undefined,
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
-    imageGenerationToolEnabled: context.imageGenerationToolEnabled,
     effectiveVisionMode: context.effectiveVisionMode,
     computerHandoffEnabled: Boolean(context.conversationId && getBotByConversationId(context.conversationId))
   });

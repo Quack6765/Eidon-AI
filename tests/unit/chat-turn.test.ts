@@ -1179,9 +1179,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).toEqual(expect.any(String));
     expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
@@ -1222,9 +1220,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
     expect(systemPrompt).not.toContain("Do not embed data: image URLs");
@@ -1265,9 +1261,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).toEqual(expect.any(String));
     expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
@@ -1304,9 +1298,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
     expect(systemPrompt).not.toContain("Do not embed data: image URLs");
@@ -2120,7 +2112,7 @@ describe("chat-turn", () => {
     });
 
     expect(result).toEqual({ status: "completed" });
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Find subsidy pages\n2. Compare amounts");
 
@@ -2162,7 +2154,7 @@ describe("chat-turn", () => {
     });
 
     expect(result).toEqual({ status: "completed" });
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Find subsidy pages");
     const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
@@ -2284,7 +2276,7 @@ describe("chat-turn", () => {
 
     expect(response.status).toBe(200);
     await response.text();
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Step one");
   });

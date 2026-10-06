@@ -453,26 +453,45 @@ describe("anthropic conversion branch coverage", () => {
     expect((last.content as unknown[]).length).toBe(2);
   });
 
-  it("applies cache_control to the last block of the second-to-last message", () => {
+  it("applies cache_control to the last block before the volatile tail", () => {
     const params = buildAnthropicRequest({
       settings: baseSettings({ reasoningEffort: "none" }),
       messages: [
         { role: "system", content: "sys" },
         { role: "user", content: "first" },
         { role: "assistant", content: "answer" },
-        { role: "user", content: "second" }
+        { role: "user", content: "second" },
+        { role: "user", content: "guidance", volatile: true },
+        { role: "user", content: "date", volatile: true }
       ]
     });
 
-    const messages = params.messages as Array<{ role: string; content: unknown }>;
-    const secondToLast = messages[messages.length - 2];
-    const blocks = secondToLast.content as Array<{ cache_control?: { type: string } }>;
+    const messages = params.messages as Array<{ role: string; content: Array<{ text: string; cache_control?: unknown }> }>;
+    const last = messages[messages.length - 1];
 
-    expect(Array.isArray(blocks)).toBe(true);
-    expect(blocks[blocks.length - 1].cache_control).toEqual({ type: "ephemeral" });
+    expect(messages).toHaveLength(3);
+    expect(last.content.map((block) => block.text)).toEqual(["second", "guidance", "date"]);
+    expect(last.content.map((block) => block.cache_control)).toEqual([{ type: "ephemeral" }, undefined, undefined]);
+    expect(JSON.stringify(messages.slice(0, -1))).not.toContain("cache_control");
   });
 
-  it("keeps non-final blocks unmarked when caching a multi-block message", () => {
+  it("marks the last block when nothing is volatile and skips marking when everything is", () => {
+    const marked = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [{ role: "user", content: "only" }]
+    });
+    expect(marked.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "only", cache_control: { type: "ephemeral" } }] }
+    ]);
+
+    const unmarked = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [{ role: "user", content: "only", volatile: true }]
+    });
+    expect(JSON.stringify(unmarked.messages)).not.toContain("cache_control");
+  });
+
+  it("marks the tool result block ahead of volatile guidance in a multi-block message", () => {
     const params = buildAnthropicRequest({
       settings: baseSettings({ reasoningEffort: "none" }),
       messages: [
@@ -482,17 +501,36 @@ describe("anthropic conversion branch coverage", () => {
           content: "thinking out loud",
           toolCalls: [{ id: "t1", name: "a", arguments: "{}" }]
         },
-        { role: "tool", toolCallId: "t1", content: "res" }
+        { role: "tool", toolCallId: "t1", content: "res" },
+        { role: "user", content: "guidance", volatile: true }
       ]
     });
 
     const messages = params.messages as Array<{ role: string; content: unknown }>;
-    const cached = messages[messages.length - 2];
-    const blocks = cached.content as Array<{ type: string; cache_control?: unknown }>;
+    const last = messages[messages.length - 1].content as Array<{ type: string; cache_control?: unknown }>;
 
-    expect(blocks.length).toBe(2);
-    expect(blocks[0].cache_control).toBeUndefined();
-    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(last.map((block) => block.type)).toEqual(["tool_result", "text"]);
+    expect(last[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(last[1].cache_control).toBeUndefined();
+  });
+
+  it("uses the 1 hour cache lifetime when configured", () => {
+    vi.stubEnv("EIDON_ANTHROPIC_CACHE_TTL", "1h");
+    try {
+      const params = buildAnthropicRequest({
+        settings: baseSettings({ reasoningEffort: "none" }),
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "hi" }
+        ]
+      });
+      expect(params.system).toEqual([
+        { type: "text", text: "sys", cache_control: { type: "ephemeral", ttl: "1h" } }
+      ]);
+      expect(JSON.stringify(params.messages)).toContain('"cache_control":{"type":"ephemeral","ttl":"1h"}');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("merges consecutive user text messages, normalizing prior string content", () => {
