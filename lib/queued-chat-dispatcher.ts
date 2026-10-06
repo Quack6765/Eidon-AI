@@ -4,16 +4,18 @@ import {
   deleteQueuedMessage,
   failQueuedMessage,
   getConversation,
+  getConversationOwnerId,
   listQueuedMessages,
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
   requeueQueuedMessage
 } from "@/lib/conversations";
-import { getBotByConversationId } from "@/lib/bots";
+import { getGlobalPreferences } from "@/lib/global-preferences";
+import { getUserPreferences } from "@/lib/user-preferences";
 import { requestRedirect } from "@/lib/chat-turn-control";
 import type { ConversationManager } from "@/lib/conversation-manager";
 import type { StartChatTurn } from "@/lib/chat-turn";
-import type { ChatInputMode } from "@/lib/types";
+import type { ChatInputMode, FollowUpBehavior } from "@/lib/types";
 
 const dispatchLocks = new Set<string>();
 
@@ -29,9 +31,17 @@ function broadcastQueueUpdated(manager: ConversationManager, conversationId: str
   });
 }
 
+function resolveFollowUpBehavior(conversationId: string): FollowUpBehavior {
+  const ownerId = getConversationOwnerId(conversationId);
+  if (!ownerId) {
+    return "queue";
+  }
+  return getUserPreferences(ownerId, getGlobalPreferences()).followUpBehavior;
+}
+
 export function queueFollowUpMessage(input: { conversationId: string; content: string; mode?: ChatInputMode }) {
   const queuedMessage = createQueuedMessage(input);
-  if (getBotByConversationId(input.conversationId)) {
+  if (resolveFollowUpBehavior(input.conversationId) === "steer") {
     requestRedirect(input.conversationId, queuedMessage.id);
   }
   return queuedMessage;

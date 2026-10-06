@@ -9,6 +9,7 @@ import { updateUserPreferences } from "@/lib/user-preferences";
 const inputSchema = z.object({
   defaultView: z.enum(["chat", "agents", "automations"]).optional(),
   toolCallDisplay: z.enum(["pills", "status_line"]).optional(),
+  followUpBehavior: z.enum(["steer", "queue"]).optional(),
   completed: z.boolean().optional()
 });
 
@@ -18,10 +19,11 @@ export async function PUT(request: Request) {
   if (!body.success) {
     return badRequest(body.error.issues.map((issue) => issue.message).join("; "));
   }
-  const { defaultView, toolCallDisplay, completed } = body.data;
+  const { defaultView, toolCallDisplay, followUpBehavior, completed } = body.data;
   updateUserPreferences(user.id, getGlobalPreferences(), {
     ...(defaultView ? { defaultView } : {}),
     ...(toolCallDisplay ? { toolCallDisplay } : {}),
+    ...(followUpBehavior ? { followUpBehavior } : {}),
     ...(completed === undefined ? {} : { hasCompletedOnboarding: completed })
   });
   return ok({ settings: getSanitizedSettings(user.id) });

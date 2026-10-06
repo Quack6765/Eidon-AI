@@ -1267,6 +1267,100 @@ describe("chat-turn", () => {
     );
   });
 
+  it("injects a steered follow-up mid-run, moving it out of the queue and into the transcript", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { updateUserPreferences } = await import("@/lib/user-preferences");
+    const { getGlobalPreferences } = await import("@/lib/global-preferences");
+    const { createLocalUser: createSteerOwner } = await import("@/lib/users");
+    const { createConversation, listQueuedMessages, listVisibleMessages } = await import(
+      "@/lib/conversations"
+    );
+    const { queueFollowUpMessage } = await import("@/lib/queued-chat-dispatcher");
+
+    const user = await createSteerOwner({
+      username: "steer-follow-up-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    updateUserPreferences(user.id, getGlobalPreferences(), { followUpBehavior: "steer" });
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      memoriesEnabled: true,
+      providerProfiles: [profile]
+    });
+
+    const conv = createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null },
+      user.id
+    );
+
+    // The follow-up is sent while the first tool call is in flight, which is the
+    // only window in which a steer can be claimed.
+    let queueWhileRunning: Array<{ status: string }> = [];
+    mockedStreamProviderResponse
+      .mockReturnValueOnce(
+        (async function* () {
+          queueFollowUpMessage({
+            conversationId: conv.id,
+            content: "Use the European numbers too"
+          });
+          queueWhileRunning = listQueuedMessages(conv.id).map((item) => ({ status: item.status }));
+          return {
+            answer: "",
+            thinking: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                name: "create_memory",
+                arguments: JSON.stringify({ content: "Prefers EU figures", category: "personal" })
+              }
+            ],
+            usage: { inputTokens: 5 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "Redone with Europe." };
+          return {
+            answer: "Redone with Europe.",
+            thinking: "",
+            usage: { inputTokens: 9, outputTokens: 4 }
+          };
+        })()
+      );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Compare Q3 to the market", []);
+
+    // It waited in the overlay while the run was still working...
+    expect(queueWhileRunning).toEqual([{ status: "pending" }]);
+
+    // ...then left it, because the turn picked it up between tool calls.
+    expect(listQueuedMessages(conv.id)).toEqual([]);
+
+    const messages = listVisibleMessages(conv.id);
+    expect(messages.filter((message) => message.role === "user").map((message) => message.content))
+      .toEqual(["Compare Q3 to the market", "Use the European numbers too"]);
+
+    const queueUpdatedLists = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event as { queuedMessages: Array<{ content: string }> });
+    // The turn broadcasts the emptied overlay as soon as it takes the steer; the
+    // "it is waiting" broadcast belongs to the queue route, not to the turn.
+    expect(queueUpdatedLists.map((event) => event.queuedMessages.length)).toEqual([0]);
+  });
+
   it("ensures queued dispatch runs after the turn finalizes", async () => {
     const ensureQueuedDispatch = vi.fn().mockResolvedValue(undefined);
     vi.doMock("@/lib/queued-chat-dispatcher", () => ({

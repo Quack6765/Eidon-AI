@@ -5,6 +5,121 @@ describe("queued-chat-dispatcher", () => {
     vi.resetModules();
   });
 
+  it("steps a follow-up into the running turn when the owner prefers steering", async () => {
+    const { createConversation } = await import("@/lib/conversations");
+    const { getActiveChatTurn, claimChatTurnStart, releaseChatTurnStart } = await import(
+      "@/lib/chat-turn-control"
+    );
+    const { updateUserPreferences } = await import("@/lib/user-preferences");
+    const { getGlobalPreferences } = await import("@/lib/global-preferences");
+    const { createLocalUser } = await import("@/lib/users");
+    const { queueFollowUpMessage } = await import("@/lib/queued-chat-dispatcher");
+
+    const user = await createLocalUser({
+      username: "steer-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    updateUserPreferences(user.id, getGlobalPreferences(), { followUpBehavior: "steer" });
+
+    const conversation = createConversation(undefined, undefined, {}, user.id);
+    const claimed = claimChatTurnStart(conversation.id);
+    expect(claimed.ok).toBe(true);
+
+    const queued = queueFollowUpMessage({
+      conversationId: conversation.id,
+      content: "Actually, use last quarter"
+    });
+
+    expect(getActiveChatTurn(conversation.id)?.redirectIds.has(queued.id)).toBe(true);
+
+    if (claimed.ok) releaseChatTurnStart(conversation.id, claimed.control);
+  });
+
+  it("keeps a bot conversation queued when its owner prefers queueing", async () => {
+    const { createBot } = await import("@/lib/bots");
+    const { getActiveChatTurn, claimChatTurnStart, releaseChatTurnStart } = await import(
+      "@/lib/chat-turn-control"
+    );
+    const { createLocalUser } = await import("@/lib/users");
+    const { queueFollowUpMessage } = await import("@/lib/queued-chat-dispatcher");
+
+    const user = await createLocalUser({
+      username: "queueing-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    const bot = createBot({ name: "Analyst" }, user.id);
+
+    // Bot conversations used to force a steer; the preference is what decides now.
+    const claimed = claimChatTurnStart(bot.homeConversationId);
+    expect(claimed.ok).toBe(true);
+
+    const queued = queueFollowUpMessage({
+      conversationId: bot.homeConversationId,
+      content: "Also check Europe"
+    });
+
+    expect(getActiveChatTurn(bot.homeConversationId)?.redirectIds.has(queued.id)).toBe(false);
+
+    if (claimed.ok) releaseChatTurnStart(bot.homeConversationId, claimed.control);
+  });
+
+  it("queues without steering when the conversation has no owner", async () => {
+    const { createConversation } = await import("@/lib/conversations");
+    const { getActiveChatTurn, claimChatTurnStart, releaseChatTurnStart } = await import(
+      "@/lib/chat-turn-control"
+    );
+    const { queueFollowUpMessage } = await import("@/lib/queued-chat-dispatcher");
+
+    const conversation = createConversation();
+    const claimed = claimChatTurnStart(conversation.id);
+    expect(claimed.ok).toBe(true);
+
+    const queued = queueFollowUpMessage({
+      conversationId: conversation.id,
+      content: "Orphaned follow-up"
+    });
+
+    expect(getActiveChatTurn(conversation.id)?.redirectIds.has(queued.id)).toBe(false);
+
+    if (claimed.ok) releaseChatTurnStart(conversation.id, claimed.control);
+  });
+
+  it("still forces a steer from Send now while the owner prefers queueing", async () => {
+    const { createConversation } = await import("@/lib/conversations");
+    const { getActiveChatTurn, claimChatTurnStart, releaseChatTurnStart } = await import(
+      "@/lib/chat-turn-control"
+    );
+    const { createLocalUser } = await import("@/lib/users");
+    const { queueFollowUpMessage, sendQueuedMessageNow } = await import(
+      "@/lib/queued-chat-dispatcher"
+    );
+
+    const user = await createLocalUser({
+      username: "send-now-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    const conversation = createConversation(undefined, undefined, {}, user.id);
+
+    // Sent before the turn starts, so queueing leaves it alone.
+    const queued = queueFollowUpMessage({
+      conversationId: conversation.id,
+      content: "Send me now"
+    });
+    const claimed = claimChatTurnStart(conversation.id);
+    expect(claimed.ok).toBe(true);
+    expect(getActiveChatTurn(conversation.id)?.redirectIds.has(queued.id)).toBe(false);
+
+    expect(sendQueuedMessageNow({ conversationId: conversation.id, queuedMessageId: queued.id })).toBe(
+      true
+    );
+    expect(getActiveChatTurn(conversation.id)?.redirectIds.has(queued.id)).toBe(true);
+
+    if (claimed.ok) releaseChatTurnStart(conversation.id, claimed.control);
+  });
+
   it("claims only one queued message per conversation at a time", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { createConversation, createQueuedMessage, listQueuedMessages } = await import("@/lib/conversations");

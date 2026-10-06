@@ -113,6 +113,8 @@ export type ToolCallDisplayMode = "pills" | "status_line";
 
 export type DefaultView = "chat" | "agents" | "automations";
 
+export type FollowUpBehavior = "steer" | "queue";
+
 type AppSettingsCore = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -126,6 +128,7 @@ type AppSettingsCore = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  followUpBehavior: FollowUpBehavior;
   hasCompletedOnboarding: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;

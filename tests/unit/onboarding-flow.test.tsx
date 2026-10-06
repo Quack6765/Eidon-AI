@@ -37,8 +37,8 @@ function makeProfile(): ProviderProfileSummary {
 
 function makeSettings(): OnboardingSettings {
   return {
-    defaultView: "chat",
     toolCallDisplay: "pills",
+    followUpBehavior: "queue",
     defaultProviderProfileId: "prof_seed",
     providerProfiles: [makeProfile()],
     skillsEnabled: true
@@ -80,20 +80,24 @@ describe("onboarding flow", () => {
     expect(screen.queryByText(/^Step /)).toBeNull();
   });
 
-  it("counts four steps for an admin", () => {
+  it("counts five steps for an admin", () => {
     renderFlow("admin");
     startFlow();
-    expect(screen.getByText("Step 1 of 4")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 5")).toBeTruthy();
   });
 
-  it("counts only two steps for a non-admin and skips the admin-only steps", async () => {
+  it("counts only three steps for a non-admin and skips the admin-only steps", async () => {
     renderFlow("user");
     startFlow();
-    expect(screen.getByText("Step 1 of 2")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Step 2 of 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
     expect(screen.getByText("How should tool calls look?")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Step 3 of 3")).toBeTruthy());
+    expect(screen.getByText("What should a follow-up do mid-run?")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("You're set up")).toBeTruthy());
@@ -105,12 +109,14 @@ describe("onboarding flow", () => {
   it("skips the provider step for an admin who already has a provider", async () => {
     renderFlow("admin", { hasProviderConfigured: true });
     startFlow();
-    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 4")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 2 of 4")).toBeTruthy());
     expect(screen.getByText("How should tool calls look?")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("What should a follow-up do mid-run?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
     expect(screen.queryByText("Connect a model provider")).toBeNull();
@@ -119,17 +125,21 @@ describe("onboarding flow", () => {
   it("goes straight through the preference steps when everything is configured", async () => {
     renderFlow("admin", { hasProviderConfigured: true, hasMcpServerConfigured: true });
     startFlow();
-    expect(screen.getByText("Step 1 of 2")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Step 2 of 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Step 3 of 3")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("You're set up")).toBeTruthy());
     expect(screen.queryByText("Connect a model provider")).toBeNull();
     expect(screen.queryByText("Add an MCP server")).toBeNull();
-    expect(screen.getByText("Opening into Chat")).toBeTruthy();
+    expect(screen.getByText("Opening into Agents")).toBeTruthy();
     expect(screen.getByText("Tool activity shown as pills")).toBeTruthy();
+    expect(screen.getByText("Follow-ups wait until the run finishes")).toBeTruthy();
   });
 
   it("saves the chosen default view when advancing", async () => {
@@ -144,12 +154,12 @@ describe("onboarding flow", () => {
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ defaultView: "agents" });
   });
 
-  it("preselects the chat view for a fresh install", () => {
+  it("preselects the agents view whatever the stored preference says", () => {
     renderFlow("user");
     startFlow();
 
-    expect(screen.getByRole("radio", { name: /Chat/ }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("radio", { name: /Agents/ }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("radio", { name: /Agents/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: /Chat/ }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByRole("radio", { name: /Automations/ }).getAttribute("aria-checked")).toBe("false");
   });
 
@@ -169,10 +179,10 @@ describe("onboarding flow", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Automations/ }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => expect(screen.getByText("Step 2 of 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /Back/ }));
 
-    await waitFor(() => expect(screen.getByText("Step 1 of 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 1 of 3")).toBeTruthy());
     expect(screen.getByRole("radio", { name: /Automations/ }).getAttribute("aria-checked")).toBe(
       "true"
     );
@@ -192,13 +202,22 @@ describe("onboarding flow", () => {
     }
   });
 
+  /** Clears the follow-up step, which sits between tool display and the provider. */
+  async function continueFromFollowUp() {
+    await waitFor(() =>
+      expect(screen.getByText("What should a follow-up do mid-run?")).toBeTruthy()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+  }
+
   /** Walks an admin from the welcome screen to the provider step. */
   async function gotoProviderStep() {
     startFlow();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
   }
 
   function saveButton() {
@@ -434,7 +453,7 @@ describe("onboarding flow", () => {
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
 
     await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
@@ -457,7 +476,7 @@ describe("onboarding flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
 
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic \(/ }));
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-test" } });
@@ -501,7 +520,7 @@ describe("onboarding flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
 
     fireEvent.click(screen.getByRole("radio", { name: /Anthropic \(/ }));
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-bad" } });
@@ -673,7 +692,7 @@ describe("onboarding flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
 
@@ -703,7 +722,7 @@ describe("onboarding flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("How should tool calls look?")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Connect a model provider")).toBeTruthy());
+    await continueFromFollowUp();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
 
@@ -725,13 +744,21 @@ describe("onboarding flow", () => {
     startFlow();
     fireEvent.click(screen.getByRole("radio", { name: /Agents/ }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Step 2 of 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
     fireEvent.click(screen.getByRole("radio", { name: /Single status line/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // Answer the follow-up step explicitly, so the summary proves the pick landed.
+    await waitFor(() =>
+      expect(screen.getByText("What should a follow-up do mid-run?")).toBeTruthy()
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /^Steer:/ }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("You're set up")).toBeTruthy());
 
     expect(screen.getByText("Opening into Agents")).toBeTruthy();
     expect(screen.getByText("Tool activity kept in one expandable status line")).toBeTruthy();
+    expect(screen.getByText("Follow-ups steer the current run")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Start using Eidon" }));
 
@@ -744,6 +771,7 @@ describe("onboarding flow", () => {
     expect(JSON.parse(String((finalCall?.[1] as RequestInit).body))).toEqual({
       defaultView: "agents",
       toolCallDisplay: "status_line",
+      followUpBehavior: "steer",
       completed: true
     });
   });

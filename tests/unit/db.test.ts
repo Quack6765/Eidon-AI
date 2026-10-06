@@ -354,6 +354,28 @@ describe("db", () => {
     expect(globalDefault.tool_call_display).toBe("pills");
   });
 
+  it("adds the follow-up behavior column to preference tables defaulting to queue", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const globalColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const userColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(globalColumns).toEqual(expect.arrayContaining(["follow_up_behavior"]));
+    expect(userColumns).toEqual(expect.arrayContaining(["follow_up_behavior"]));
+
+    // Queue is the default, which is how every already-onboarded user reads it
+    // without a backfill.
+    const globalDefault = db
+      .prepare("SELECT follow_up_behavior FROM global_preferences WHERE id = 1")
+      .get() as { follow_up_behavior: string };
+    expect(globalDefault.follow_up_behavior).toBe("queue");
+  });
+
   it("adds the onboarding completion column to user preferences only", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();

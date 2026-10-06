@@ -79,11 +79,72 @@ export const DEMO_SCRIPT: Array<{ phase: DemoPhase; holdMs: number }> = [
 
 export const FINAL_DEMO_PHASE = DEMO_SCRIPT[DEMO_SCRIPT.length - 1].phase;
 
+const RUNNING_THINK: DemoPill = { id: "think", label: "Thinking", status: "running" };
+const RUNNING_WORKSPACE: DemoPill = { id: "workspace", label: "Search workspace", status: "running" };
+
+export type FollowUpDemoPhase = {
+  pills: DemoPill[];
+  sent: boolean;
+  routed: boolean;
+  settled: boolean;
+  newTurn: boolean;
+  replied: boolean;
+};
+
+const PHASE = (overrides: Partial<FollowUpDemoPhase>): FollowUpDemoPhase => ({
+  pills: [],
+  sent: false,
+  routed: false,
+  settled: false,
+  newTurn: false,
+  replied: false,
+  ...overrides
+});
+
+export const FOLLOW_UP_SCRIPT: Array<{ phase: FollowUpDemoPhase; holdMs: number }> = [
+  { phase: PHASE({ pills: [RUNNING_THINK] }), holdMs: 900 },
+  { phase: PHASE({ pills: [RUNNING_THINK], sent: true }), holdMs: 1700 },
+  {
+    phase: PHASE({ pills: [done(RUNNING_THINK), RUNNING_WORKSPACE], sent: true, routed: true }),
+    holdMs: 1900
+  },
+  {
+    phase: PHASE({
+      pills: [done(RUNNING_THINK), done(RUNNING_WORKSPACE)],
+      sent: true,
+      routed: true,
+      settled: true
+    }),
+    holdMs: 1500
+  },
+  {
+    phase: PHASE({
+      pills: [done(RUNNING_THINK), done(RUNNING_WORKSPACE)],
+      sent: true,
+      routed: true,
+      settled: true,
+      newTurn: true
+    }),
+    holdMs: 1400
+  },
+  {
+    phase: PHASE({
+      pills: [done(RUNNING_THINK), done(RUNNING_WORKSPACE)],
+      sent: true,
+      routed: true,
+      settled: true,
+      newTurn: true,
+      replied: true
+    }),
+    holdMs: 2000
+  }
+];
+
 /**
  * Drives one looping clock for the whole step so both demos stay in lockstep.
  * Returns the resting final phase when the user prefers reduced motion.
  */
-export function useDemoClock(script = DEMO_SCRIPT) {
+export function useDemoClock<Phase>(script: Array<{ phase: Phase; holdMs: number }>) {
   const prefersReducedMotion = useReducedMotion();
   const [index, setIndex] = useState(0);
 
@@ -99,4 +160,50 @@ export function useDemoClock(script = DEMO_SCRIPT) {
     return { phase: script[script.length - 1].phase, isAnimating: false };
   }
   return { phase: script[index].phase, isAnimating: true };
+}
+
+export function useFadedIn(durationMs = 320) {
+  const prefersReducedMotion = useReducedMotion();
+  const [opacity, setOpacity] = useState(prefersReducedMotion ? 1 : 0);
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      setOpacity(1);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
+      setOpacity(progress);
+      if (progress >= 1) clearInterval(timer);
+    }, 24);
+
+    return () => clearInterval(timer);
+  }, [durationMs, prefersReducedMotion]);
+
+  return opacity;
+}
+
+export function useStreamedText(text: string, charsPerSecond = 30) {
+  const prefersReducedMotion = useReducedMotion();
+  const [shown, setShown] = useState("");
+
+  useEffect(() => {
+    if (prefersReducedMotion || !text) {
+      setShown(text);
+      return;
+    }
+
+    const startedAt = Date.now();
+    setShown("");
+    const timer = setInterval(() => {
+      const revealed = Math.floor(((Date.now() - startedAt) / 1000) * charsPerSecond);
+      setShown(revealed >= text.length ? text : text.slice(0, revealed));
+    }, 28);
+
+    return () => clearInterval(timer);
+  }, [text, charsPerSecond, prefersReducedMotion]);
+
+  return shown;
 }

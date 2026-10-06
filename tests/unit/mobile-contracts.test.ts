@@ -323,8 +323,18 @@ describe("Mobile API v1 contracts", () => {
       expect.arrayContaining(["pinned"])
     );
     expect(contract.components.schemas.Settings.required).toEqual(
-      expect.arrayContaining(["semanticRecallEnabled"])
+      expect.arrayContaining(["semanticRecallEnabled", "followUpBehavior"])
     );
+    expect(contract.components.schemas.Settings.properties!.followUpBehavior).toEqual({
+      type: "string",
+      enum: ["steer", "queue"]
+    });
+    expect(
+      contract.components.schemas.UserPreferencesUpdate.properties!.followUpBehavior
+    ).toEqual({ type: "string", enum: ["steer", "queue"] });
+    expect(
+      contract.components.schemas.OnboardingUpdateRequest.properties!.followUpBehavior
+    ).toEqual({ type: "string", enum: ["steer", "queue"] });
     expect(contract.components.schemas.Automation.required).toEqual(
       expect.arrayContaining(["continuePreviousConversation", "notifyConfig"])
     );

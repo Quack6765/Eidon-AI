@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import type {
   ConversationRetention,
   DefaultView,
+  FollowUpBehavior,
   MemoryRigor,
   TitleGenerationMode,
   ToolCallDisplayMode
@@ -19,6 +20,10 @@ export function normalizeDefaultView(value: unknown): DefaultView {
   return value === "agents" || value === "automations" ? value : "chat";
 }
 
+export function normalizeFollowUpBehavior(value: unknown): FollowUpBehavior {
+  return value === "steer" ? "steer" : "queue";
+}
+
 export type GlobalPreferences = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -32,6 +37,7 @@ export type GlobalPreferences = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  followUpBehavior: FollowUpBehavior;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   speechCleanupEnabled: boolean;
@@ -54,6 +60,7 @@ type GlobalPreferencesRow = {
   confirm_external_links: number;
   tool_call_display: ToolCallDisplayMode;
   default_view: DefaultView;
+  follow_up_behavior: string;
   title_generation_mode: TitleGenerationMode;
   title_generation_profile_id: string | null;
   speech_cleanup_enabled: number;
@@ -77,6 +84,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     confirmExternalLinks: Boolean(row.confirm_external_links),
     toolCallDisplay: normalizeToolCallDisplayMode(row.tool_call_display),
     defaultView: normalizeDefaultView(row.default_view),
+    followUpBehavior: normalizeFollowUpBehavior(row.follow_up_behavior),
     titleGenerationMode: row.title_generation_mode,
     titleGenerationProfileId: row.title_generation_profile_id,
     speechCleanupEnabled: Boolean(row.speech_cleanup_enabled),
@@ -93,6 +101,7 @@ export function getGlobalPreferences() {
       memories_enabled, memories_max_count, memories_rigor, semantic_recall_enabled, mcp_timeout,
       max_assistant_tool_steps, confirm_external_links, tool_call_display,
       default_view,
+      follow_up_behavior,
       title_generation_mode, title_generation_profile_id,
       speech_cleanup_enabled, speech_cleanup_profile_id, speech_cleanup_prompt,
       bot_system_prompt,
@@ -111,7 +120,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     SET default_provider_profile_id = ?, skills_enabled = ?,
       conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, memories_rigor = ?, semantic_recall_enabled = ?, mcp_timeout = ?,
-      max_assistant_tool_steps = ?, confirm_external_links = ?, tool_call_display = ?, default_view = ?, title_generation_mode = ?,
+      max_assistant_tool_steps = ?, confirm_external_links = ?, tool_call_display = ?, default_view = ?, follow_up_behavior = ?, title_generation_mode = ?,
       title_generation_profile_id = ?, speech_cleanup_enabled = ?,
       speech_cleanup_profile_id = ?, speech_cleanup_prompt = ?, bot_system_prompt = ?, updated_at = ?
     WHERE id = 1
@@ -128,6 +137,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.confirmExternalLinks ? 1 : 0,
     normalizeToolCallDisplayMode(next.toolCallDisplay),
     normalizeDefaultView(next.defaultView),
+    normalizeFollowUpBehavior(next.followUpBehavior),
     next.titleGenerationMode,
     next.titleGenerationProfileId,
     next.speechCleanupEnabled ? 1 : 0,

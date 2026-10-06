@@ -46,6 +46,7 @@ export type GeneralSettingsBundle = {
       | "confirmExternalLinks"
       | "toolCallDisplay"
       | "defaultView"
+      | "followUpBehavior"
       | "memoriesEnabled"
       | "memoriesMaxCount"
       | "memoriesRigor"
@@ -91,6 +92,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     confirmExternalLinks: user.confirmExternalLinks,
     toolCallDisplay: user.toolCallDisplay,
     defaultView: user.defaultView,
+    followUpBehavior: user.followUpBehavior,
     hasCompletedOnboarding: "hasCompletedOnboarding" in user ? user.hasCompletedOnboarding : true,
     titleGenerationMode: global.titleGenerationMode,
     titleGenerationProfileId: global.titleGenerationProfileId,
@@ -218,6 +220,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     confirmExternalLinks: settings.confirmExternalLinks,
     toolCallDisplay: settings.toolCallDisplay,
     defaultView: settings.defaultView,
+    followUpBehavior: settings.followUpBehavior,
     hasCompletedOnboarding: settings.hasCompletedOnboarding,
     titleGenerationMode: settings.titleGenerationMode,
     titleGenerationProfileId: settings.titleGenerationProfileId,

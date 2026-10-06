@@ -42,6 +42,7 @@ describe("onboarding steps", () => {
       "welcome",
       "default-view",
       "tool-display",
+      "follow-up",
       "provider",
       "mcp-server",
       "done"
@@ -50,33 +51,47 @@ describe("onboarding steps", () => {
 
   it("hides admin-only steps from other users", () => {
     const steps = getOnboardingSteps("user");
-    expect(steps).toEqual(["welcome", "default-view", "tool-display", "done"]);
+    expect(steps).toEqual(["welcome", "default-view", "tool-display", "follow-up", "done"]);
     expect(steps).not.toContain("provider");
     expect(steps).not.toContain("mcp-server");
   });
 
   it("numbers only the choice steps", () => {
     const adminSteps = getOnboardingSteps("admin");
-    expect(getOnboardingProgress(adminSteps, "default-view")).toEqual({ current: 1, total: 4 });
-    expect(getOnboardingProgress(adminSteps, "mcp-server")).toEqual({ current: 4, total: 4 });
+    expect(getOnboardingProgress(adminSteps, "default-view")).toEqual({ current: 1, total: 5 });
+    expect(getOnboardingProgress(adminSteps, "mcp-server")).toEqual({ current: 5, total: 5 });
     expect(getOnboardingProgress(adminSteps, "welcome")).toBeNull();
     expect(getOnboardingProgress(adminSteps, "done")).toBeNull();
   });
 
   it("counts non-admin steps out of the shorter total", () => {
     const steps = getOnboardingSteps("user");
-    expect(getOnboardingProgress(steps, "default-view")).toEqual({ current: 1, total: 2 });
-    expect(getOnboardingProgress(steps, "tool-display")).toEqual({ current: 2, total: 2 });
+    expect(getOnboardingProgress(steps, "default-view")).toEqual({ current: 1, total: 3 });
+    expect(getOnboardingProgress(steps, "tool-display")).toEqual({ current: 2, total: 3 });
   });
 
   it("skips the provider step when a provider is already configured", () => {
     const steps = getOnboardingSteps("admin", { hasProviderConfigured: true });
-    expect(steps).toEqual(["welcome", "default-view", "tool-display", "mcp-server", "done"]);
+    expect(steps).toEqual([
+      "welcome",
+      "default-view",
+      "tool-display",
+      "follow-up",
+      "mcp-server",
+      "done"
+    ]);
   });
 
   it("skips the MCP step when an MCP server already exists", () => {
     const steps = getOnboardingSteps("admin", { hasMcpServerConfigured: true });
-    expect(steps).toEqual(["welcome", "default-view", "tool-display", "provider", "done"]);
+    expect(steps).toEqual([
+      "welcome",
+      "default-view",
+      "tool-display",
+      "follow-up",
+      "provider",
+      "done"
+    ]);
   });
 
   it("skips both admin setup steps when both are configured", () => {
@@ -84,18 +99,18 @@ describe("onboarding steps", () => {
       hasProviderConfigured: true,
       hasMcpServerConfigured: true
     });
-    expect(steps).toEqual(["welcome", "default-view", "tool-display", "done"]);
+    expect(steps).toEqual(["welcome", "default-view", "tool-display", "follow-up", "done"]);
   });
 
   it("recomputes progress totals over skipped steps", () => {
     const providerSkipped = getOnboardingSteps("admin", { hasProviderConfigured: true });
-    expect(getOnboardingProgress(providerSkipped, "tool-display")).toEqual({ current: 2, total: 3 });
+    expect(getOnboardingProgress(providerSkipped, "tool-display")).toEqual({ current: 2, total: 4 });
 
     const bothSkipped = getOnboardingSteps("admin", {
       hasProviderConfigured: true,
       hasMcpServerConfigured: true
     });
-    expect(getOnboardingProgress(bothSkipped, "tool-display")).toEqual({ current: 2, total: 2 });
+    expect(getOnboardingProgress(bothSkipped, "tool-display")).toEqual({ current: 2, total: 3 });
   });
 });
 

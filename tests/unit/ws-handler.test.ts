@@ -15,6 +15,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/conversations", () => ({
   getConversationSnapshot: vi.fn(),
+  getConversationOwnerId: vi.fn(() => null),
   getMessage: vi.fn(),
   listActiveConversations: vi.fn(),
   createQueuedMessage: vi.fn(),
