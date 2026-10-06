@@ -188,7 +188,8 @@ describe("buildAnthropicRequest", () => {
       ]
     });
     expect(params.thinking).toEqual({ type: "adaptive" });
-    expect(params.effort).toBe("high");
+    expect(params.output_config).toEqual({ effort: "high" });
+    expect(params.effort).toBeUndefined();
     expect(params.temperature).toBeUndefined();
     expect(params.model).toBe("claude-opus-4-8");
   });
@@ -199,7 +200,7 @@ describe("buildAnthropicRequest", () => {
       messages: [{ role: "user", content: "hi" }]
     });
     expect(params.thinking).toBeUndefined();
-    expect(params.effort).toBeUndefined();
+    expect(params.output_config).toBeUndefined();
     expect(params.temperature).toBe(0.7);
   });
 
@@ -209,7 +210,7 @@ describe("buildAnthropicRequest", () => {
       messages: [{ role: "user", content: "hi" }]
     });
     expect(params.thinking).toBeUndefined();
-    expect(params.effort).toBeUndefined();
+    expect(params.output_config).toBeUndefined();
   });
 
   it("marks the system prompt with cache_control", () => {
