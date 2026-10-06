@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { MAX_SECRET_CHARS, SecretRequestError, submitComputerSecret } from "@/lib/computer-secrets";
+import { MAX_SECRET_CHARS } from "@/lib/constants";
+import { SecretRequestError, submitComputerSecret } from "@/lib/computer-secrets";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
@@ -33,6 +34,6 @@ export async function POST(
     return ok({ action });
   } catch (error) {
     if (error instanceof SecretRequestError) return badRequest(error.message, error.status);
-    return badRequest("Eidon couldn't type it into the bot's browser.", 502);
+    return badRequest("Eidon couldn't type it into the browser.", 502);
   }
 }

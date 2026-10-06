@@ -10,6 +10,7 @@ import { Toast } from "@/components/ui/toast";
 import { fieldLabel, inputLike, selectLike } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 import type { MemoryCategory, UserMemory } from "@/lib/types";
+import { formatRelativeTime } from "@/lib/utils";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -23,22 +24,6 @@ const CATEGORIES: Array<{ value: MemoryCategory | "all"; label: string }> = [
   { value: "location", label: "Location" },
   { value: "other", label: "Other" }
 ];
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
-
-  if (diffSec < 60) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 30) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
-}
 
 export function MemoriesSection() {
   const [memories, setMemories] = useState<UserMemory[]>([]);

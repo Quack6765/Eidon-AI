@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Input } from "@/components/ui/input";
+import { MAX_SECRET_CHARS } from "@/lib/constants";
 import type { MessageTimelineItem, SecretRequestProposalPayload } from "@/lib/types";
 
 type TimelineAction = Extract<MessageTimelineItem, { timelineKind: "action" }>;
@@ -100,14 +101,14 @@ export function SecretRequestCard({
               autoComplete="off"
               autoFocus
               spellCheck={false}
-              maxLength={1000}
+              maxLength={MAX_SECRET_CHARS}
               onChange={(event) => setValue(event.target.value)}
               className="mt-1 h-9 rounded-md border-white/8 bg-black/20 px-2.5 py-0 text-[16px] text-white md:text-[12px]"
             />
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-[11px] leading-5 text-white/60">
             <input type="checkbox" checked={save} onChange={(event) => setSave(event.target.checked)} />
-            Save it for {site} so bots don&apos;t have to ask again
+            Save it in your vault as {payload.label}
           </label>
           <p className="text-[11px] leading-5 text-white/48">
             Eidon types it straight into the page on {payload.origin} and won&apos;t send it to the model.
@@ -135,8 +136,8 @@ export function SecretRequestCard({
       ) : (
         <p className="mt-1.5 text-[11px] leading-5 text-white/48">
           {payload.resolution === "filled"
-            ? `Typed into the page on ${payload.origin}${payload.saved ? " and saved for next time" : ""}.`
-            : `The bot asked for your ${payload.label} on ${payload.origin}.`}
+            ? `Typed into the page on ${payload.origin}${payload.saved ? " and saved in your vault" : ""}.`
+            : `Eidon asked for your ${payload.label} on ${payload.origin}.`}
         </p>
       )}
     </div>

@@ -505,4 +505,54 @@ describe("shell environment scrubbing", () => {
       expect([...SHELL_ENV_ALLOWLIST, ...SHELL_ENV_EXTRA_ALLOWLIST] as readonly string[]).toContain(name);
     }
   });
+
+  it("adds vault secrets to the child environment without letting them replace allowlisted values", async () => {
+    const { buildShellEnv } = await import("@/lib/local-shell");
+    const shellEnv = buildShellEnv(
+      { HOME: "/workspace/home" },
+      { GITHUB_TOKEN: "ghp_secret", PATH: "/evil/bin", HOME: "/evil/home" }
+    );
+
+    expect(shellEnv.GITHUB_TOKEN).toBe("ghp_secret");
+    expect(shellEnv.PATH).toBe(process.env.PATH);
+    expect(shellEnv.HOME).toBe("/workspace/home");
+    expect(buildShellEnv(undefined, { API_KEY: "key" }).API_KEY).toBe("key");
+    expect(buildShellEnv()).not.toHaveProperty("GITHUB_TOKEN");
+  });
+
+  it("passes vault secrets to the spawned command", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "printenv MY_TOKEN",
+      env: { AGENT_BROWSER_SESSION: "probe" },
+      secretEnv: { MY_TOKEN: "vault-value" }
+    });
+
+    const childEnv = spawnMock.mock.calls[0][2].env as Record<string, string>;
+    expect(childEnv.MY_TOKEN).toBe("vault-value");
+    expect(childEnv.AGENT_BROWSER_SESSION).toBe("probe");
+    child.emit("close", 0);
+    await resultPromise;
+  });
+
+  it("lets a real shell command read a vault secret by its variable", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { spawn } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    spawnMock.mockImplementation(spawn);
+    vi.stubEnv("SHELL", "/bin/sh");
+    try {
+      const result = await executeLocalShellCommand({
+        command: 'printf %s "$MY_TOKEN"',
+        secretEnv: { MY_TOKEN: "s3cr3t value" }
+      });
+
+      expect(result).toMatchObject({ exitCode: 0, isError: false });
+      expect(result.stdout).toBe("s3cr3t value");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

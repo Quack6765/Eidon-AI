@@ -19,7 +19,7 @@ const WORTH_OFFERING =
   "Some facts are worth remembering precisely because they stay true and matter later: birthdays and important dates, things the user dislikes or is annoyed by, favourite things, allergies and dietary needs, family and relationships, and constraints they work around (hardware, tools, health, schedule). Whenever the user mentions one of these, offer to remember it — these already pass both tests, so they are the cases where you should be proactive rather than hesitant.";
 
 const NEVER_SAVE =
-  "Never propose a memory for: current task state (files, branches, commands, errors, next steps); one-off requests that apply only here; a recap of this conversation; or secrets such as passwords, API keys, and tokens unless the user explicitly asks you to remember them. Proposing nothing is the normal outcome — most turns need no memory call, and do not mention memory in a reply that proposes nothing.";
+  "Never propose a memory for: current task state (files, branches, commands, errors, next steps); one-off requests that apply only here; a recap of this conversation; or secrets such as passwords, API keys, and tokens, which belong in the vault through save_secret instead. Proposing nothing is the normal outcome — most turns need no memory call, and do not mention memory in a reply that proposes nothing.";
 
 const DURABLE_FACT_EXAMPLES =
   "name, location, timezone, language, profession or role, long-running projects and goals (what they are, not their implementation details), skills, and stable preferences (how they like things done, formatting, tools, or communication style)";

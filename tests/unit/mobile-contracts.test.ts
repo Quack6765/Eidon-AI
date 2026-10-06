@@ -19,6 +19,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_RESEARCH_PLAN_STEPS,
   MAX_RESEARCH_PLAN_STEP_CHARS,
+  MAX_SECRET_CHARS,
   MOBILE_API_MINIMUM_SERVER_VERSION
 } from "@/lib/constants";
 import {
@@ -488,8 +489,8 @@ describe("Mobile API v1 contracts", () => {
         }
       }
     });
-    expect(compileOpenApiJsonRequestBodies()).toBe(56);
-    expect(compileOpenApiJsonResponses()).toBe(221);
+    expect(compileOpenApiJsonRequestBodies()).toBe(58);
+    expect(compileOpenApiJsonResponses()).toBe(230);
   });
 
   it("widens the image generation enums for GPT Image 2.5", () => {
@@ -728,6 +729,16 @@ describe("Mobile API v1 contracts", () => {
     expect(openApi.components.schemas.McpStdioServerDraft.properties?.env).toMatchObject({
       writeOnly: true
     });
+    for (const [schema, property] of [
+      ["SecretFillRequest", "value"],
+      ["VaultEntryCreateRequest", "secret"],
+      ["VaultEntryUpdateRequest", "secret"]
+    ]) {
+      expect(openApi.components.schemas[schema].properties?.[property]).toMatchObject({
+        writeOnly: true,
+        maxLength: MAX_SECRET_CHARS
+      });
+    }
   });
 
   it("packages the exact contract files in pull-request and release workflows", () => {

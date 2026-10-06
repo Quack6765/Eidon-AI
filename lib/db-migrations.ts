@@ -59,6 +59,58 @@ function migrateBotAvatarsTable(db: Database.Database) {
   db.exec(BOT_AVATARS_TABLE_SQL);
 }
 
+function savedLoginHost(origin: string) {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
+}
+
+function migrateSavedLoginsToVault(db: Database.Database) {
+  if (!tableExists(db, "saved_logins")) return;
+  const rows = db
+    .prepare(
+      "SELECT id, user_id, origin, label, secret_encrypted, created_at, updated_at, last_used_at FROM saved_logins ORDER BY created_at"
+    )
+    .all() as Array<{
+    id: string;
+    user_id: string;
+    origin: string;
+    label: string;
+    secret_encrypted: string;
+    created_at: string;
+    updated_at: string;
+    last_used_at: string | null;
+  }>;
+  const takenNames = new Map<string, Set<string>>();
+  const namesFor = (userId: string) => {
+    let names = takenNames.get(userId);
+    if (!names) {
+      const existing = db.prepare("SELECT name FROM vault_entries WHERE user_id = ?").all(userId) as Array<{ name: string }>;
+      names = new Set(existing.map((row) => row.name.toLowerCase()));
+      takenNames.set(userId, names);
+    }
+    return names;
+  };
+  const insert = db.prepare(
+    `INSERT INTO vault_entries (id, user_id, name, origin, secret_encrypted, created_at, updated_at, last_used_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  db.transaction(() => {
+    for (const row of rows) {
+      const names = namesFor(row.user_id);
+      const base = `${savedLoginHost(row.origin)} ${row.label}`.slice(0, 90);
+      let name = base;
+      for (let copy = 2; names.has(name.toLowerCase()); copy += 1) name = `${base} (${copy})`;
+      names.add(name.toLowerCase());
+      insert.run(row.id, row.user_id, name, row.origin, row.secret_encrypted, row.created_at, row.updated_at, row.last_used_at);
+    }
+    db.exec("DROP TABLE saved_logins");
+  })();
+}
+
 function tableExists(db: Database.Database, tableName: string) {
   return Boolean(
     db
@@ -1143,16 +1195,18 @@ export function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
       ON tool_approval_rules (user_id, scope, family);
-    CREATE TABLE IF NOT EXISTS saved_logins (
+    CREATE TABLE IF NOT EXISTS vault_entries (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      origin TEXT NOT NULL,
-      label TEXT NOT NULL COLLATE NOCASE,
+      name TEXT NOT NULL COLLATE NOCASE,
+      origin TEXT,
+      username TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
       secret_encrypted TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_used_at TEXT,
-      UNIQUE (user_id, origin, label),
+      UNIQUE (user_id, name),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS automations (
@@ -1240,6 +1294,8 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
     );
   `);
+
+  migrateSavedLoginsToVault(db);
 
   if (needsLegacySettingsMigration) {
     db.exec(`

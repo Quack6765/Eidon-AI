@@ -289,12 +289,12 @@ describe("computer hand-off", () => {
     };
 
     const asked = executeToolCall(
-      { id: "call_secret", name: "request_secret", arguments: JSON.stringify({ label: "password", origin: "https://example.com/login", target: "#pw", replace_saved: true }) },
+      { id: "call_secret", name: "request_secret", arguments: JSON.stringify({ name: "Example password", origin: "https://example.com/login", target: "#pw", replace_saved: true }) },
       context
     );
     await flush();
     const card = getDb().prepare("SELECT proposal_payload_json FROM message_actions WHERE id = ?").get(started[0]) as { proposal_payload_json: string };
-    expect(JSON.parse(card.proposal_payload_json)).toMatchObject({ origin: "https://example.com", target: "#pw", save: true });
+    expect(JSON.parse(card.proposal_payload_json)).toMatchObject({ label: "Example password", origin: "https://example.com", target: "#pw", save: true });
     declineComputerSecret(started[0], user.id);
     expect(JSON.stringify((await asked).promptMessages.at(-1))).toContain("declined");
 

@@ -118,15 +118,15 @@ export function ComputerStage({
           You&apos;re in control
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-white/45">
-          {url ? `${url} · the bot can't use the browser until you return control` : "The bot can't use the browser until you return control"}
+          {url ? `${url} · Eidon can't use the browser until you return control` : "Eidon can't use the browser until you return control"}
         </span>
         {askForNote ? (
           <input
             value={note}
             onChange={(event) => setNote(event.target.value)}
             maxLength={1000}
-            placeholder="Note for the bot (optional)"
-            aria-label="Note for the bot"
+            placeholder="Note for Eidon (optional)"
+            aria-label="Note for Eidon"
             className="h-9 w-full rounded-md border border-white/8 bg-white/[0.03] px-3 text-[16px] text-white placeholder:text-white/30 focus:border-white/20 focus:outline-none md:w-64 md:text-[12px]"
           />
         ) : null}
