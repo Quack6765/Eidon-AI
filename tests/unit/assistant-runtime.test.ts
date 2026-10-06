@@ -1279,6 +1279,127 @@ Run browser commands.`
     expect(String(toolResults[1].content)).toContain("shell ok");
   });
 
+  it("batches neighbouring read-only calls around a state-changing call and keeps call order", async () => {
+    const events: string[] = [];
+    let releaseFirstBatch: () => void = () => {};
+    const firstBatchGate = new Promise<void>((resolve) => {
+      releaseFirstBatch = resolve;
+    });
+    readWebPage.mockImplementation(async ({ url }: { url: string }) => {
+      events.push(`start ${url}`);
+      if (url !== "https://c.example/") await firstBatchGate;
+      events.push(`end ${url}`);
+      return `page ${url}`;
+    });
+    localShellMocks.executeLocalShellCommand.mockImplementation(async () => {
+      events.push("shell");
+      return { stdout: "ok", stderr: "", exitCode: 0, timedOut: false, isError: false };
+    });
+
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            { id: "call_1", name: "read_page", arguments: JSON.stringify({ url: "https://a.example/" }) },
+            { id: "call_2", name: "read_page", arguments: JSON.stringify({ url: "https://b.example/" }) },
+            { id: "call_3", name: "execute_shell_command", arguments: JSON.stringify({ command: "echo hi" }) },
+            { id: "call_4", name: "read_page", arguments: JSON.stringify({ url: "https://c.example/" }) }
+          ],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const runPromise = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "read, run, read" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({ webSearch: { providerId: "disabled" } }),
+      onEvent: () => {},
+      onActionStart: () => "act_batch"
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(events).toEqual(["start https://a.example/", "start https://b.example/"]);
+
+    releaseFirstBatch();
+    await runPromise;
+
+    expect(events.slice(2)).toEqual([
+      "end https://a.example/",
+      "end https://b.example/",
+      "shell",
+      "start https://c.example/",
+      "end https://c.example/"
+    ]);
+
+    const followUpMessages = streamProviderResponse.mock.calls[1][0].promptMessages as Array<{
+      role: string;
+      toolCallId?: string;
+    }>;
+    expect(
+      followUpMessages.filter((message) => message.role === "tool").map((message) => message.toolCallId)
+    ).toEqual(["call_1", "call_2", "call_3", "call_4"]);
+  });
+
+  it("loads a skill once when the same load_skill call is made twice in one step", async () => {
+    const skill = createSkill();
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            { id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) },
+            { id: "call_2", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }
+          ],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const actionLabels: string[] = [];
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "load the release notes skill" }],
+      skills: [skill],
+      mcpToolSets: [],
+      appSettings: createAppSettings({ skillsEnabled: true }),
+      onEvent: () => {},
+      onActionStart: async (action) => {
+        actionLabels.push(action.label);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return "act_skill";
+      }
+    });
+
+    expect(actionLabels).toEqual(["Load skill"]);
+    const toolResults = (
+      streamProviderResponse.mock.calls[1][0].promptMessages as Array<{ role: string; content: unknown }>
+    ).filter((message) => message.role === "tool");
+    expect(String(toolResults[0].content)).toContain("Skill loaded: Release Notes");
+    expect(toolResults[1].content).toBe("This skill is already loaded.");
+  });
+
   it("tells the model to answer now after a successful web search", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
