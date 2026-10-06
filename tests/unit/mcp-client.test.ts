@@ -222,6 +222,40 @@ describe("MCP client", () => {
     });
   });
 
+  it("shares one connection between concurrent callers for the same server", async () => {
+    nextCallToolResult = { content: [{ type: "text", text: "ok" }] };
+
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    await Promise.all([
+      callMcpTool(server, "search", {}),
+      callMcpTool(server, "search", {}),
+      callMcpTool(server, "search", {})
+    ]);
+
+    expect(httpTransportInstances).toHaveLength(1);
+    expect(clientInstances).toHaveLength(1);
+    expect(clientInstances[0].connect).toHaveBeenCalledTimes(1);
+    expect(clientInstances[0].callTool).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a failed connection instead of caching the rejection", async () => {
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    nextConnectError = new Error("connect failed");
+    const failed = await callMcpTool(server, "search", {});
+    expect(failed.isError).toBe(true);
+
+    nextConnectError = null;
+    nextCallToolResult = { content: [{ type: "text", text: "ok" }] };
+    const recovered = await callMcpTool(server, "search", {});
+
+    expect(recovered.content[0]?.text).toBe("ok");
+    expect(clientInstances).toHaveLength(2);
+  });
+
   it("tests streamable HTTP connections and reports negotiated session details", async () => {
     nextListToolsResult = {
       tools: [

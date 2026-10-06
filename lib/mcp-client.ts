@@ -163,6 +163,7 @@ type ConnectedMcpClient = {
 };
 
 const connectedClients = new Map<string, ConnectedMcpClient>();
+const pendingConnections = new Map<string, Promise<ConnectedMcpClient>>();
 
 function getServerKey(server: McpServer) {
   return JSON.stringify({
@@ -339,9 +340,21 @@ export async function getConnectedClient(server: McpServer, abortSignal?: AbortS
     return existing;
   }
 
-  const connection = await createConnectedClient(server, abortSignal);
-  connectedClients.set(key, connection);
-  return connection;
+  const pending = pendingConnections.get(key);
+  if (pending) {
+    return pending;
+  }
+
+  const connecting = createConnectedClient(server, abortSignal)
+    .then((connection) => {
+      connectedClients.set(key, connection);
+      return connection;
+    })
+    .finally(() => {
+      pendingConnections.delete(key);
+    });
+  pendingConnections.set(key, connecting);
+  return connecting;
 }
 
 const MCP_TERMINATE_SESSION_TIMEOUT_MS = 5_000;
