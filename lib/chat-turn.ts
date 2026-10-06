@@ -663,10 +663,7 @@ async function startAssistantTurn(
       content: await contentPersistence?.finalize(providerResult.answer) ?? "",
       thinkingContent: providerResult.thinking,
       status: "completed",
-      estimatedTokens:
-        (providerResult.usage.inputTokens ?? 0) +
-        (providerResult.usage.outputTokens ?? 0) +
-        (providerResult.usage.reasoningTokens ?? 0)
+      estimatedTokens: estimateTextTokens(`${providerResult.answer}\n${providerResult.thinking ?? ""}`)
     });
 
     deleteFailedAssistantMessages(conversation.id);
