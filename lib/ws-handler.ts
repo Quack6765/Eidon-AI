@@ -7,6 +7,7 @@ import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import {
   deleteQueuedMessage,
+  getConversation,
   getConversationOwnerId,
   getConversationSnapshot,
   getMessage,
@@ -438,7 +439,7 @@ function handleMessage(
       break;
     }
     case "stop": {
-      if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
+      if (!getConversation(msg.conversationId, currentUserId)) {
         sendError(ws, "Conversation not found", "not_found", versioned);
         break;
       }
@@ -537,7 +538,7 @@ function ensureConversationAccess(
   currentUserId: string,
   versioned = false
 ) {
-  if (!getConversationSnapshot(conversationId, currentUserId)) {
+  if (!getConversation(conversationId, currentUserId)) {
     sendError(ws, "Conversation not found", "not_found", versioned);
     return false;
   }
@@ -579,7 +580,7 @@ async function handleUserMessage(
   currentUserId: string,
   versioned = false
 ) {
-  if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
+  if (!getConversation(msg.conversationId, currentUserId)) {
     sendError(ws, "Conversation not found", "not_found", versioned);
     return;
   }

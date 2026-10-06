@@ -241,9 +241,7 @@ export async function* streamOpenAiCompatibleResponse(
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
-  } = {
-    inputTokens: estimatePromptTokens(contextualPromptMessages)
-  };
+  } = {};
 
   if (getProviderApiMode(settings) === "responses") {
     const reasoning = buildReasoningConfig(settings);
@@ -351,6 +349,8 @@ export async function* streamOpenAiCompatibleResponse(
     } finally {
       if (!abortController.signal.aborted) abortController.abort();
     }
+
+    usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
 
     yield {
       type: "usage",
@@ -475,6 +475,8 @@ export async function* streamOpenAiCompatibleResponse(
     yield { type: "answer_delta", text: answerTail };
   }
   answer = answerInterceptor.answer;
+
+  usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
 
   yield {
     type: "usage",
