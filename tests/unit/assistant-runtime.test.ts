@@ -766,7 +766,7 @@ ${JSON.stringify({
     expect((webSearchTool.function.parameters!.properties as Record<string, unknown>)).not.toHaveProperty("queries");
   });
 
-  it("fans a single web search out into parallel sub-queries via the planner", async () => {
+  it("fans a single web search out into parallel sub-queries via the planner in always mode", async () => {
     callProviderText.mockResolvedValueOnce(
       '{"action":"fan_out","subqueries":["vision pro price","vision pro review 2026"]}'
     );
@@ -800,7 +800,7 @@ ${JSON.stringify({
       appSettings: createAppSettings({
         webSearch: {
           providerId: "searxng",
-          configuration: { baseUrl: "https://search.example.com" }
+          configuration: { baseUrl: "https://search.example.com", pipeline: { mode: "always", maxQueries: 4 } }
         }
       }),
       onEvent: () => {},

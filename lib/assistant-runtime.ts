@@ -105,8 +105,7 @@ function buildCapabilitiesStableSegment(
       "topics you are uncertain about, or when the user explicitly requests a search.",
       ...(parallelWebSearch
         ? [
-            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel.",
-            "A single complex query is automatically decomposed into parallel sub-queries, so one call is usually enough."
+            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel, so one call is usually enough."
           ]
         : [
             "If you can answer confidently and accurately from your training data, do so without searching."
