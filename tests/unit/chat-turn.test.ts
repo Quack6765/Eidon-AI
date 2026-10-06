@@ -250,6 +250,53 @@ describe("chat-turn", () => {
     expect(assistantMsg?.status).toBe("error");
   });
 
+  it("reports a user wait only when the first approval opens and the last one resolves", async () => {
+    const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
+      toolApproval?: { onWaitChange?: (waiting: boolean) => Promise<void> | void };
+    }) => {
+      await input.toolApproval?.onWaitChange?.(true);
+      await input.toolApproval?.onWaitChange?.(true);
+      await input.toolApproval?.onWaitChange?.(false);
+      await input.toolApproval?.onWaitChange?.(false);
+      return { answer: "done", thinking: "", usage: {} };
+    });
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn
+    }));
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateProviderCatalog } = await import("@/lib/settings");
+
+      const manager = createConversationManager();
+
+      const { profileId, profile } = setupProviderProfile();
+      updateProviderCatalog({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      const waits: boolean[] = [];
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      await startChatTurn(manager, conv.id, "Hi", [], undefined, {
+        onUserWait: (waiting) => {
+          waits.push(waiting);
+        }
+      });
+
+      expect(waits).toEqual([true, false]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      vi.resetModules();
+    }
+  });
+
   it("marks started actions as error when the runtime fails after starting them", async () => {
     const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
       onActionStart?: (action: {

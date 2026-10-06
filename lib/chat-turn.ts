@@ -338,11 +338,14 @@ async function startAssistantTurn(
     manager.broadcast(conversationId, { type: "delta", conversationId, event });
     globalEmitter.emit("delta", conversationId, event);
   };
+  let pendingUserWaits = 0;
   const toolApproval: ToolApprovalContext = {
     userId: conversationOwnerId ?? null,
     unattended: !bot && Boolean(options?.unattended),
     timeoutMs: bot && options?.unattended ? UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS : undefined,
     async onWaitChange(waiting) {
+      pendingUserWaits += waiting ? 1 : -1;
+      if (pendingUserWaits !== (waiting ? 1 : 0)) return;
       if (waiting) setTurnWaitingForUser(conversationId, true);
       await options?.onUserWait?.(waiting);
       if (!waiting) setTurnWaitingForUser(conversationId, false);
