@@ -32,7 +32,8 @@ vi.mock("@/lib/compaction", () => ({
   getConversationContextUsage: vi.fn().mockReturnValue({
     contextTokens: 512,
     compactionLimit: 8192
-  })
+  }),
+  startBackgroundCompaction: vi.fn().mockResolvedValue({ didCompact: false })
 }));
 
 vi.mock("@/lib/conversation-title-generator", () => ({
@@ -586,6 +587,43 @@ describe("chat-turn", () => {
     expect(assistant?.status).toBe("stopped");
     expect(assistant?.content).toContain("Partial");
     vi.useRealTimers();
+  });
+
+  it("discovers MCP tools while context compaction is still running", async () => {
+    const { gatherAllMcpTools } = await import("@/lib/mcp-client");
+    const { ensureCompactedContext } = await import("@/lib/compaction");
+    const { streamProviderResponse } = await import("@/lib/provider");
+    vi.mocked(gatherAllMcpTools).mockClear();
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createMcpServer } = await import("@/lib/mcp-servers");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    createMcpServer({ name: "Parallel discovery", url: "https://mcp.example.com" });
+    const conversation = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    let gatherCalledDuringCompaction = false;
+    vi.mocked(ensureCompactedContext).mockImplementationOnce(async () => {
+      await vi.waitFor(() => expect(gatherAllMcpTools).toHaveBeenCalled());
+      gatherCalledDuringCompaction = true;
+      return { promptMessages: [], promptTokens: 0, didCompact: false };
+    });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(createConversationManager(), conversation.id, "Hi", []);
+
+    expect(gatherCalledDuringCompaction).toBe(true);
   });
 
   it("persists MCP discovery aborts caused by Stop as stopped instead of failed", async () => {
@@ -2645,6 +2683,135 @@ describe("chat-turn", () => {
     expect(contextEvent).toBeTruthy();
     expect(typeof contextEvent!.contextTokens).toBe("number");
     expect(typeof contextEvent!.compactionLimit).toBe("number");
+  });
+
+  async function runTurnWithContextUsage(usage: { contextTokens: number; compactionLimit: number }) {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+
+    const manager = createConversationManager();
+    const sent: Array<{ type: string; event?: { type: string } }> = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+    manager.subscribe(conv.id, mockWs);
+
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+    vi.mocked(getConversationContextUsage).mockReturnValue(usage);
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+    return { sent, conversationId: conv.id };
+  }
+
+  it("does not start background compaction when the turn ends under the compaction limit", async () => {
+    const { startBackgroundCompaction } = await import("@/lib/compaction");
+    vi.mocked(startBackgroundCompaction).mockClear();
+
+    await runTurnWithContextUsage({ contextTokens: 512, compactionLimit: 8192 });
+
+    expect(startBackgroundCompaction).not.toHaveBeenCalled();
+  });
+
+  it("compacts in the background after the turn ends above the compaction limit", async () => {
+    const { startBackgroundCompaction, getConversationContextUsage } = await import("@/lib/compaction");
+    vi.mocked(startBackgroundCompaction).mockClear();
+    vi.mocked(startBackgroundCompaction).mockImplementationOnce(async (_id, _settings, hooks) => {
+      hooks?.onCompactionStart?.();
+      hooks?.onCompactionEnd?.();
+      return { promptMessages: [], promptTokens: 0, didCompact: true };
+    });
+
+    const { sent, conversationId } = await runTurnWithContextUsage({ contextTokens: 9000, compactionLimit: 8192 });
+    await vi.waitFor(() => {
+      expect(
+        sent.filter((message) => message.event?.type === "context_usage")
+      ).toHaveLength(2);
+    });
+
+    expect(startBackgroundCompaction).toHaveBeenCalledWith(
+      conversationId,
+      expect.anything(),
+      expect.any(Object),
+      undefined,
+      expect.any(Boolean),
+      expect.anything(),
+      undefined,
+      undefined,
+      undefined
+    );
+    const eventTypes = sent.map((message) => message.event?.type);
+    expect(eventTypes).toContain("compaction_start");
+    expect(eventTypes).toContain("compaction_end");
+    vi.mocked(getConversationContextUsage).mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("logs a background compaction failure without failing the turn", async () => {
+    const { startBackgroundCompaction } = await import("@/lib/compaction");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(startBackgroundCompaction).mockRejectedValueOnce(new Error("compaction broke"));
+
+    await runTurnWithContextUsage({ contextTokens: 9000, compactionLimit: 8192 });
+
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith("Background compaction failed", expect.any(Error));
+    });
+    consoleError.mockRestore();
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+    vi.mocked(getConversationContextUsage).mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("releases the turn before computing the post-turn context usage", async () => {
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+    const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
+    let claimableDuringUsage: boolean | null = null;
+    vi.mocked(getConversationContextUsage).mockImplementation((conversationId: string) => {
+      const claim = claimChatTurnStart(conversationId);
+      claimableDuringUsage = claim.ok;
+      if (claim.ok) releaseChatTurnStart(conversationId, claim.control);
+      return { contextTokens: 512, compactionLimit: 8192 };
+    });
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(createConversationManager(), conv.id, "Hi", []);
+
+    expect(claimableDuringUsage).toBe(true);
+    vi.mocked(getConversationContextUsage).mockReset().mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
   });
 
   it("does not broadcast context_usage when usage is unavailable", async () => {
