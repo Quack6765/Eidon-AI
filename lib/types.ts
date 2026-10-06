@@ -845,6 +845,7 @@ export type PromptMessage = {
   responseItems?: ProviderResponseItem[];
   reasoningContent?: string;
   reasoningSignature?: string;
+  volatile?: boolean;
 };
 
 export type ToolDefinition = {

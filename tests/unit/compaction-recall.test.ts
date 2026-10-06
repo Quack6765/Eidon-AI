@@ -30,7 +30,10 @@ const roomyProfile = {
 };
 
 function systemText(messages: ReturnType<typeof buildPromptMessages>) {
-  return messages[0].content as string;
+  return messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content as string)
+    .join("\n");
 }
 
 describe("memory selection in prompts", () => {
@@ -75,7 +78,7 @@ describe("memory selection in prompts", () => {
     const settings = createRuntimeProviderProfile(roomyProfile);
 
     const result = await ensureCompactedContext(conversation.id, settings, {}, undefined, true, "balanced");
-    const text = result.promptMessages[0].content as string;
+    const text = systemText(result.promptMessages);
 
     expect(selectMemoriesForPrompt).toHaveBeenCalledWith(user.id, undefined, "What do you remember?");
     expect(text).toContain("Fact 1");
@@ -94,13 +97,13 @@ describe("memory selection in prompts", () => {
 
     selectMemoriesForPrompt.mockResolvedValue(null);
     const unavailable = await ensureCompactedContext(conversation.id, settings, {}, undefined, true, "balanced");
-    expect(unavailable.promptMessages[0].content).toContain("Fact A");
-    expect(unavailable.promptMessages[0].content).toContain("Fact B");
+    expect(systemText(unavailable.promptMessages)).toContain("Fact A");
+    expect(systemText(unavailable.promptMessages)).toContain("Fact B");
     expect(unavailable.memoriesUsed).toBeUndefined();
 
     selectMemoriesForPrompt.mockRejectedValue(new Error("boom"));
     const failed = await ensureCompactedContext(conversation.id, settings, {}, undefined, true, "balanced");
-    expect(failed.promptMessages[0].content).toContain("Fact A");
+    expect(systemText(failed.promptMessages)).toContain("Fact A");
 
     selectMemoriesForPrompt.mockClear();
     await ensureCompactedContext(conversation.id, settings, {}, undefined, false, "balanced");

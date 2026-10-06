@@ -87,7 +87,8 @@ describe("bot-scoped memories", () => {
       activeMemoryNodes: []
     });
 
-    const system = prompt[0];
+    expect(prompt[0].role).toBe("system");
+    const system = prompt.at(-1)!;
     expect(system.role).toBe("system");
     const content = typeof system.content === "string" ? system.content : "";
     expect(content).toContain("<memory>");

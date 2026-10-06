@@ -184,7 +184,7 @@ describe("workspace skills in chat turns", () => {
     expect(toolNames(tools)).toContain("skill_manage");
 
     const loadSkill = tools.find((tool) => tool.function.name === "load_skill");
-    expect(loadSkill?.function.description).toContain("incident-notes");
+    expect(loadSkill?.function.description).not.toContain("incident-notes");
 
     const trailing = promptMessages.at(-1);
     expect(trailing?.role).toBe("user");
@@ -273,7 +273,7 @@ describe("workspace skills in chat turns", () => {
     expect(trailingText).toContain("google-maps-navigation (shared)");
 
     const loadSkill = tools.find((tool) => tool.function.name === "load_skill");
-    expect(loadSkill?.function.description).toContain("google-maps-navigation");
+    expect(loadSkill?.function.description).not.toContain("google-maps-navigation");
   });
 
   it("does not offer skill_manage for non-bot conversations", async () => {

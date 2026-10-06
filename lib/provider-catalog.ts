@@ -355,6 +355,10 @@ function normalizeApiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "").toLowerCase();
 }
 
+export function isOfficialOpenAiApiBaseUrl(apiBaseUrl: string) {
+  return normalizeApiBaseUrl(apiBaseUrl) === "https://api.openai.com/v1";
+}
+
 export function isOpenCodeGoApiBaseUrl(apiBaseUrl: string) {
   return normalizeApiBaseUrl(apiBaseUrl).startsWith("https://opencode.ai/zen/go");
 }

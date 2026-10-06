@@ -145,7 +145,7 @@ describe("conversation research route", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
     });
-    const systemPrompt = String(vi.mocked(streamProviderResponse).mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(vi.mocked(streamProviderResponse).mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Find pages\n2. Compare");
     const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");

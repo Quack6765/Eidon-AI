@@ -1,5 +1,7 @@
 import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { isOfficialOpenAiApiBaseUrl } from "@/lib/provider-catalog";
 import {
+  getProviderApiBaseUrl,
   getProviderApiKey,
   getProviderApiMode,
   resolveProviderProfileCapabilities
@@ -153,6 +155,12 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
+function buildPromptCacheParameters(settings: ProviderProfile, conversationId?: string) {
+  return conversationId && isOfficialOpenAiApiBaseUrl(getProviderApiBaseUrl(settings))
+    ? { prompt_cache_key: conversationId }
+    : {};
+}
+
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
   const profile = LOW_EFFORT_PURPOSES.has(input.purpose)
@@ -241,6 +249,7 @@ export async function* streamOpenAiCompatibleResponse(
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
+    cacheReadTokens?: number;
   } = {};
 
   if (getProviderApiMode(settings) === "responses") {
@@ -252,7 +261,8 @@ export async function* streamOpenAiCompatibleResponse(
       stream: true,
       max_output_tokens: settings.maxOutputTokens,
       reasoning,
-      ...buildRequestParameters(settings)
+      ...buildRequestParameters(settings),
+      ...buildPromptCacheParameters(settings, input.conversationId)
     };
 
     if (input.tools?.length) {
@@ -300,7 +310,8 @@ export async function* streamOpenAiCompatibleResponse(
           usage = {
             inputTokens: event.response.usage.input_tokens ?? 0,
             outputTokens: event.response.usage.output_tokens ?? 0,
-            reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
+            reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens,
+            cacheReadTokens: event.response.usage.input_tokens_details?.cached_tokens
           };
         }
 
@@ -356,7 +367,8 @@ export async function* streamOpenAiCompatibleResponse(
       type: "usage",
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      reasoningTokens: usage.reasoningTokens
+      reasoningTokens: usage.reasoningTokens,
+      cacheReadTokens: usage.cacheReadTokens
     };
 
     const toolCalls = [...pendingToolCalls].map(([id, call]) => ({
@@ -379,8 +391,13 @@ export async function* streamOpenAiCompatibleResponse(
     stream: true,
     max_completion_tokens: settings.maxOutputTokens,
     ...buildChatCompletionsOptions(settings),
-    ...buildRequestParameters(settings)
+    ...buildRequestParameters(settings),
+    ...buildPromptCacheParameters(settings, input.conversationId)
   };
+
+  if (isOfficialOpenAiApiBaseUrl(getProviderApiBaseUrl(settings))) {
+    chatCreateParams.stream_options = { include_usage: true };
+  }
 
   if (input.tools?.length) {
     chatCreateParams.tools = input.tools;
@@ -449,7 +466,8 @@ export async function* streamOpenAiCompatibleResponse(
       if (chunk.usage) {
         usage = {
           inputTokens: chunk.usage.prompt_tokens,
-          outputTokens: chunk.usage.completion_tokens
+          outputTokens: chunk.usage.completion_tokens,
+          cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens
         };
       }
     }
@@ -481,7 +499,8 @@ export async function* streamOpenAiCompatibleResponse(
   yield {
     type: "usage",
     inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens
   };
 
   const toolCalls: ProviderToolCall[] = [];

@@ -21,6 +21,13 @@ import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/s
 import { createMemory, deleteMemory } from "@/lib/memories";
 import { createLocalUser } from "@/lib/users";
 import type { Message, MessageAction, MessageAttachment, PromptMessage } from "@/lib/types";
+
+function allSystemText(messages: PromptMessage[]) {
+  return messages
+    .filter((message) => message.role === "system")
+    .map((message) => String(message.content))
+    .join("\n");
+}
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 vi.mock("@/lib/provider", async () => {
@@ -1671,11 +1678,13 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput(userA.id));
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).toContain("<memory>");
     expect(systemContent).toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
     expect(systemContent).toContain("create_memory");
+    expect(result[0].content).not.toContain("<memory>");
+    expect(result.at(-1)).toEqual({ role: "system", content: expect.stringContaining("<memory>") });
   });
 
   it("injects zero memories when memoryUserId is null and multiple users have memories", async () => {
@@ -1683,7 +1692,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput(null));
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1694,7 +1703,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput());
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1732,7 +1741,7 @@ describe("buildPromptMessages with memories", () => {
       true
     );
 
-    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    const systemContent = allSystemText(result.promptMessages);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1758,7 +1767,7 @@ describe("buildPromptMessages with memories", () => {
       true
     );
 
-    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    const systemContent = allSystemText(result.promptMessages);
     expect(systemContent).toContain("<memory>");
     expect(systemContent).toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1787,7 +1796,7 @@ describe("buildPromptMessages with memories", () => {
         memoriesEnabled: false
       });
 
-      const systemContent = result[0].content as string;
+      const systemContent = allSystemText(result);
       expect(systemContent).not.toContain("<memory>");
       expect(systemContent).not.toContain("create_memory");
     } finally {
@@ -1816,7 +1825,7 @@ describe("buildPromptMessages with memories", () => {
       memoriesEnabled: true
     });
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).toContain("create_memory");
     expect(systemContent).toContain("Proactively capture");
