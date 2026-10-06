@@ -5,7 +5,8 @@ import {
   estimateContextUsage,
   getConversationContextUsage,
   getConversationDebugStats,
-  MAX_TOOL_RESULT_CHARS
+  MAX_TOOL_RESULT_CHARS,
+  startBackgroundCompaction
 } from "@/lib/compaction";
 import {
   buildOpenAIChatCompletionMessages,
@@ -720,6 +721,49 @@ describe("lossless compaction", () => {
     expect(assistantMessages).toHaveLength(1);
     expect(getPromptText(assistantMessages[0]!)).toBe("Proceed with the rollout.");
     expect(getPromptText(assistantMessages[0]!)).not.toContain("Internal reasoning");
+  });
+
+  it("compacts in the background and lets the next turn reuse the result", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4352,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+    for (let index = 0; index < 45; index += 1) {
+      const message = createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(220)}`
+      });
+      getDb()
+        .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+        .run(new Date(Date.UTC(2026, 3, 10, 19, 0, index)).toISOString(), message.id);
+    }
+
+    const settings = getDefaultRuntimeProviderProfile()!;
+    const hooks = { onCompactionStart: vi.fn(), onCompactionEnd: vi.fn() };
+    const background = startBackgroundCompaction(conversation.id, settings, hooks);
+    expect(startBackgroundCompaction(conversation.id, settings)).toBe(background);
+
+    const nextTurn = ensureCompactedContext(conversation.id, settings);
+    const [backgroundResult, nextTurnResult] = await Promise.all([background, nextTurn]);
+
+    expect(backgroundResult.didCompact).toBe(true);
+    expect(nextTurnResult.didCompact).toBe(false);
+    expect(hooks.onCompactionStart).toHaveBeenCalledTimes(1);
+    expect(hooks.onCompactionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the next turn proceed when background compaction fails", async () => {
+    const conversation = createConversation();
+    const failing = startBackgroundCompaction(conversation.id, {} as never);
+    await expect(failing).rejects.toBeTruthy();
+    await expect(ensureCompactedContext(conversation.id, {} as never)).rejects.toBeTruthy();
   });
 
   it("does not compact an unmatched trailing user message out of visible history", async () => {

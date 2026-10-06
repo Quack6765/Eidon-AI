@@ -273,9 +273,7 @@ export async function* streamAnthropicResponse(input: {
   let answer = "";
   let thinking = "";
   let reasoningSignature: string | undefined;
-  const usage: AnthropicStreamResult["usage"] = {
-    inputTokens: estimatePromptTokens(input.promptMessages)
-  };
+  const usage: AnthropicStreamResult["usage"] = {};
   const toolUseBlocks = new Map<number, { id: string; name: string; json: string }>();
 
   const stream = client.messages.stream(
@@ -291,7 +289,7 @@ export async function* streamAnthropicResponse(input: {
           (startUsage.input_tokens ?? 0) +
           (startUsage.cache_read_input_tokens ?? 0) +
           (startUsage.cache_creation_input_tokens ?? 0);
-        usage.inputTokens = Math.max(reportedInputTokens, usage.inputTokens ?? 0);
+        usage.inputTokens = reportedInputTokens;
         usage.cacheReadTokens = startUsage.cache_read_input_tokens ?? usage.cacheReadTokens;
         usage.cacheCreationTokens = startUsage.cache_creation_input_tokens ?? usage.cacheCreationTokens;
       }
@@ -324,6 +322,10 @@ export async function* streamAnthropicResponse(input: {
     } else if (event.type === "message_delta") {
       usage.outputTokens = event.usage?.output_tokens ?? usage.outputTokens;
     }
+  }
+
+  if (usage.cacheReadTokens === undefined && usage.cacheCreationTokens === undefined) {
+    usage.inputTokens = Math.max(usage.inputTokens ?? 0, estimatePromptTokens(input.promptMessages));
   }
 
   yield {
