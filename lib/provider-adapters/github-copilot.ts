@@ -28,17 +28,15 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 export const githubCopilotConnectionFlows = {
   create: createGithubProviderConnectionFlow,
   get: getGithubProviderConnectionFlow,
   cancel: cancelGithubProviderConnectionFlow
 };
-
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
 
 export async function callGithubCopilotText(input: ProviderTextInput) {
   const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
