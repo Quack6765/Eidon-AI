@@ -1748,7 +1748,7 @@ describe("chat view", () => {
       return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
     });
 
-    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await waitFor(() => {
       expect(wsMock.send).toHaveBeenCalledWith({
@@ -1758,6 +1758,17 @@ describe("chat view", () => {
         attachmentIds: ["att_image", "att_text"]
       });
     });
+
+    expect(conversationFetchCount).toBe(0);
+
+    wsMock.connected = false;
+    view.rerender(
+      React.createElement(
+        ContextTokensProvider,
+        null,
+        React.createElement(ChatView, { payload: createPayload() })
+      )
+    );
 
     await waitFor(() => {
       expect(conversationFetchCount).toBeGreaterThan(0);
@@ -1774,6 +1785,7 @@ describe("chat view", () => {
   });
 
   it("removes an orphaned local duplicate when polling confirms the server user message", async () => {
+    wsMock.connected = false;
     const imageAttachment = createAttachment({
       id: "att_image",
       filename: "photo.png",
@@ -3124,6 +3136,7 @@ describe("chat view", () => {
   });
 
   it("keeps polling after assistant done until a pending optimistic user message reconciles", async () => {
+    wsMock.connected = false;
     const imageAttachment = createAttachment({
       id: "att_image",
       filename: "photo.png",
@@ -3281,6 +3294,7 @@ describe("chat view", () => {
   }, 15000);
 
   it("does not replay a retired optimistic attachment message in strict mode", async () => {
+    wsMock.connected = false;
     const imageAttachment = createAttachment({
       id: "att_image",
       filename: "photo.png",
@@ -4115,6 +4129,7 @@ describe("chat view", () => {
   });
 
   it("renders the reconciled server user message when the optimistic local message is replaced", async () => {
+    wsMock.connected = false;
     const serverUserMessage = createMessage({
       id: "msg_server_user",
       role: "user",
@@ -5131,6 +5146,7 @@ describe("chat view", () => {
   });
 
   it("keeps intermediate narration in separate prose containers when a polling snapshot adopts a running turn", async () => {
+    wsMock.connected = false;
     const userMessage = createMessage({ id: "msg_user_poll", role: "user", content: "Read the file" });
     const streamingAssistant = createMessage({
       id: "msg_poll_adopt",
@@ -5216,6 +5232,7 @@ describe("chat view", () => {
   });
 
   it("keeps streaming the adopted turn after a late-joined snapshot", async () => {
+    wsMock.connected = false;
     const userMessage = createMessage({ id: "msg_user_late", role: "user", content: "Read the file" });
     const streamingAssistant = createMessage({
       id: "msg_late_adopt",
@@ -6501,6 +6518,7 @@ describe("chat view", () => {
   }, 20000);
 
   it("keeps a finished turn idle when a stale polling snapshot still shows it streaming", async () => {
+    wsMock.connected = false;
     const userMessage = createMessage({ id: "msg_user_stale", role: "user", content: "Use the skill" });
     const streamingAssistant = createMessage({ id: "msg_stale", content: "", status: "streaming" });
     let resolveStaleFetch: ((value: Response) => void) | null = null;

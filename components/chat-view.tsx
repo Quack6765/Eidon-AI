@@ -278,7 +278,6 @@ export function ChatView({
     setStreamMessageIdState(messageId);
   }, []);
   const renderKeyByMessageIdRef = useRef(new Map<string, string>());
-  const wsConnectedRef = useRef(false);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const isSendingRef = useRef(false);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
@@ -1232,10 +1231,6 @@ export function ChatView({
   useEffect(() => () => streamBuffer.reset(), [streamBuffer]);
 
   useEffect(() => {
-    wsConnectedRef.current = wsConnected;
-  }, [wsConnected]);
-
-  useEffect(() => {
     wsSubscribe(payload.conversation.id);
     return () => {
       wsUnsubscribe(payload.conversation.id);
@@ -1428,7 +1423,7 @@ export function ChatView({
   }, [titleGenerationStatus]);
 
   useEffect(() => {
-    if (!needsMessageSync) {
+    if (!needsMessageSync || wsConnected) {
       stopMessageSyncPolling();
       return;
     }
@@ -1489,7 +1484,7 @@ export function ChatView({
         if (shouldIgnoreInactiveResult) {
           messageSyncTimeoutRef.current = window.setTimeout(() => {
             void syncConversation();
-          }, wsConnectedRef.current ? 5000 : 1000);
+          }, 1000);
           return;
         }
 
@@ -1523,7 +1518,7 @@ export function ChatView({
 
       messageSyncTimeoutRef.current = window.setTimeout(() => {
         void syncConversation();
-      }, wsConnectedRef.current ? 5000 : 1000);
+      }, 1000);
     };
 
     void syncConversation();
@@ -1532,7 +1527,7 @@ export function ChatView({
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
+  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline, wsConnected]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
