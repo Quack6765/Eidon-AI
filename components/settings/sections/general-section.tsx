@@ -33,7 +33,7 @@ import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
-import type { AppSettings, ConversationRetention, DefaultView, ToolCallDisplayMode } from "@/lib/types";
+import type { AppSettings, ConversationRetention, DefaultView, FollowUpBehavior, ToolCallDisplayMode } from "@/lib/types";
 import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
@@ -51,8 +51,8 @@ const GENERAL_SECTIONS = [
   {
     id: "conversation",
     label: "Conversation",
-    description: "Retention and links",
-    detail: "Choose how long Eidon keeps conversations and how links open.",
+    description: "Retention and follow-ups",
+    detail: "Choose how long Eidon keeps conversations, how links open, and how follow-ups behave while the agent is working.",
     icon: Archive
   },
   {
@@ -355,6 +355,23 @@ export function GeneralSection({
             <option value="90d">90 days</option>
             <option value="30d">30 days</option>
             <option value="7d">7 days</option>
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="follow-up-behavior" className={fieldLabel}>Follow-ups while it&apos;s running</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Steer adds your message to the run at its next step, so the agent can change course without stopping. Queue sends it as its own turn once the run finishes.</p>
+          <select
+            id="follow-up-behavior"
+            value={draft.preferences.followUpBehavior}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              followUpBehavior: event.target.value as FollowUpBehavior
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="steer">Steer</option>
+            <option value="queue">Queue</option>
           </select>
         </div>
         <label htmlFor="confirm-external-links" className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer sm:max-w-md">

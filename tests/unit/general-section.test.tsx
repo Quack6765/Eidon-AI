@@ -66,6 +66,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
     defaultView: "chat",
+    followUpBehavior: "queue",
     hasCompletedOnboarding: true,
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
@@ -132,6 +133,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       "confirmExternalLinks",
       "toolCallDisplay",
       "defaultView",
+      "followUpBehavior",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
       "webSearch", "speechTranscription", "imageGeneration",
       "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt",
@@ -218,6 +220,31 @@ describe("general section", () => {
     const putCall = vi.mocked(global.fetch).mock.calls[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.preferences.confirmExternalLinks).toBe(false);
+  });
+
+  it("saves the follow-up behavior preference from the Conversation section", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const select = screen.getByLabelText("Follow-ups while it's running");
+    expect(select).toHaveValue("queue");
+
+    fireEvent.change(select, { target: { value: "steer" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.preferences.followUpBehavior).toBe("steer");
   });
 
   it("saves the tool activity display preference from the Display section", async () => {

@@ -22,7 +22,8 @@ const inputSchema = z.object({
     defaultView: z.enum(["chat", "agents", "automations"]).optional(),
     memoriesEnabled: z.boolean().optional(),
     memoriesMaxCount: z.number().int().min(1).max(500).optional(),
-    memoriesRigor: z.enum(["low", "balanced", "high"]).optional()
+    memoriesRigor: z.enum(["low", "balanced", "high"]).optional(),
+    followUpBehavior: z.enum(["steer", "queue"]).optional()
   }),
   webSearch: webSearchIntegrationUpdateSchema.optional(),
   speechTranscription: speechTranscriptionIntegrationUpdateSchema.optional(),

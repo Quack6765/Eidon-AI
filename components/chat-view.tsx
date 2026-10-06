@@ -134,7 +134,7 @@ export function ChatView({
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
   const [sendNowIds, setSendNowIds] = useState<ReadonlySet<string>>(() => new Set());
-  const redirectsWhileBusy = payload.conversation.conversationOrigin === "bot";
+  const redirectsWhileBusy = payload.settings.followUpBehavior === "steer";
   const redirectingIds = useMemo(
     () =>
       new Set(

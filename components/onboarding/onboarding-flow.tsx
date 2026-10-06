@@ -8,6 +8,7 @@ import {
 } from "@/components/onboarding/onboarding-step-shell";
 import { DefaultViewStep } from "@/components/onboarding/steps/default-view-step";
 import { DoneStep } from "@/components/onboarding/steps/done-step";
+import { FollowUpStep } from "@/components/onboarding/steps/follow-up-step";
 import {
   McpServerStep,
   buildMcpServerPayload,
@@ -25,10 +26,10 @@ import { ToolDisplayStep } from "@/components/onboarding/steps/tool-display-step
 import { WelcomeStep } from "@/components/onboarding/steps/welcome-step";
 import { Toast } from "@/components/ui/toast";
 import { useToastState } from "@/hooks/use-toast-state";
-import { buildProviderCatalogPayload, getOnboardingProgress, getOnboardingSteps } from "@/lib/onboarding";
+import { buildProviderCatalogPayload, getOnboardingProgress, getOnboardingSteps, ONBOARDING_DEFAULT_VIEW } from "@/lib/onboarding";
 import { PROVIDER_PRESETS } from "@/lib/provider-catalog";
 import type { ProviderProfileSummary } from "@/lib/provider-profile";
-import type { DefaultView, ToolCallDisplayMode, UserRole } from "@/lib/types";
+import type { DefaultView, FollowUpBehavior, ToolCallDisplayMode, UserRole } from "@/lib/types";
 
 const VIEW_LABELS: Record<DefaultView, string> = {
   chat: "Chat",
@@ -37,8 +38,8 @@ const VIEW_LABELS: Record<DefaultView, string> = {
 };
 
 export type OnboardingSettings = {
-  defaultView: DefaultView;
   toolCallDisplay: ToolCallDisplayMode;
+  followUpBehavior: FollowUpBehavior;
   defaultProviderProfileId: string | null;
   providerProfiles: ProviderProfileSummary[];
   skillsEnabled: boolean;
@@ -72,9 +73,12 @@ export function OnboardingFlow({
   const step = steps[stepIndex];
   const progress = getOnboardingProgress(steps, step);
 
-  const [defaultView, setDefaultView] = useState<DefaultView>(settings.defaultView);
+  const [defaultView, setDefaultView] = useState<DefaultView>(ONBOARDING_DEFAULT_VIEW);
   const [toolCallDisplay, setToolCallDisplay] = useState<ToolCallDisplayMode>(
     settings.toolCallDisplay
+  );
+  const [followUpBehavior, setFollowUpBehavior] = useState<FollowUpBehavior>(
+    settings.followUpBehavior
   );
 
   const [providerDraft, setProviderDraft] = useState<ProviderDraft>({
@@ -294,21 +298,24 @@ export function OnboardingFlow({
   const finish = useCallback(async () => {
     setIsBusy(true);
     try {
-      await savePreferences({ defaultView, toolCallDisplay, completed: true });
+      await savePreferences({ defaultView, toolCallDisplay, followUpBehavior, completed: true });
       router.push("/");
       router.refresh();
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Unable to finish setup");
       setIsBusy(false);
     }
-  }, [defaultView, router, savePreferences, showToast, toolCallDisplay]);
+  }, [defaultView, followUpBehavior, router, savePreferences, showToast, toolCallDisplay]);
 
   const summary = useMemo(() => {
     const items = [
       `Opening into ${VIEW_LABELS[defaultView]}`,
       toolCallDisplay === "pills"
         ? "Tool activity shown as pills"
-        : "Tool activity kept in one expandable status line"
+        : "Tool activity kept in one expandable status line",
+      followUpBehavior === "steer"
+        ? "Follow-ups steer the current run"
+        : "Follow-ups wait until the run finishes"
     ];
     if (providerSaved) {
       const choice = providerDraft.choice;
@@ -322,7 +329,7 @@ export function OnboardingFlow({
       items.push(`${mcpDraft.name.trim()} added as an MCP server`);
     }
     return items;
-  }, [defaultView, mcpDraft.name, mcpSaved, providerDraft.choice, providerSaved, toolCallDisplay]);
+  }, [defaultView, followUpBehavior, mcpDraft.name, mcpSaved, providerDraft.choice, providerSaved, toolCallDisplay]);
 
   const toastNode = (
     <Toast visible={toast.visible} variant={toast.variant} message={toast.message} />
@@ -368,6 +375,24 @@ export function OnboardingFlow({
           isBusy={isBusy}
         >
           <ToolDisplayStep value={toolCallDisplay} onChange={setToolCallDisplay} />
+        </OnboardingStepShell>
+        {toastNode}
+      </>
+    );
+  }
+
+  if (step === "follow-up") {
+    return (
+      <>
+        <OnboardingStepShell
+          progress={progress}
+          title="What should a follow-up do mid-run?"
+          subtitle="When you send another message while the agent is still working, it can join the run now or wait its turn. You can change this later in settings."
+          onBack={goBack}
+          onNext={() => void commitStep({ followUpBehavior })}
+          isBusy={isBusy}
+        >
+          <FollowUpStep value={followUpBehavior} onChange={setFollowUpBehavior} />
         </OnboardingStepShell>
         {toastNode}
       </>

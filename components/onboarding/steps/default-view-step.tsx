@@ -13,18 +13,18 @@ const VIEWS: Array<{
   alt: string;
 }> = [
   {
-    id: "chat",
-    label: "Chat",
-    description: "Open straight into the conversation view.",
-    screenshot: "/screenshots/desktop-chat.png",
-    alt: "Eidon chat with a tool timeline and queued follow-ups"
-  },
-  {
     id: "agents",
     label: "Agents",
     description: "Start with your bots and their recent work.",
     screenshot: "/screenshots/desktop-delegation.png",
     alt: "Chief of Staff agent messaging two specialist bots"
+  },
+  {
+    id: "chat",
+    label: "Chat",
+    description: "Open straight into the conversation view.",
+    screenshot: "/screenshots/desktop-chat.png",
+    alt: "Eidon chat with a tool timeline and queued follow-ups"
   },
   {
     id: "automations",

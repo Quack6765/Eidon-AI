@@ -53,13 +53,19 @@ describe("onboarding route", () => {
   it("writes both preferences and marks onboarding complete", async () => {
     const { PUT } = await import("@/app/api/onboarding/route");
     const response = await PUT(
-      put({ defaultView: "agents", toolCallDisplay: "status_line", completed: true })
+      put({
+        defaultView: "agents",
+        toolCallDisplay: "status_line",
+        followUpBehavior: "steer",
+        completed: true
+      })
     );
 
     expect(response.status).toBe(200);
     const preferences = await readPreferences();
     expect(preferences.defaultView).toBe("agents");
     expect(preferences.toolCallDisplay).toBe("status_line");
+    expect(preferences.followUpBehavior).toBe("steer");
     expect(preferences.hasCompletedOnboarding).toBe(true);
   });
 
@@ -71,7 +77,15 @@ describe("onboarding route", () => {
     expect(preferences.toolCallDisplay).toBe("status_line");
     // Untouched, so it keeps its default rather than being overwritten.
     expect(preferences.defaultView).toBe("chat");
+    expect(preferences.followUpBehavior).toBe("queue");
     expect(preferences.hasCompletedOnboarding).toBe(false);
+  });
+
+  it("defaults an existing user to queueing when the step is never answered", async () => {
+    const { PUT } = await import("@/app/api/onboarding/route");
+    await PUT(put({ completed: true }));
+
+    expect((await readPreferences()).followUpBehavior).toBe("queue");
   });
 
   it("rejects values outside the allowed enums", async () => {

@@ -105,7 +105,7 @@ describe("queued message banner", () => {
     expect(onSendNow).toHaveBeenCalledWith("queue_send_now");
   });
 
-  it("marks redirecting items as joining the run and hides their Send now action", () => {
+  it("labels a steered item in the queue overlay and hides its Send now action", () => {
     render(
       <QueuedMessageBanner
         items={[createQueuedMessage({ id: "queue_redirect" }), createQueuedMessage({ id: "queue_later", sortOrder: 1 })]}
@@ -116,7 +116,11 @@ describe("queued message banner", () => {
       />
     );
 
-    expect(screen.getByText("Joins the current run at its next step")).toBeInTheDocument();
+    // The steered item stays in the same overlay as the queued one, marked.
+    expect(screen.getByText("Steer")).toBeInTheDocument();
+    expect(screen.getByText("Sends automatically between tool calls")).toBeInTheDocument();
+    // Both items are still listed in the one overlay.
+    expect(screen.getAllByText("Queued follow-up")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Send now" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(2);
   });

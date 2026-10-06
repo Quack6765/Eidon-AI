@@ -2,6 +2,7 @@ import { getAppVersion } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import {
   normalizeDefaultView,
+  normalizeFollowUpBehavior,
   normalizeMemoryRigor,
   normalizeToolCallDisplayMode,
   type GlobalPreferences
@@ -9,6 +10,7 @@ import {
 import type {
   ConversationRetention,
   DefaultView,
+  FollowUpBehavior,
   MemoryRigor,
   ToolCallDisplayMode
 } from "@/lib/types";
@@ -23,6 +25,7 @@ export type UserPreferences = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  followUpBehavior: FollowUpBehavior;
   hasCompletedOnboarding: boolean;
   lastSeenRelease: string;
   updatedAt: string;
@@ -38,6 +41,7 @@ type UserPreferencesRow = {
   confirm_external_links: number;
   tool_call_display: ToolCallDisplayMode;
   default_view: DefaultView;
+  follow_up_behavior: string;
   has_completed_onboarding: number;
   last_seen_release: string;
   updated_at: string;
@@ -49,8 +53,8 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     INSERT OR IGNORE INTO user_preferences (
       user_id, conversation_retention, memories_enabled, memories_max_count,
       memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
-      tool_call_display, default_view, last_seen_release, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tool_call_display, default_view, follow_up_behavior, last_seen_release, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     defaults.conversationRetention,
@@ -62,6 +66,7 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     defaults.confirmExternalLinks ? 1 : 0,
     normalizeToolCallDisplayMode(defaults.toolCallDisplay),
     normalizeDefaultView(defaults.defaultView),
+    normalizeFollowUpBehavior(defaults.followUpBehavior),
     getAppVersion(),
     timestamp,
     timestamp
@@ -98,7 +103,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
   const row = getDb().prepare(`
     SELECT conversation_retention, memories_enabled, memories_max_count,
       memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
-      tool_call_display, default_view, has_completed_onboarding, last_seen_release, updated_at
+      tool_call_display, default_view, follow_up_behavior, has_completed_onboarding, last_seen_release, updated_at
     FROM user_preferences
     WHERE user_id = ?
   `).get(userId) as UserPreferencesRow;
@@ -112,6 +117,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
     confirmExternalLinks: Boolean(row.confirm_external_links),
     toolCallDisplay: normalizeToolCallDisplayMode(row.tool_call_display),
     defaultView: normalizeDefaultView(row.default_view),
+    followUpBehavior: normalizeFollowUpBehavior(row.follow_up_behavior),
     hasCompletedOnboarding: Boolean(row.has_completed_onboarding),
     lastSeenRelease: row.last_seen_release,
     updatedAt: row.updated_at
@@ -129,7 +135,7 @@ export function updateUserPreferences(
     UPDATE user_preferences
     SET conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      confirm_external_links = ?, tool_call_display = ?, default_view = ?,
+      confirm_external_links = ?, tool_call_display = ?, default_view = ?, follow_up_behavior = ?,
       has_completed_onboarding = ?, last_seen_release = ?, updated_at = ?
     WHERE user_id = ?
   `).run(
@@ -142,6 +148,7 @@ export function updateUserPreferences(
     next.confirmExternalLinks ? 1 : 0,
     normalizeToolCallDisplayMode(next.toolCallDisplay),
     normalizeDefaultView(next.defaultView),
+    normalizeFollowUpBehavior(next.followUpBehavior),
     next.hasCompletedOnboarding ? 1 : 0,
     next.lastSeenRelease,
     next.updatedAt,

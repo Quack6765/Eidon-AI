@@ -610,6 +610,7 @@ function migratePreferenceStorage(db: Database.Database) {
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
+      follow_up_behavior TEXT NOT NULL DEFAULT 'queue',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
@@ -632,6 +633,7 @@ function migratePreferenceStorage(db: Database.Database) {
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
+      follow_up_behavior TEXT NOT NULL DEFAULT 'queue',
       allow_all_tools INTEGER NOT NULL DEFAULT 0,
       has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
       last_seen_release TEXT NOT NULL DEFAULT '',
@@ -2070,6 +2072,13 @@ export function migrate(db: Database.Database) {
   }
   if (!userPreferencesCols.some((column) => column.name === "default_view")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "follow_up_behavior")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN follow_up_behavior TEXT NOT NULL DEFAULT 'queue'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "follow_up_behavior")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN follow_up_behavior TEXT NOT NULL DEFAULT 'queue'");
   }
 
   if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {

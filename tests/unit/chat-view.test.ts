@@ -333,7 +333,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       },
       speechCleanupEnabled: false,
       confirmExternalLinks: true,
-      toolCallDisplay: "pills"
+      toolCallDisplay: "pills",
+      followUpBehavior: "queue"
     },
     providerProfiles: [
       toProviderProfileSummary(createRuntimeProviderProfile({
@@ -1475,7 +1476,8 @@ describe("chat view", () => {
             },
             speechCleanupEnabled: true,
             confirmExternalLinks: true,
-            toolCallDisplay: "pills"
+            toolCallDisplay: "pills",
+            followUpBehavior: "queue"
           }
         })
       })
@@ -1545,7 +1547,8 @@ describe("chat view", () => {
             },
             speechCleanupEnabled: false,
             confirmExternalLinks: true,
-            toolCallDisplay: "pills"
+            toolCallDisplay: "pills",
+            followUpBehavior: "queue"
           }
         })
       })
@@ -2721,6 +2724,28 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("Hello!")).toBeInTheDocument();
     });
+  });
+
+  it("takes the busy composer hint from the follow-up setting, not the conversation origin", () => {
+    const queueingBotPayload = createPayload({
+      conversation: { ...createPayload().conversation, conversationOrigin: "bot", isActive: true },
+      settings: { ...createPayload().settings, followUpBehavior: "queue" }
+    });
+    const queuedView = renderWithProvider(
+      React.createElement(ChatView, { payload: queueingBotPayload, retainEmptyConversation: true })
+    );
+    // A bot thread no longer steers on its own.
+    expect(screen.getByPlaceholderText("Queue a message")).toBeInTheDocument();
+    queuedView.unmount();
+
+    const steeringManualPayload = createPayload({
+      conversation: { ...createPayload().conversation, conversationOrigin: "manual", isActive: true },
+      settings: { ...createPayload().settings, followUpBehavior: "steer" }
+    });
+    renderWithProvider(
+      React.createElement(ChatView, { payload: steeringManualPayload, retainEmptyConversation: true })
+    );
+    expect(screen.getByPlaceholderText("Redirect the current run")).toBeInTheDocument();
   });
 
   it("keeps the same assistant DOM node when the stream finishes", async () => {
