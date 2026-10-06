@@ -145,7 +145,7 @@ Configured under **Settings → General** as a single global, admin-managed sele
 | SearXNG | none | Requires the base URL of your own instance; must be an `http(s)` URL with no credentials or fragment |
 | Disabled | — | Removes the `web_search` tool |
 
-A search pipeline mode controls query fan-out: `auto` (the default), `always`, or `off`, with a maximum of 1–5 parallel queries (default 4). With fan-out on, the tool accepts several distinct queries in one call and runs them in parallel, and a single complex query is decomposed automatically. See [Features](./features.md#deep-research) for how deep research uses this.
+A search pipeline mode controls query fan-out: `auto` (the default), `always`, or `off`, with a maximum of 1–5 parallel queries (default 4). With fan-out on, the tool accepts several distinct queries in one call and runs them in parallel, and in `always` mode a single query is additionally split into sub-queries by a planning call to the model. See [Features](./features.md#deep-research) for how deep research uses this.
 
 ## Image generation
 

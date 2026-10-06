@@ -97,7 +97,6 @@ describe("planWebSearch", () => {
   it("falls back to direct without a provider profile", async () => {
     const plan = await planWebSearch({
       query: "q",
-      forceFanOut: false,
       maxQueries: 4
     });
     expect(plan).toEqual({ action: "direct" });
@@ -109,7 +108,6 @@ describe("planWebSearch", () => {
     const plan = await planWebSearch({
       providerProfile: createRuntimeProviderProfile(),
       query: "q",
-      forceFanOut: false,
       maxQueries: 4
     });
     expect(plan).toEqual({ action: "fan_out", subqueries: ["a", "b"] });
@@ -122,7 +120,6 @@ describe("planWebSearch", () => {
     const input = {
       providerProfile: createRuntimeProviderProfile(),
       query: "q",
-      forceFanOut: false,
       maxQueries: 4
     };
     callProviderTextMock.mockRejectedValueOnce(new Error("provider down"));
@@ -141,18 +138,16 @@ describe("planWebSearch", () => {
     await expect(planWebSearch({
       providerProfile: createRuntimeProviderProfile(),
       query: "q",
-      forceFanOut: false,
       maxQueries: 4,
       abortSignal: controller.signal
     })).rejects.toBeInstanceOf(ChatTurnStoppedError);
   });
 
-  it("uses the force-fan-out prompt when requested", async () => {
+  it("builds the fan-out planning prompt", async () => {
     callProviderTextMock.mockResolvedValue('{"action":"fan_out","subqueries":["a","b"]}');
     await planWebSearch({
       providerProfile: createRuntimeProviderProfile(),
       query: "q",
-      forceFanOut: true,
       maxQueries: 4
     });
     const prompt = callProviderTextMock.mock.calls[0][0].prompt as string;
@@ -358,9 +353,7 @@ describe("runWebSearchPipeline", () => {
     expect(result.plannedQueries).toEqual(["a", "b", "c"]);
   });
 
-  it("follows a direct plan in auto mode", async () => {
-    callProviderTextMock.mockResolvedValue('{"action":"direct"}');
-
+  it("searches directly in auto mode without a planning call", async () => {
     const result = await runWebSearchPipeline({
       query: "who is ceo of acme",
       mode: "auto",
@@ -370,28 +363,9 @@ describe("runWebSearchPipeline", () => {
     });
 
     expect(result.strategy).toBe("direct");
+    expect(callProviderTextMock).not.toHaveBeenCalled();
     expect(searchWebMock).toHaveBeenCalledTimes(1);
     expect(result.resultSummary).toBe("provider text");
-  });
-
-  it("fans out when the planner decomposes the query", async () => {
-    callProviderTextMock.mockResolvedValue(
-      '{"action":"fan_out","subqueries":["acme revenue 2025","acme product launch"]}'
-    );
-
-    const result = await runWebSearchPipeline({
-      query: "acme performance and products",
-      mode: "auto",
-      maxQueries: 4,
-      settings: makeSettings(),
-      providerProfile: createRuntimeProviderProfile(),
-      userContext: "How did acme do this year?"
-    });
-
-    expect(result.strategy).toBe("fan_out");
-    expect(searchWebMock).toHaveBeenCalledTimes(2);
-    expect(searchWebMock).toHaveBeenCalledWith(expect.objectContaining({ query: "acme revenue 2025" }));
-    expect(result.succeeded).toBe(2);
   });
 
   it("forces fan-out planning in always mode", async () => {
@@ -483,7 +457,7 @@ describe("runWebSearchPipeline", () => {
 
     const result = await runWebSearchPipeline({
       query: "planning hangs",
-      mode: "auto",
+      mode: "always",
       maxQueries: 4,
       settings: makeSettings(),
       providerProfile: createRuntimeProviderProfile()
@@ -707,16 +681,15 @@ describe("executeWebSearch pipeline integration", () => {
   }
 
   it("runs one umbrella action around a fanned-out search", async () => {
-    callProviderTextMock.mockResolvedValue('{"action":"fan_out","subqueries":["x price","y price"]}');
     const { context, onActionStart, onActionComplete, onActionError } = makeContext();
 
-    const result = await callWebSearch({ query: "x vs y price" }, context);
+    const result = await callWebSearch({ queries: ["x price", "y price"] }, context);
 
     expect(searchWebMock).toHaveBeenCalledTimes(2);
     expect(onActionStart).toHaveBeenCalledTimes(1);
     expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
       label: "Web search",
-      detail: "x vs y price",
+      detail: "x price; y price",
       serverId: "integration_web_search",
       toolName: "web_search"
     }));
