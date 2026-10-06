@@ -53,8 +53,9 @@ function parseExtractedPage(text: string, url: string) {
   throw new Error(failure?.error?.trim() || "The page could not be extracted");
 }
 
+const timestamp = new Date(0).toISOString();
+
 function mcpServer(url: string): McpServer {
-  const timestamp = new Date().toISOString();
   return {
     id: "integration_web_search",
     name: "Web search",
