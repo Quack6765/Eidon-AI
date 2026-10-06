@@ -395,6 +395,10 @@ export async function* streamOpenAiCompatibleResponse(
     ...buildPromptCacheParameters(settings, input.conversationId)
   };
 
+  if (isOfficialOpenAiApiBaseUrl(getProviderApiBaseUrl(settings))) {
+    chatCreateParams.stream_options = { include_usage: true };
+  }
+
   if (input.tools?.length) {
     chatCreateParams.tools = input.tools;
   }

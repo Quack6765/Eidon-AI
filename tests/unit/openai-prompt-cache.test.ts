@@ -55,6 +55,7 @@ describe("openai prompt caching", () => {
   it("sends the conversation as prompt_cache_key to the official endpoint and reads cached tokens", async () => {
     const chat = await run("https://api.openai.com/v1", "chat_completions", "conv_1");
     expect(create.mock.calls[0][0].prompt_cache_key).toBe("conv_1");
+    expect(create.mock.calls[0][0].stream_options).toEqual({ include_usage: true });
     expect(chat.usage.cacheReadTokens).toBe(40);
 
     const responses = await run("https://api.openai.com/v1/", "responses", "conv_1");
@@ -69,6 +70,7 @@ describe("openai prompt caching", () => {
 
     expect(create.mock.calls[0][0]).not.toHaveProperty("prompt_cache_key");
     expect(create.mock.calls[1][0]).not.toHaveProperty("prompt_cache_key");
+    expect(create.mock.calls[0][0]).not.toHaveProperty("stream_options");
     expect(responsesCreate.mock.calls[0][0]).not.toHaveProperty("prompt_cache_key");
   });
 });
