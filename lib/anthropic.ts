@@ -204,7 +204,7 @@ export function buildAnthropicRequest(input: {
 
   if (effort) {
     params.thinking = { type: "adaptive" };
-    params.effort = effort;
+    params.output_config = { effort };
   } else {
     params.temperature = input.settings.temperature;
   }
