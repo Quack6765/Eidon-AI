@@ -12,11 +12,9 @@ import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey } f
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
-
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 export async function callAnthropicAdapterText(input: ProviderTextInput) {
   const settings = LOW_EFFORT_PURPOSES.has(input.purpose)

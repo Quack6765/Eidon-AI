@@ -33,9 +33,9 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 function normalizeReasoningEffort(
   settings: ProviderProfile
@@ -152,8 +152,6 @@ function buildRequestParameters(settings: ProviderProfile) {
       : {})
   };
 }
-
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
 
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
