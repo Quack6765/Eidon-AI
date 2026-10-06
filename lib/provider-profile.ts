@@ -1,5 +1,6 @@
 import {
   PROVIDER_CATALOG,
+  isOfficialOpenAiApiBaseUrl,
   isOpenCodeGoApiBaseUrl,
   resolveProviderRequestApiMode,
   type ApiMode,
@@ -161,8 +162,7 @@ export function resolveProviderProfileCapabilities(
 ): ProviderProfileCapabilities {
   const isOfficialEndpoint =
     profile.providerKind === "openai_compatible" &&
-    profile.providerConfig.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() ===
-      "https://api.openai.com/v1";
+    isOfficialOpenAiApiBaseUrl(profile.providerConfig.apiBaseUrl);
   const hasExtendedReasoning = isOfficialEndpoint && modelMatchesPrefix(profile.model, "gpt-5.6");
   const defaultReasoningEfforts: readonly ReasoningEffort[] = [
     "none",

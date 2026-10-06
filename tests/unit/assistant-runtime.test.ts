@@ -91,7 +91,7 @@ function createProviderStream(
     thinking: string;
     toolCalls?: Array<{ id: string; name: string; arguments: string }>;
     responseItems?: ProviderResponseItem[];
-    usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number };
+    usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number };
   }
 ) {
   return (async function* () {
@@ -106,6 +106,12 @@ function createProviderStream(
       usage: result.usage
     };
   })();
+}
+
+function trailingGuidanceOfCall(callIndex: number) {
+  const messages = streamProviderResponse.mock.calls[callIndex]?.[0]?.promptMessages as PromptMessage[];
+  const last = messages.at(-1);
+  return typeof last?.content === "string" ? last.content : "";
 }
 
 function createSettings(): RuntimeProviderProfile {
@@ -1033,10 +1039,11 @@ Run browser commands.`
     expect(started[1]?.label).toBe("Web search");
 
     const firstCall = streamProviderResponse.mock.calls[0][0] as { promptMessages: Array<{ role: string; content: unknown }> };
-    const systemPrompt = String(firstCall.promptMessages[0].content);
-    expect(systemPrompt).toContain("Deep research mode is active");
-    expect(systemPrompt).toContain("1. Find official subsidy pages\n2. Compare amounts per country");
-    expect(String(firstCall.promptMessages.at(-1)?.content)).toContain("Agent Browser");
+    const guidance = trailingGuidanceOfCall(0);
+    expect(String(firstCall.promptMessages[0].content)).not.toContain("Deep research mode is active");
+    expect(guidance).toContain("Deep research mode is active");
+    expect(guidance).toContain("1. Find official subsidy pages\n2. Compare amounts per country");
+    expect(guidance).toContain("Agent Browser");
 
     const secondCall = streamProviderResponse.mock.calls[1][0] as { promptMessages: Array<{ role: string; content: unknown }> };
     expect(String(secondCall.promptMessages[0].content)).not.toContain("Web search results have been received");
@@ -1146,7 +1153,7 @@ Run browser commands.`
     await resolveAssistantTurn(baseInput);
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
     const plainForced = streamProviderResponse.mock.calls[1][0] as { promptMessages: Array<{ content: unknown }> };
-    expect(String(plainForced.promptMessages[0].content)).toContain("Answer the user directly");
+    expect(String(plainForced.promptMessages.at(-1)?.content)).toContain("Answer the user directly");
 
     streamProviderResponse.mockClear();
     const result = await resolveAssistantTurn({ ...baseInput, research: {} });
@@ -1154,8 +1161,8 @@ Run browser commands.`
     expect(result.answer).toBe("# Final report");
     expect(streamProviderResponse).toHaveBeenCalledTimes(5);
     const forced = streamProviderResponse.mock.calls[4][0] as { promptMessages: Array<{ content: unknown }> };
-    expect(String(forced.promptMessages[0].content)).toContain("final research report");
-    expect(String(forced.promptMessages[0].content)).toContain("Begin by writing a short numbered research plan");
+    expect(String(forced.promptMessages.at(-1)?.content)).toContain("final research report");
+    expect(String(forced.promptMessages.at(-1)?.content)).toContain("Begin by writing a short numbered research plan");
   });
 
   it("collapses older tool results once the research prompt grows past the threshold", async () => {
@@ -1313,13 +1320,109 @@ Run browser commands.`
       role: string;
       content: unknown;
     }>;
-    const directiveMessage = followUpMessages.find(
-      (message) =>
-        message.role === "system" &&
-        typeof message.content === "string" &&
-        message.content.includes("Answer the user now by synthesizing the results above")
+    expect(followUpMessages.some((message) => message.role === "system" && String(message.content).includes("Answer the user now"))).toBe(false);
+    expect(trailingGuidanceOfCall(1)).toContain("Answer the user now by synthesizing the results above");
+  });
+
+  it("keeps the system prompt and tool list identical across steps while guidance trails", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "breaking news" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Here is the news." }], {
+          answer: "Here is the news.",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    searchSearxng.mockResolvedValue("SearXNG result text");
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "news?" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
+      onEvent: () => {}
+    });
+
+    const [first, second] = streamProviderResponse.mock.calls.map((call) => call[0]);
+    expect(second.promptMessages[0]).toEqual(first.promptMessages[0]);
+    expect(second.tools).toEqual(first.tools);
+    expect(trailingGuidanceOfCall(0)).not.toContain("Answer the user now");
+    expect(trailingGuidanceOfCall(1)).toContain("Answer the user now");
+    expect(first.promptMessages.at(-1).volatile).toBe(true);
+  });
+
+  it("delivers memories appended as late system messages through trailing guidance", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Hi" }], {
+        answer: "Hi",
+        thinking: "",
+        usage: { inputTokens: 3, outputTokens: 1 }
+      })
     );
-    expect(directiveMessage).toBeDefined();
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "system", content: "base" },
+        { role: "user", content: "hello" },
+        { role: "system", content: "<memory>\nmem_1: [work] Likes tea\n</memory>" }
+      ],
+      skills: [],
+      mcpToolSets: []
+    });
+
+    const messages = streamProviderResponse.mock.calls[0][0].promptMessages as PromptMessage[];
+    expect(messages.filter((message) => message.role === "system")).toHaveLength(1);
+    expect(String(messages[0].content)).not.toContain("Likes tea");
+    expect(trailingGuidanceOfCall(0)).toContain("mem_1: [work] Likes tea");
+  });
+
+  it("logs cache usage for every provider step", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Hi" }], {
+        answer: "Hi",
+        thinking: "",
+        usage: { inputTokens: 100, outputTokens: 1, cacheReadTokens: 80, cacheCreationTokens: 5 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "hello" }],
+      skills: [],
+      mcpToolSets: [],
+      conversationId: "conv_cache"
+    });
+
+    expect(info).toHaveBeenCalledWith("[prompt-cache]", {
+      conversationId: "conv_cache",
+      step: 0,
+      inputTokens: 100,
+      cacheReadTokens: 80,
+      cacheCreationTokens: 5
+    });
+    info.mockRestore();
   });
 
   it("executes unrestricted shell commands via native function calling", async () => {
@@ -1447,10 +1550,10 @@ Run browser commands.`
       }
 
       if (providerCallCount === 2) {
-        expect(toolNames).not.toContain("generate_image");
-        const systemPrompt = String(streamProviderResponse.mock.calls[1]?.[0]?.promptMessages?.[0]?.content ?? "");
-        expect(systemPrompt).toContain("Image generation is available in this environment");
-        expect(systemPrompt).toContain("Do not claim that image generation is unavailable");
+        expect(toolNames).toContain("generate_image");
+        const guidance = trailingGuidanceOfCall(1);
+        expect(guidance).toContain("Image generation is available in this environment");
+        expect(guidance).toContain("Do not claim that image generation is unavailable");
         return createProviderStream([{ type: "answer_delta", text: "Here is the generated image." }], {
           answer: "Here is the generated image.",
           thinking: "",
@@ -1727,7 +1830,7 @@ Run browser commands.`
         });
       }
 
-      expect(toolNames).not.toContain("generate_image");
+      expect(toolNames).toContain("generate_image");
       return createProviderStream([{ type: "answer_delta", text: "Image already generated." }], {
         answer: "Image already generated.",
         thinking: "",
@@ -2082,7 +2185,7 @@ Run browser commands.`
       }
 
       expect(toolNames).toContain("execute_shell_command");
-      expect(toolNames).not.toContain("generate_image");
+      expect(toolNames).toContain("generate_image");
       return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
         answer: "Here is the image.",
         thinking: "",
@@ -2263,14 +2366,15 @@ Run browser commands.`
     });
 
     const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    expect(firstCall.promptMessages[0]).toEqual(
+    expect(firstCall.promptMessages[0].content).not.toContain("Vision MCP servers:");
+    expect(firstCall.promptMessages.at(-1)).toEqual(
       expect.objectContaining({
-        role: "system",
+        role: "user",
         content: expect.stringContaining("Vision MCP servers:")
       })
     );
-    expect(firstCall.promptMessages[0].content).toContain("- Vision MCP");
-    expect(firstCall.promptMessages[0].content).toContain("images or videos");
+    expect(firstCall.promptMessages.at(-1).content).toContain("- Vision MCP");
+    expect(firstCall.promptMessages.at(-1).content).toContain("images or videos");
     expect(firstCall.promptMessages[1]).toEqual({
       role: "user",
       content: [
@@ -2308,7 +2412,7 @@ Run browser commands.`
     });
 
     const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    const lastMessage = firstCall.promptMessages.at(-1);
+    const lastMessage = firstCall.promptMessages.find((message: PromptMessage) => Array.isArray(message.content));
     expect(lastMessage.content).toContainEqual({
       type: "image",
       attachmentId: "att_image",
@@ -3041,12 +3145,8 @@ Run browser commands.`
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages[0]).toEqual(
-      expect.objectContaining({
-        role: "system",
-        content: expect.stringContaining("Do not emit an empty response.")
-      })
-    );
+    expect(streamProviderResponse.mock.calls[1][0].promptMessages[0].content).not.toContain("Do not emit an empty response.");
+    expect(trailingGuidanceOfCall(1)).toContain("Do not emit an empty response.");
     expect(result.answer).toBe("Connected");
   });
 
@@ -3920,8 +4020,9 @@ Run browser commands.`
       });
 
       const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-      expect(firstCall.promptMessages[0].content).toContain("analyze_image");
-      expect(firstCall.promptMessages[0].content).toContain(
+      expect(firstCall.promptMessages[0].content).not.toContain("analyze_image");
+      expect(trailingGuidanceOfCall(streamProviderResponse.mock.calls.length - 1)).toContain("analyze_image");
+      expect(trailingGuidanceOfCall(streamProviderResponse.mock.calls.length - 1)).toContain(
         "att_photo_photo.png (path: /tmp/conv_vision/att_photo_photo.png)"
       );
       expect(firstCall.promptMessages[1]).toEqual({
@@ -4311,6 +4412,10 @@ Run browser commands.`
       return typeof system?.content === "string" ? system.content : "";
     }
 
+    function guidanceOfFirstCall() {
+      return trailingGuidanceOfCall(0);
+    }
+
     const roster = [
       { name: "Chief of Staff", title: "", description: "", isChief: true },
       { name: "Writer", title: "Copywriter", description: "", isChief: false }
@@ -4340,10 +4445,11 @@ Run browser commands.`
         expect.objectContaining({ kind: "skill_load", detail: "Release Notes", skillId: "skill_release_notes" })
       ]);
       expect(completed).toEqual(["act_preload"]);
-      const systemPrompt = systemPromptOfFirstCall();
-      expect(systemPrompt).toContain("The user invoked the skills below with /");
-      expect(systemPrompt).toContain("Summarize changes for end users in concise release notes.");
-      expect(systemPrompt).not.toContain("Other skill.");
+      const guidance = guidanceOfFirstCall();
+      expect(systemPromptOfFirstCall()).not.toContain("The user invoked the skills below");
+      expect(guidance).toContain("The user invoked the skills below with /");
+      expect(guidance).toContain("Summarize changes for end users in concise release notes.");
+      expect(guidance).not.toContain("Other skill.");
     });
 
     it("reports a preloaded skill as already loaded when the model asks for it again", async () => {
@@ -4409,9 +4515,10 @@ Run browser commands.`
         botTeam: { isChief: false, roster }
       });
 
-      const systemPrompt = systemPromptOfFirstCall();
-      expect(systemPrompt).toContain("The user addressed this message to @Writer, @Chief of Staff.");
-      expect(systemPrompt).toContain("message_bot");
+      const guidance = guidanceOfFirstCall();
+      expect(systemPromptOfFirstCall()).not.toContain("The user addressed this message");
+      expect(guidance).toContain("The user addressed this message to @Writer, @Chief of Staff.");
+      expect(guidance).toContain("message_bot");
     });
 
     it("applies /skill and @bot references in a mid-run redirect", async () => {
@@ -4436,12 +4543,10 @@ Run browser commands.`
       });
 
       expect(started).toEqual(["skill_load"]);
-      const firstSystem = systemPromptOfFirstCall();
-      expect(firstSystem).not.toContain("The user invoked the skills below");
-      const secondCall = streamProviderResponse.mock.calls[1]?.[0] as { promptMessages: PromptMessage[] };
-      const secondSystem = String(secondCall.promptMessages.find((message) => message.role === "system")?.content ?? "");
-      expect(secondSystem).toContain("Summarize changes for end users in concise release notes.");
-      expect(secondSystem).toContain("The user addressed this message to @Writer.");
+      expect(guidanceOfFirstCall()).not.toContain("The user invoked the skills below");
+      const secondGuidance = trailingGuidanceOfCall(1);
+      expect(secondGuidance).toContain("Summarize changes for end users in concise release notes.");
+      expect(secondGuidance).toContain("The user addressed this message to @Writer.");
     });
 
     it("ignores @mentions outside bot conversations and in bot-authored deliveries", async () => {
@@ -4465,8 +4570,7 @@ Run browser commands.`
 
       for (const call of streamProviderResponse.mock.calls) {
         const messages = (call[0] as { promptMessages: PromptMessage[] }).promptMessages;
-        const system = messages.find((message) => message.role === "system");
-        expect(String(system?.content ?? "")).not.toContain("The user addressed this message");
+        expect(JSON.stringify(messages)).not.toContain("The user addressed this message");
       }
     });
   });

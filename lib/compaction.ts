@@ -315,6 +315,7 @@ export function buildPromptMessages(input: {
   };
 
   const systemParts: string[] = [input.systemPrompt];
+  let recalledMemoriesBlock = "";
 
   if (input.personaContent?.trim()) {
     systemParts.push(input.personaContent.trim());
@@ -325,11 +326,10 @@ export function buildPromptMessages(input: {
       ? listMemoriesForPrompt(input.memoryUserId, input.memoryBotId ? { botId: input.memoryBotId } : undefined)
       : []);
     if (memories.length > 0) {
-      systemParts.push(
+      recalledMemoriesBlock =
         "<memory>\n" +
         memories.map((m) => `${m.id}: [${m.category}] ${m.content}`).join("\n") +
-        "\n</memory>"
-      );
+        "\n</memory>";
     }
     systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
@@ -407,6 +407,10 @@ export function buildPromptMessages(input: {
       role: "user",
       content: input.userInput
     });
+  }
+
+  if (recalledMemoriesBlock) {
+    promptMessages.push({ role: "system", content: recalledMemoriesBlock });
   }
 
   return promptMessages;

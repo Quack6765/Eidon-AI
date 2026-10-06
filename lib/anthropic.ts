@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
+import { env } from "@/lib/env";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
@@ -160,25 +161,43 @@ export function toAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool[] {
   }));
 }
 
-function withCacheControl(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
-  if (messages.length < 2) {
+function cacheControl() {
+  return env.EIDON_ANTHROPIC_CACHE_TTL === "1h"
+    ? { type: "ephemeral", ttl: "1h" }
+    : { type: "ephemeral" };
+}
+
+function toBlocks(content: Anthropic.MessageParam["content"]): Anthropic.ContentBlockParam[] {
+  return typeof content === "string" ? [{ type: "text", text: content }] : content;
+}
+
+function countBlocks(messages: Anthropic.MessageParam[]) {
+  return messages.reduce((total, message) => total + toBlocks(message.content).length, 0);
+}
+
+function withCacheControl(messages: Anthropic.MessageParam[], volatileBlockCount: number): Anthropic.MessageParam[] {
+  const target = countBlocks(messages) - volatileBlockCount - 1;
+  if (target < 0) {
     return messages;
   }
 
-  const cacheIndex = messages.length - 2;
+  let offset = 0;
 
-  return messages.map((message, index) => {
-    if (index !== cacheIndex || !Array.isArray(message.content) || message.content.length === 0) {
+  return messages.map((message) => {
+    const blocks = toBlocks(message.content);
+    const markIndex = target - offset;
+    offset += blocks.length;
+
+    if (markIndex < 0 || markIndex >= blocks.length) {
       return message;
     }
 
-    const content = message.content.map((block, blockIndex) =>
-      blockIndex === message.content.length - 1
-        ? ({ ...block, cache_control: { type: "ephemeral" } } as Anthropic.ContentBlockParam)
-        : block
-    );
-
-    return { ...message, content };
+    return {
+      ...message,
+      content: blocks.map((block, index) =>
+        index === markIndex ? ({ ...block, cache_control: cacheControl() } as Anthropic.ContentBlockParam) : block
+      )
+    };
   });
 }
 
@@ -188,7 +207,8 @@ export function buildAnthropicRequest(input: {
   tools?: ToolDefinition[];
 }): Record<string, unknown> {
   const system = extractSystemPrompt(input.messages);
-  const messages = withCacheControl(toAnthropicMessages(input.messages));
+  const volatileBlockCount = countBlocks(toAnthropicMessages(input.messages.filter((message) => message.volatile)));
+  const messages = withCacheControl(toAnthropicMessages(input.messages), volatileBlockCount);
   const effort = supportsVisibleReasoning(input.settings.model, getProviderApiMode(input.settings))
     ? mapReasoningEffortToAnthropic(input.settings.reasoningEffort)
     : null;
@@ -200,7 +220,7 @@ export function buildAnthropicRequest(input: {
   };
 
   if (system) {
-    params.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+    params.system = [{ type: "text", text: system, cache_control: cacheControl() }];
   }
 
   if (effort) {

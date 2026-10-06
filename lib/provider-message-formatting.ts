@@ -17,7 +17,7 @@ function buildDateContextContent() {
 }
 
 export function withDateContextUserMessage(messages: PromptMessage[]): PromptMessage[] {
-  return [...messages, { role: "user", content: buildDateContextContent() }];
+  return [...messages, { role: "user", content: buildDateContextContent(), volatile: true }];
 }
 
 export function withDateContextSystemPrompt(systemPrompt: string) {

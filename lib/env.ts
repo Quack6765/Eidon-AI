@@ -57,6 +57,7 @@ const nodeEnvSchema = z.object({
     .optional()
     .transform((value) => (value ? normalizeBaseUrl(value) : value)),
   EIDON_BROWSER_MEMORY_BUDGET_MB: z.coerce.number().int().positive().optional(),
+  EIDON_ANTHROPIC_CACHE_TTL: z.enum(["5m", "1h"]).default("5m"),
   EIDON_GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
   EIDON_GITHUB_APP_CALLBACK_URL: z.string().url().optional()

@@ -1,7 +1,6 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
 import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
-import { getSkillResolvedName } from "./skill-runtime";
 import type { BotRosterEntry } from "@/lib/bots";
 import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
 import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
@@ -44,7 +43,6 @@ export function buildToolDefinitions(input: {
   webSearchEnabled?: boolean;
   webSearchPipelineMode?: WebSearchPipelineMode;
   imageGenerationProviderId?: string | null;
-  imageGenerationToolEnabled?: boolean;
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
   botTeam?: {
@@ -55,7 +53,6 @@ export function buildToolDefinitions(input: {
   computerHandoffEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
-    input.imageGenerationToolEnabled !== false &&
     input.imageGenerationProviderId &&
     input.imageGenerationProviderId !== "disabled"
       ? {
@@ -164,7 +161,7 @@ export function buildToolDefinitions(input: {
       type: "function",
       function: {
         name: "load_skill",
-        description: `Load the full content and instructions of a skill. Available: ${input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`,
+        description: "Load the full content and instructions of a skill. The available skill names are listed under \"Available skills\" in the conversation.",
         parameters: {
           type: "object",
           properties: {
