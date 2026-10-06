@@ -2466,6 +2466,7 @@ Run browser commands.`
       skills: [],
       mcpToolSets: [],
       mcpTimeout: 12345,
+      toolApproval: { userId: "user_copilot", unattended: false },
       onActionStart: () => undefined,
       onActionComplete: () => undefined,
       onActionError: () => undefined
@@ -2474,7 +2475,8 @@ Run browser commands.`
     expect(streamProviderResponse.mock.calls.at(-1)?.[0].runtimeToolContext).toEqual(
       expect.objectContaining({
         mcpToolSets: [],
-        mcpTimeout: 12345
+        mcpTimeout: 12345,
+        toolApproval: { userId: "user_copilot", unattended: false }
       })
     );
   });

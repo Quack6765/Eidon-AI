@@ -6,10 +6,8 @@ vi.mock("@/lib/auth", () => ({ requireUser: requireUserMock }));
 
 import { POST as dismiss } from "@/app/api/message-actions/[actionId]/dismiss/route";
 import { POST as fillSecret } from "@/app/api/message-actions/[actionId]/secret/route";
-import { DELETE as deleteLogin } from "@/app/api/saved-logins/[loginId]/route";
-import { GET as listLogins } from "@/app/api/saved-logins/route";
+import { MAX_SECRET_CHARS } from "@/lib/constants";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
-import { saveLogin } from "@/lib/saved-logins";
 import { createLocalUser } from "@/lib/users";
 
 function actionContext(actionId: string) {
@@ -40,7 +38,7 @@ async function pendingSecretRequest(username: string) {
   return { user, action };
 }
 
-describe("secret and saved-login routes", () => {
+describe("secret request routes", () => {
   beforeEach(() => requireUserMock.mockReset());
 
   it("rejects empty or oversized secrets and unknown requests without echoing the value", async () => {
@@ -48,7 +46,7 @@ describe("secret and saved-login routes", () => {
     requireUserMock.mockResolvedValue(user);
 
     expect((await fillSecret(post({ value: "" }), actionContext(action.id))).status).toBe(400);
-    expect((await fillSecret(post({ value: "x".repeat(1_001) }), actionContext(action.id))).status).toBe(400);
+    expect((await fillSecret(post({ value: "x".repeat(MAX_SECRET_CHARS + 1) }), actionContext(action.id))).status).toBe(400);
     expect((await fillSecret(post("not json"), actionContext(action.id))).status).toBe(400);
 
     const missing = await fillSecret(post({ value: "hunter22" }), actionContext("act_missing"));
@@ -71,22 +69,5 @@ describe("secret and saved-login routes", () => {
     const other = await pendingSecretRequest("secret-route-victim");
     requireUserMock.mockResolvedValue(stranger);
     expect((await dismiss(post({}), actionContext(other.action.id))).status).toBe(404);
-  });
-
-  it("lists saved logins without values and deletes only the user's own", async () => {
-    const owner = await createLocalUser({ username: "logins-route-owner", password: "Password123!", role: "user" });
-    const other = await createLocalUser({ username: "logins-route-other", password: "Password123!", role: "user" });
-    saveLogin(owner.id, "https://example.com", "password", "never-shown-value");
-
-    requireUserMock.mockResolvedValue(owner);
-    const listed = await listLogins();
-    const text = await listed.text();
-    expect(text).not.toContain("never-shown-value");
-    const id = (JSON.parse(text) as { savedLogins: Array<{ id: string }> }).savedLogins[0].id;
-
-    requireUserMock.mockResolvedValue(other);
-    expect((await deleteLogin(new Request("http://localhost"), { params: Promise.resolve({ loginId: id }) })).status).toBe(404);
-    requireUserMock.mockResolvedValue(owner);
-    expect((await deleteLogin(new Request("http://localhost"), { params: Promise.resolve({ loginId: id }) })).status).toBe(200);
   });
 });

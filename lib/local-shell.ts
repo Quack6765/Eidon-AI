@@ -33,8 +33,8 @@ export const SHELL_ENV_EXTRA_ALLOWLIST = [
   "NODE_USE_ENV_PROXY"
 ] as const;
 
-export function buildShellEnv(extraEnv?: Record<string, string>) {
-  const shellEnv: Record<string, string> = {};
+export function buildShellEnv(extraEnv?: Record<string, string>, secretEnv?: Record<string, string>) {
+  const shellEnv: Record<string, string> = { ...secretEnv };
 
   for (const name of SHELL_ENV_ALLOWLIST) {
     const value = process.env[name];
@@ -192,6 +192,7 @@ export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
   env?: Record<string, string>;
+  secretEnv?: Record<string, string>;
   isolation?: IsolationRules;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
@@ -199,7 +200,7 @@ export async function executeLocalShellCommand(input: {
   const command = validateCommand(input.command);
   const timeoutMs = Math.min(input.timeoutMs ?? getDefaultTimeoutMs(command), MAX_SHELL_TIMEOUT_MS);
   const cwd = input.cwd ?? resolveShellWorkspaceDir();
-  const shellEnv = buildShellEnv(input.env);
+  const shellEnv = buildShellEnv(input.env, input.secretEnv);
 
   if (input.abortSignal?.aborted) {
     throw createAbortError();

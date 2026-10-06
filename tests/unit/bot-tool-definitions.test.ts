@@ -15,7 +15,7 @@ function botTools(botTeam?: TeamOptions) {
   });
 }
 
-function toolNamed(name: string, botTeam: TeamOptions) {
+function toolNamed(name: string, botTeam?: TeamOptions) {
   return botTools(botTeam).find((tool) => tool.function.name === name);
 }
 
@@ -60,5 +60,39 @@ describe("bot instruction tool definitions", () => {
     expect(chiefNames).toContain("update_bot");
     expect(workerNames).not.toContain("create_bot");
     expect(workerNames).not.toContain("update_bot");
+  });
+
+  it("offers the browser hand-off and vault tools in every conversation, not only to bots", () => {
+    for (const botTeam of [undefined, { isChief: true, roster: [] as [] }, { isChief: false, roster: [] as [] }]) {
+      expect(botTools(botTeam).map((tool) => tool.function.name)).toEqual(
+        expect.arrayContaining(["request_takeover", "request_secret", "list_secrets", "save_secret"])
+      );
+    }
+  });
+
+  it("names request_secret's vault entry with name instead of label", () => {
+    const shape = parameterShape(toolNamed("request_secret"));
+    expect(shape.properties?.name).toBeTruthy();
+    expect(shape.properties?.label).toBeUndefined();
+    expect(shape.required).toEqual(["name", "origin", "target"]);
+  });
+
+  it("describes list_secrets without parameters and save_secret with an optional value", () => {
+    expect(parameterShape(toolNamed("list_secrets"))).toEqual({ type: "object", properties: {} });
+
+    const save = parameterShape(toolNamed("save_secret"));
+    expect(Object.keys(save.properties ?? {})).toEqual(["name", "secret", "origin", "username", "notes"]);
+    expect(save.required).toEqual(["name"]);
+  });
+
+  it("lets execute_shell_command take vault secrets as environment variables", () => {
+    const secrets = parameterShape(toolNamed("execute_shell_command")).properties?.secrets as {
+      type: string;
+      items: { properties: Record<string, unknown>; required: string[] };
+    };
+    expect(secrets.type).toBe("array");
+    expect(Object.keys(secrets.items.properties)).toEqual(["name", "variable"]);
+    expect(secrets.items.required).toEqual(["name", "variable"]);
+    expect(parameterShape(toolNamed("execute_shell_command")).required).toEqual(["command"]);
   });
 });

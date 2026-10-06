@@ -44,6 +44,18 @@ export function buildToolApprovalNote(payload: ToolApprovalProposalPayload) {
   return `Approving allows the ${familyList} command ${payload.families.length === 1 ? "family" : "families"} — every such command, whatever its arguments.`;
 }
 
+export function describeToolApprovalSecrets(payload: ToolApprovalProposalPayload) {
+  const value = payload.scope === "shell" ? payload.arguments?.secrets : null;
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((secret) => {
+      const { name, variable } = (secret ?? {}) as Record<string, unknown>;
+      return typeof name === "string" && typeof variable === "string" ? `${name} as $${variable}` : "";
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function getToolApprovalPreview(payload: ToolApprovalProposalPayload) {
   if (payload.scope === "shell") {
     return payload.command ?? "";

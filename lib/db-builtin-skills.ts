@@ -49,7 +49,9 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 
 - The browser stays open between tasks and keeps its sign-ins, so you do not need to close it
 - Never ask the user to paste a password or one-time code into the chat
-- When a page needs a password or a one-time code, call \`request_secret\` with the page's origin and the field (a snapshot ref or selector) if you have it: Eidon types the user's answer into the field without showing it to you, and fills a saved login by itself
+- Before signing in, call \`list_secrets\` to see what the user's vault holds for the site, and type a stored username yourself
+- When a page needs a password or a one-time code, call \`request_secret\` with the vault entry's name, the page's origin and the field (a snapshot ref or selector): Eidon fills a stored value by itself, or types the user's answer without showing it to you
+- When a command needs an API key or token from the vault, pass it to \`execute_shell_command\` through \`secrets\` and refer to it as an environment variable
 - For a CAPTCHA, a payment confirmation or any other step only the user can do, open that step and call \`request_takeover\` if you have it: the user completes the step in your browser and returns control
 - Without those tools, tell the user what to do there
 - Use snapshot + refs for reliable element interaction

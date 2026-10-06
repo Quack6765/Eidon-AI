@@ -72,7 +72,15 @@ import { requestComputerHandoff } from "@/lib/computer-handoff";
 import { requestComputerSecret } from "@/lib/computer-secrets";
 import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
 import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
-import { redactSecrets } from "@/lib/secret-redaction";
+import { redactSecrets, rememberSecretForRedaction } from "@/lib/secret-redaction";
+import {
+  listVaultEntries,
+  readVaultSecret,
+  resolveVaultEnv,
+  saveVaultSecretForAgent,
+  type VaultEntry,
+  type VaultEnvRequest
+} from "@/lib/vault";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -1021,6 +1029,14 @@ export async function executeShellCommand(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const vaultEnv = resolveShellSecrets(context.input, args.secrets);
+  if ("error" in vaultEnv) {
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${vaultEnv.error}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+  const secrets = vaultEnv.resolved.map(({ entry, variable }) => ({ name: entry.name, variable }));
+  const actionArguments = { command, timeoutMs, ...(secrets.length ? { secrets } : {}) };
+
   if (
     getShellCommandLabel(command) === "Web browser" &&
     getComputerControl(conversationBrowserTarget(context.input.conversationId)) === "user"
@@ -1038,7 +1054,8 @@ export async function executeShellCommand(
     scope: "shell",
     families: classification.families,
     classified: classification.classified,
-    command
+    command,
+    ...(secrets.length ? { arguments: { secrets } } : {})
   };
   const approval = await requestToolExecutionApproval({
     payload: approvalPayload,
@@ -1058,7 +1075,7 @@ export async function executeShellCommand(
         kind: "shell_command",
         label: getShellCommandLabel(command),
         detail: buildShellDetail(command),
-        arguments: { command, timeoutMs }
+        arguments: actionArguments
       });
       const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
       await context.input.onActionError?.(denialActionHandle, {
@@ -1074,7 +1091,7 @@ export async function executeShellCommand(
     kind: "shell_command",
     label: getShellCommandLabel(command),
     detail: buildShellDetail(command),
-    arguments: { command, timeoutMs }
+    arguments: actionArguments
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
   const screenshotCandidate = prepareScreenshotArtifact(command);
@@ -1092,12 +1109,14 @@ export async function executeShellCommand(
     const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
     throwIfAborted(context.input.abortSignal);
     if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
+    const secretEnv = readShellSecrets(vaultEnv, context.input);
     const shellResult = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
       cwd,
       env: { ...browserEnv, ...botShell?.env },
+      secretEnv,
       isolation: botShell?.rules
     });
     const result = {
@@ -1134,13 +1153,174 @@ export async function executeShellCommand(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "Shell command execution failed";
+    const message = redactSecrets(
+      context.input.conversationId,
+      error instanceof Error ? error.message : "Shell command execution failed"
+    );
     await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } finally {
     if (usesBrowser) setComputerCaption(browserTarget, null);
   }
+}
+
+type VaultContextInput = { conversationId?: string; toolApproval?: ToolApprovalContext };
+
+function vaultOwner(input: VaultContextInput) {
+  const userId = input.toolApproval?.userId;
+  return userId && input.conversationId ? { userId, conversationId: input.conversationId } : null;
+}
+
+const VAULT_UNAVAILABLE = "The vault is only available in the user's own conversations.";
+
+function parseSecretRequests(value: unknown): VaultEnvRequest[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  const requests: VaultEnvRequest[] = [];
+  for (const item of value) {
+    const { name, variable } = (item ?? {}) as Record<string, unknown>;
+    if (typeof name !== "string" || typeof variable !== "string") return null;
+    requests.push({ name, variable });
+  }
+  return requests;
+}
+
+function resolveShellSecrets(input: VaultContextInput, value: unknown) {
+  const requests = parseSecretRequests(value);
+  if (!requests) return { error: "secrets must be a list of { name, variable } objects." };
+  if (!requests.length) return { resolved: [] };
+  const owner = vaultOwner(input);
+  if (!owner) return { error: VAULT_UNAVAILABLE };
+  return resolveVaultEnv(owner.userId, requests);
+}
+
+function readShellSecrets(vaultEnv: { resolved: Array<{ entry: VaultEntry; variable: string }> }, input: VaultContextInput) {
+  const owner = vaultOwner(input);
+  if (!owner || !vaultEnv.resolved.length) return undefined;
+  return Object.fromEntries(
+    vaultEnv.resolved.map(({ entry, variable }) => {
+      const value = readVaultSecret(owner.userId, entry.id);
+      if (value === null) throw new Error(`"${entry.name}" is no longer in the vault.`);
+      rememberSecretForRedaction(owner.conversationId, value);
+      return [variable, value];
+    })
+  );
+}
+
+function describeVaultEntry(entry: VaultEntry) {
+  return [
+    `- ${entry.name}`,
+    entry.origin ? `site: ${entry.origin}` : "no site",
+    entry.username ? `username: ${entry.username}` : "",
+    entry.notes ? `notes: ${entry.notes}` : "",
+    `updated ${entry.updatedAt.slice(0, 10)}`
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+async function executeListSecrets(
+  toolCallId: string,
+  context: {
+    input: VaultContextInput & {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const owner = vaultOwner(context.input);
+  if (!owner) {
+    return {
+      nextSortOrder: context.timelineSortOrder,
+      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${VAULT_UNAVAILABLE}`)]
+    };
+  }
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Check vault",
+    detail: "",
+    serverId: "integration_vault",
+    toolName: "list_secrets",
+    arguments: {}
+  });
+  const entries = listVaultEntries(owner.userId);
+  const summary = entries.length === 1 ? "1 secret" : `${entries.length} secrets`;
+  await context.input.onActionComplete?.(typeof handle === "string" ? handle : undefined, { resultSummary: summary });
+  const resultText = entries.length
+    ? `The user's vault (values are never shown):\n${entries.map(describeVaultEntry).join("\n")}`
+    : "The user's vault is empty.";
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+async function executeSaveSecret(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: VaultContextInput & {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const owner = vaultOwner(context.input);
+  const name = optionalString(args.name)?.trim() ?? "";
+  const secret = optionalString(args.secret) || undefined;
+  if (secret && owner) rememberSecretForRedaction(owner.conversationId, secret);
+  const fail = (message: string) => ({
+    nextSortOrder: context.timelineSortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  if (!owner) return fail(VAULT_UNAVAILABLE);
+  if (!name) return fail("save_secret needs a name.");
+
+  const input = {
+    name,
+    origin: optionalString(args.origin),
+    username: optionalString(args.username),
+    notes: optionalString(args.notes)
+  };
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Save to vault",
+    detail: name,
+    serverId: "integration_vault",
+    toolName: "save_secret",
+    arguments: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const result = saveVaultSecretForAgent(owner.userId, { ...input, secret });
+  if ("error" in result) {
+    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: result.error });
+    return {
+      nextSortOrder: context.timelineSortOrder + 1,
+      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${result.error}`)]
+    };
+  }
+  const verb = result.created ? "Saved" : "Updated";
+  await context.input.onActionComplete?.(actionHandle, { detail: result.entry.name, resultSummary: `${verb} in your vault` });
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [
+      ...context.promptMessages,
+      buildToolResultMessage(
+        toolCallId,
+        `${verb} "${result.entry.name}" in the user's vault${result.entry.origin ? ` for ${result.entry.origin}` : ""}. Refer to it by that name; never repeat the value.`
+      )
+    ]
+  };
 }
 
 async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget) {
@@ -1193,6 +1373,8 @@ async function executeRequestSecret(
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -1203,13 +1385,15 @@ async function executeRequestSecret(
   const resultText = await requestComputerSecret({
     conversationId: context.input.conversationId,
     userId: context.input.toolApproval?.userId,
-    label: String(args.label ?? ""),
+    name: String(args.name ?? ""),
     origin: String(args.origin ?? ""),
     target: String(args.target ?? ""),
     save: args.save === true || replaceSaved,
     replaceSaved,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart,
+    onActionComplete: context.input.onActionComplete,
+    onActionError: context.input.onActionError,
     onWaitChange: context.input.toolApproval?.onWaitChange
   });
   throwIfAborted(context.input.abortSignal);
@@ -1910,6 +2094,14 @@ export async function executeToolCall(
 
   if (name === "request_secret") {
     return executeRequestSecret(toolCallId, args, context);
+  }
+
+  if (name === "list_secrets") {
+    return executeListSecrets(toolCallId, context);
+  }
+
+  if (name === "save_secret") {
+    return executeSaveSecret(toolCallId, args, context);
   }
 
   if (name === "message_bot") {

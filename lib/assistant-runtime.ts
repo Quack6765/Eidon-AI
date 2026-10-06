@@ -636,6 +636,7 @@ export async function resolveAssistantTurn(input: {
           memoriesEnabled: input.memoriesEnabled ?? false,
           effectiveVisionMode,
           memoryUserId: input.memoryUserId,
+          toolApproval: input.toolApproval,
           imageGenerationToolEnabled: !imageGenerationToolConsumed,
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,

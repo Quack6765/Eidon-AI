@@ -50,7 +50,7 @@ Only the Chief of Staff can call `create_bot` and `update_bot`. Other bots that 
 
 - **Live view.** While a turn is running, the card shows the bot's tab as a live frame, streamed over a WebSocket. **Take control** opens a full-screen stage that relays your clicks and typing to the tab.
 - **Hand-offs.** A bot calls `request_takeover` when a step only you can do — sign-in, two-factor, CAPTCHA, payment. The thread shows a **Your turn in the browser** card with what the bot needs; you take over, finish the step, and return control with an optional note. The bot waits up to 30 minutes, and the card records whether you returned control, nobody took over, or the run was stopped.
-- **Secrets.** A bot calls `request_secret` to ask for a password or code. The thread shows a masked card; Eidon checks the bot's tab is on the requested site, focuses the field, and types your answer through the live stream, so the value never reaches the model, the conversation, or a command line. Saving it for a site lets bots fill it next time without asking; saved logins are listed and removable in settings.
+- **Secrets.** Bots fill passwords and codes from your [vault](#vault) with `request_secret`, the same way as in any other conversation.
 - **Sandbox.** Each bot's shell, browser daemon, and Chromium run sandboxed in the bot's own workspace, and the bot browsers are budgeted against the container's memory limit.
 
 **Shared skills.** The team shares one skill library at `bot-workspaces/<user>/shared/skills/` — shared with every agent on this team rather than kept per bot. Any bot can extend it with `skill_manage`, and an optional **Learn from each task** pass captures recurring workflows as skills after a run, marked **Skill review** in the timeline. Unused skills go stale and are archived — never deleted — by skill maintenance, and can be restored. See [MCP and skills](./mcp-and-skills.md#skills).
@@ -77,7 +77,7 @@ A toggle in the composer switches a turn into deep research mode.
 
 ## Memory
 
-**Global scope.** Memory is not per-conversation: nothing else from a chat follows the user into another one. The model proposes a memory only when the fact would still matter in an unrelated future conversation — facts about the user (identity, environment, stable preferences), never the topic, task, or document being discussed, and never credentials unless the user asks. It is expected to be proactive about the inherently memorable cases: birthdays and important dates, dislikes, favourites, allergies and dietary needs, family, and constraints. Calling the tool **is** the offer — that is what puts the approval card in the transcript.
+**Global scope.** Memory is not per-conversation: nothing else from a chat follows the user into another one. The model proposes a memory only when the fact would still matter in an unrelated future conversation — facts about the user (identity, environment, stable preferences), never the topic, task, or document being discussed, and never credentials, which go to the [vault](#vault). It is expected to be proactive about the inherently memorable cases: birthdays and important dates, dislikes, favourites, allergies and dietary needs, family, and constraints. Calling the tool **is** the offer — that is what puts the approval card in the transcript.
 
 **Memory tools with a rigor setting.** When memories are enabled the model gets `create_memory`, `update_memory`, and `delete_memory`. A rigor preference of `low`, `balanced` (default), or `high` changes how broadly the model hunts for durable user facts, while the global test above applies at every level. The guidance in those tool descriptions is what tunes how proactively the assistant reaches for them.
 
@@ -86,6 +86,26 @@ A toggle in the composer switches a turn into deep research mode.
 **Prompt selection.** Memories are stored per user with a category (`personal`, `preference`, `work`, `location`, `other`) and a cap of 100 by default. All of them go into the prompt until you hold more than 35, at which point semantic recall starts choosing: the 10 most recently updated, plus up to 25 that are semantically relevant to the current message, plus **every pinned memory** regardless of relevance. Without semantic recall there is no trimming step.
 
 **Semantic recall.** With semantic recall enabled, a local embedding model indexes memories, past messages including automation transcripts, compaction summaries, and extracted attachment text. This powers both the memory selection above and a `search_workspace` tool the model can call to look things up in your own history. Settings show the index status and offer an admin-only rebuild. Embeddings run on the server on CPU — nothing is sent to an embedding API. The model is configurable and the whole subsystem can be switched off; see [Configuration](./configuration.md#environment-variables).
+
+## Vault
+
+**One place for credentials.** The vault holds your passwords, API keys, tokens, and anything else Eidon needs to sign in or call a service. Each entry has a name, the value, an optional website, an optional username, and notes. Values are encrypted at rest with `EIDON_ENCRYPTION_SECRET`. Manage it in **Settings → Vault**: add, edit, reveal one value at a time, or delete entries.
+
+**What the model can do.** In any conversation, bot or not, the model gets:
+
+- `list_secrets`: shows entry names, websites, usernames, and notes. It never shows values.
+- `save_secret`: saves or updates an entry, typically after you give it a credential in the chat.
+- `request_secret`: types a value into a field of its browser. Eidon fills a stored entry itself, but only when the page is on the entry's website. Otherwise you enter the value on a masked card, and you can save it to the vault under the requested name.
+- `execute_shell_command` with `secrets`: passes entries to that command as environment variables.
+
+The model can't delete entries and can't move an entry to another website; only you can do that, in Settings.
+
+**What stays hidden.** Eidon types browser values through the live stream and injects shell values as environment variables, so values never appear in the conversation, in a command line, or in the model's context. A value is also redacted from later tool output in that conversation. The approval card for a shell command names the secrets it will receive, and your normal approval rules apply to it.
+
+**Limits.**
+
+- Redaction is best effort and is not kept after a server restart. A command that deliberately transforms a value can still print it.
+- Bot shells run sandboxed when the host kernel supports Landlock. Shells in regular conversations never do, so an approved command there can read Eidon's data directory and, with it, the vault. Keep shell approvals narrow if the vault holds anything sensitive.
 
 ## Automations
 
@@ -120,9 +140,13 @@ Which tools appear depends on your configuration. The full set:
 | `mcp_<server>_<tool>` | An MCP server is enabled and connected | One entry per discovered tool. Vision-flagged servers only appear in `mcp` vision mode |
 | `load_skill` | At least one skill is enabled and relevant | Loads a skill's full instructions into the turn |
 | `skill_manage` | The conversation belongs to a bot and skills are enabled | Creates, edits, and deletes skills in the team's shared skill library |
-| `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace). Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
+| `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace), optionally with vault secrets as environment variables. Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
 | `create_automation` | Always | Proposes a scheduled or one-time automation for your approval |
+| `list_secrets` | Always | Lists the [vault](#vault) entries without their values |
+| `save_secret` | Always | Saves or updates a vault entry |
+| `request_secret` | Always | Types a vault value, or a value you enter on a masked card, into a field of the model's browser |
+| `request_takeover` | Always | Hands the browser to you for a step only you can do, such as two-factor or a CAPTCHA |
 | `draft_message` | An enabled MCP server has a tool that is not read-only | Prepares an email, Slack message, reply, or post as a draft you edit and send from the chat |
 | `web_search` | Web search is configured | Searches with the selected provider. Accepts up to 5 parallel queries and up to 10 results each |
 | `search_workspace` | Semantic recall is available | Read-only semantic search over your memories, past conversations, summaries, and attachment text |

@@ -793,14 +793,48 @@ describe("Mobile API v1 REST adapter", () => {
     ) as { data: { computer: { controlOwner: string } } };
     expect(returnedBody.data.computer.controlOwner).toBe("bot");
 
-    const { saveLogin } = await import("@/lib/saved-logins");
-    saveLogin(admin.id, "https://example.com", "password", "contract-secret-value");
-    const loginsBody = await call("/saved-logins", ["saved-logins"], "GET") as {
-      data: { savedLogins: Array<{ id: string; origin: string; label: string }> };
+    const vaultEntryBody = await call("/vault", ["vault"], "POST", {
+      name: "Contract login",
+      origin: "https://example.com/login",
+      username: "contract-user",
+      secret: "contract-secret-value"
+    }) as { data: { vaultEntry: { id: string; origin: string | null } } };
+    const vaultEntryId = vaultEntryBody.data.vaultEntry.id;
+    expect(vaultEntryBody.data.vaultEntry.origin).toBe("https://example.com");
+    const vaultListBody = await call("/vault", ["vault"], "GET") as {
+      data: { vaultEntries: Array<{ id: string; name: string; username: string }> };
     };
-    expect(loginsBody.data.savedLogins).toEqual([expect.objectContaining({ origin: "https://example.com", label: "password" })]);
-    expect(JSON.stringify(loginsBody)).not.toContain("contract-secret-value");
-    await call("/saved-logins/{loginId}", ["saved-logins", loginsBody.data.savedLogins[0].id], "DELETE");
+    expect(vaultListBody.data.vaultEntries).toEqual([
+      expect.objectContaining({ id: vaultEntryId, name: "Contract login", username: "contract-user" })
+    ]);
+    const vaultDuplicate = await mobilePost(
+      request(["vault"], session.token, { method: "POST", body: { name: "contract LOGIN", secret: "contract-duplicate-value" } }),
+      context(["vault"])
+    );
+    expect(vaultDuplicate.status).toBe(409);
+    await assertResponseContract("/vault", "POST", vaultDuplicate);
+    await expect(vaultDuplicate.json()).resolves.toMatchObject({ error: { code: "conflict" } });
+    const vaultUpdateBody = await call(
+      "/vault/{entryId}",
+      ["vault", vaultEntryId],
+      "PATCH",
+      { notes: "Contract notes", secret: "contract-rotated-value" }
+    ) as { data: { vaultEntry: { notes: string } } };
+    expect(vaultUpdateBody.data.vaultEntry.notes).toBe("Contract notes");
+    for (const body of [vaultEntryBody, vaultListBody, vaultUpdateBody]) {
+      expect(JSON.stringify(body)).not.toContain("contract-secret-value");
+      expect(JSON.stringify(body)).not.toContain("contract-rotated-value");
+    }
+    const vaultSecretPath = ["vault", vaultEntryId, "secret"];
+    const vaultSecret = await mobileGet(request(vaultSecretPath, session.token), context(vaultSecretPath));
+    expect(vaultSecret.status).toBe(200);
+    expect(vaultSecret.headers.get("cache-control")).toBe("no-store");
+    await assertResponseContract("/vault/{entryId}/secret", "GET", vaultSecret);
+    await expect(vaultSecret.json()).resolves.toEqual({ data: { secret: "contract-rotated-value" } });
+    await call("/vault/{entryId}", ["vault", vaultEntryId], "DELETE");
+    const vaultSecretGone = await mobileGet(request(vaultSecretPath, session.token), context(vaultSecretPath));
+    expect(vaultSecretGone.status).toBe(404);
+    await assertResponseContract("/vault/{entryId}/secret", "GET", vaultSecretGone);
 
     const message = createMessage({
       conversationId,

@@ -16,7 +16,6 @@ import { ImageGenerationSettings } from "@/components/settings/integration-setti
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
 import { BotIsolationStatus } from "@/components/settings/bot-isolation-status";
-import { SavedLoginsSettings } from "@/components/settings/integration-settings/saved-logins-settings";
 import type { IsolationStatus } from "@/lib/shell-isolation";
 import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
@@ -107,8 +106,8 @@ const GENERAL_SECTIONS = [
   {
     id: "bots",
     label: "Bots",
-    description: "Base prompt, sandbox and logins",
-    detail: "Set the base system prompt shared by every bot on the team, check the sandbox bots run in, and manage the logins they may fill.",
+    description: "Base prompt and sandbox",
+    detail: "Set the base system prompt shared by every bot on the team and check the sandbox bots run in.",
     icon: Bot
   }
 ] as const;
@@ -569,7 +568,6 @@ export function GeneralSection({
           ) : null}
         </div>
         {botIsolation ? <BotIsolationStatus status={botIsolation} /> : null}
-        <SavedLoginsSettings active={activeSection === "bots"} />
       </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;

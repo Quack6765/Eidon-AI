@@ -256,6 +256,29 @@ describe("buildCopilotTools", () => {
     expect(names).not.toContain("load_skill");
   });
 
+  it("exposes the browser hand-off and vault tools outside bot conversations", () => {
+    const names = buildCopilotTools(makeCtx({ conversationId: "conv_plain" })).map((tool) => tool.name);
+
+    expect(names).toEqual(
+      expect.arrayContaining(["request_takeover", "request_secret", "list_secrets", "save_secret"])
+    );
+  });
+
+  it("passes the turn's owner to vault tools so they reach the user's vault", async () => {
+    const invocation = { sessionId: "s1", toolCallId: "tc1", toolName: "list_secrets", arguments: {} };
+    const owned = buildCopilotTools(
+      makeCtx({ conversationId: "conv_vault", toolApproval: { userId: "user_vault", unattended: false } })
+    ).find((tool) => tool.name === "list_secrets")!;
+    const anonymous = buildCopilotTools(makeCtx({ conversationId: "conv_vault" })).find(
+      (tool) => tool.name === "list_secrets"
+    )!;
+
+    expect(await owned.handler!({}, invocation)).toBe("The user's vault is empty.");
+    expect(await anonymous.handler!({}, invocation)).toBe(
+      "Error: The vault is only available in the user's own conversations."
+    );
+  });
+
   it("always includes shell tool", () => {
     const ctx = makeCtx();
 

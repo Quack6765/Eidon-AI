@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 import {
   buildToolApprovalHeading,
   buildToolApprovalNote,
+  describeToolApprovalSecrets,
   getToolApprovalPreview
 } from "@/lib/tool-approval-display";
 import type {
@@ -38,6 +39,7 @@ export function ToolApprovalCard({
 }) {
   const payload = action.proposalPayload as ToolApprovalProposalPayload;
   const canAllowAlways = payload.scope === "mcp" || payload.classified;
+  const vaultSecrets = describeToolApprovalSecrets(payload);
   const isPending = !readOnly && action.status === "pending" && action.proposalState === "pending";
   const heading = buildToolApprovalHeading(payload);
   const [submissionState, setSubmissionState] = useState<"approve" | "dismiss" | null>(null);
@@ -103,6 +105,13 @@ export function ToolApprovalCard({
             {getToolApprovalPreview(payload)}
           </p>
         </div>
+
+        {vaultSecrets ? (
+          <p className="flex items-start gap-1.5 text-[11px] leading-5 text-white/70">
+            <KeyRound className="mt-[3px] h-3 w-3 shrink-0 text-violet-400" aria-hidden="true" />
+            <span>Vault secrets: {vaultSecrets}</span>
+          </p>
+        ) : null}
 
         {buildToolApprovalNote(payload) ? (
           <p className="text-[11px] leading-5 text-white/48">{buildToolApprovalNote(payload)}</p>

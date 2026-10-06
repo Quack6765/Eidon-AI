@@ -52,7 +52,6 @@ export function buildToolDefinitions(input: {
     roster: BotRosterEntry[];
   };
   semanticRecallAvailable?: boolean;
-  computerHandoffEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -283,7 +282,20 @@ export function buildToolDefinitions(input: {
         type: "object",
         properties: {
           command: { type: "string", description: "The command to execute" },
-          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" }
+          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" },
+          secrets: {
+            type: "array",
+            description:
+              "Secrets from the user's vault to pass to this command as environment variables. Refer to them as $VARIABLE in the command; you never see the values and they are hidden from the output. Never print them",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "The vault entry's name, as listed by list_secrets" },
+                variable: { type: "string", description: "The environment variable to set, e.g. API_TOKEN" }
+              },
+              required: ["name", "variable"]
+            }
+          }
         },
         required: ["command"]
       }
@@ -343,60 +355,98 @@ export function buildToolDefinitions(input: {
     }
   });
 
-  if (input.botTeam || input.computerHandoffEnabled) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "request_takeover",
-        description:
-          "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
-        parameters: {
-          type: "object",
-          properties: {
-            reason: {
-              type: "string",
-              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
-            }
-          },
-          required: ["reason"]
-        }
+  tools.push({
+    type: "function",
+    function: {
+      name: "request_takeover",
+      description:
+        "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
+          }
+        },
+        required: ["reason"]
       }
-    });
-    tools.push({
+    }
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "request_secret",
+      description:
+        "Type a password, one-time code or other secret into a field of the page open in your browser without ever seeing it. If the user's vault has an entry with this name for the page's site, Eidon fills it straight away; otherwise the user enters it on a card and can save it to the vault under this name. Call list_secrets first to reuse an existing entry's exact name. Open the page first. Never ask for secrets in the chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description:
+              "The vault entry to fill, e.g. 'Email password', or what the user should enter, e.g. 'one-time code'. Shown to the user"
+          },
+          origin: {
+            type: "string",
+            description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+          },
+          target: {
+            type: "string",
+            description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
+          },
+          save: {
+            type: "boolean",
+            description:
+              "Offer to save what the user enters to the vault under this name so it is filled without asking next time. Use for passwords, not one-time codes"
+          },
+          replace_saved: {
+            type: "boolean",
+            description: "Set when the vault's value turned out to be wrong: ask the user for a new one and save it over the old one"
+          }
+        },
+        required: ["name", "origin", "target"]
+      }
+    }
+  });
+
+  tools.push(
+    {
       type: "function",
       function: {
-        name: "request_secret",
+        name: "list_secrets",
         description:
-          "Ask the user for a password, one-time code or other secret and have Eidon type it straight into a field of the page open in your browser. You never see the value, and it is hidden from your later tool results. Open the page first. If the user saved this secret for the site before, Eidon fills it without asking. Never ask for secrets in the chat.",
+          "List the secrets in the user's vault: each entry's name, the site it belongs to, its username and notes. Values are never shown. Check it before signing in somewhere or calling an API that needs a key.",
+        parameters: { type: "object", properties: {} }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "save_secret",
+        description:
+          "Save a password, API key, token or other credential to the user's vault, or update one already there, so you can use it later without the user repeating it. Use it when the user gives you a credential to keep. You can't change which site an existing entry belongs to and you can't delete entries; the user does that in Settings → Vault. Never repeat the value in your reply.",
         parameters: {
           type: "object",
           properties: {
-            label: {
+            name: {
               type: "string",
-              description: "What the secret is, in a few words, e.g. 'password' or 'one-time code'"
+              description: "A short, unique name, e.g. 'Email password' or 'Weather API key'. Reusing a name updates that entry"
             },
+            secret: { type: "string", description: "The value itself. Leave it out to update only the username or notes" },
             origin: {
               type: "string",
-              description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+              description:
+                "The website it belongs to, e.g. https://example.com. Set it for website logins so Eidon can type it into that site; leave it out for API keys"
             },
-            target: {
-              type: "string",
-              description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
-            },
-            save: {
-              type: "boolean",
-              description: "Offer to save it for this site so it is filled without asking next time. Use for passwords, not one-time codes"
-            },
-            replace_saved: {
-              type: "boolean",
-              description: "Set when a saved value turned out to be wrong: ask the user for a new one and save it over the old one"
-            }
+            username: { type: "string", description: "The username or email that goes with it, if any" },
+            notes: { type: "string", description: "Anything else worth knowing, such as what it is for. Never put secret values here" }
           },
-          required: ["label", "origin", "target"]
+          required: ["name"]
         }
       }
-    });
-  }
+    }
+  );
 
   if (input.botTeam) {
     const rosterSummary = input.botTeam.roster.length

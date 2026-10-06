@@ -8,6 +8,7 @@ import {
   isToolApprovalAction,
   ToolApprovalCard
 } from "@/components/tool-approval-card";
+import { describeToolApprovalSecrets, getToolApprovalPreview } from "@/lib/tool-approval-display";
 import type { MessageTimelineItem, ToolApprovalProposalPayload } from "@/lib/types";
 
 function buildAction(overrides: {
@@ -152,5 +153,70 @@ describe("ToolApprovalCard", () => {
       screen.getByText('Allow "create_issue" from GitHub?')
     ).toBeInTheDocument();
     expect(screen.getByText(/"repo": "eidon"/)).toBeInTheDocument();
+  });
+
+  it("lists the vault secrets a shell command will receive", () => {
+    render(
+      <ToolApprovalCard
+        action={buildAction({
+          payload: {
+            command: 'curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user',
+            arguments: { secrets: [{ name: "GitHub token", variable: "GH_TOKEN" }] }
+          }
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText('curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user')
+    ).toBeInTheDocument();
+    expect(screen.getByText("Vault secrets: GitHub token as $GH_TOKEN")).toBeInTheDocument();
+  });
+});
+
+describe("describeToolApprovalSecrets", () => {
+  function shellPayload(args?: Record<string, unknown> | null): ToolApprovalProposalPayload {
+    return {
+      operation: "tool_approval",
+      scope: "shell",
+      families: ["curl"],
+      classified: true,
+      command: "curl -u $USER_NAME:$API_KEY https://example.com",
+      arguments: args
+    };
+  }
+
+  it("names every vault secret and its variable, and keeps them out of the command preview", () => {
+    const payload = shellPayload({
+      secrets: [
+        { name: "Example login", variable: "USER_NAME" },
+        { name: "Example API key", variable: "API_KEY" }
+      ]
+    });
+    expect(describeToolApprovalSecrets(payload)).toBe("Example login as $USER_NAME, Example API key as $API_KEY");
+    expect(getToolApprovalPreview(payload)).toBe("curl -u $USER_NAME:$API_KEY https://example.com");
+  });
+
+  it("ignores malformed vault secret entries", () => {
+    expect(
+      describeToolApprovalSecrets(
+        shellPayload({
+          secrets: [null, "API_KEY", { name: "Example API key" }, { name: 1, variable: "API_KEY" }, { name: "Example login", variable: "USER_NAME" }]
+        })
+      )
+    ).toBe("Example login as $USER_NAME");
+  });
+
+  it("is empty without usable vault secrets or outside shell commands", () => {
+    expect(describeToolApprovalSecrets(shellPayload())).toBe("");
+    expect(describeToolApprovalSecrets(shellPayload(null))).toBe("");
+    expect(describeToolApprovalSecrets(shellPayload({ secrets: [] }))).toBe("");
+    expect(describeToolApprovalSecrets(shellPayload({ secrets: "API_KEY" }))).toBe("");
+    expect(
+      describeToolApprovalSecrets({
+        ...shellPayload({ secrets: [{ name: "Example API key", variable: "API_KEY" }] }),
+        scope: "mcp"
+      })
+    ).toBe("");
   });
 });

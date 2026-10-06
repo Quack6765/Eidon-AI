@@ -106,8 +106,8 @@ describe("browser control", () => {
     socket.state({ controlOwner: "user", url: "https://github.com/login" });
 
     expect(screen.getByRole("dialog", { name: "You're in control of the browser" })).toBeInTheDocument();
-    expect(screen.getByText(/github\.com\/login · the bot can't use the browser/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Note for the bot")).not.toBeInTheDocument();
+    expect(screen.getByText(/github\.com\/login · Eidon can't use the browser/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Note for Eidon")).not.toBeInTheDocument();
 
     const frame = screen.getByTestId("computer-stage-frame");
     rect(frame);
@@ -160,7 +160,7 @@ describe("browser control", () => {
     const socket = FakeWebSocket.instances[0];
     socket.state({ controlOwner: "user" });
 
-    fireEvent.change(screen.getByLabelText("Note for the bot"), { target: { value: "  Code entered  " } });
+    fireEvent.change(screen.getByLabelText("Note for Eidon"), { target: { value: "  Code entered  " } });
     fireEvent.click(screen.getByRole("button", { name: "Return control" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -198,7 +198,7 @@ describe("browser control", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Take over" }));
     expect(screen.getByTestId("computer-stage")).toBeInTheDocument();
-    expect(screen.getByLabelText("Note for the bot")).toBeInTheDocument();
+    expect(screen.getByLabelText("Note for Eidon")).toBeInTheDocument();
   });
 
   it("shows how a hand-off ended without offering it again", () => {
@@ -251,7 +251,7 @@ describe("browser control", () => {
     expect(screen.getByTestId("computer-user-control")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Return control" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(screen.getByLabelText("Note for the bot")).toBeInTheDocument();
+    expect(screen.getByLabelText("Note for Eidon")).toBeInTheDocument();
   });
 
   it("explains when control could not be taken", async () => {

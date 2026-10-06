@@ -10,6 +10,7 @@ import {
   Brain,
   ChevronRight,
   Clock3,
+  KeyRound,
   Settings,
   Sparkles,
   Server,
@@ -26,7 +27,8 @@ import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 import type { AuthUser } from "@/lib/types";
 
 const ACCOUNT_ITEMS = [
-  { href: "/settings/account", label: "Account", icon: Shield }
+  { href: "/settings/account", label: "Account", icon: Shield },
+  { href: "/settings/vault", label: "Vault", icon: KeyRound }
 ] as const;
 
 const ASSISTANT_ITEMS = [

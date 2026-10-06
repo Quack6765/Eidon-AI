@@ -80,6 +80,7 @@ describe("settings nav", () => {
     expect(screen.queryByText("Providers")).not.toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Account")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Vault/ })).toHaveAttribute("href", "/settings/vault");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 

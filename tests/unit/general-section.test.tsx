@@ -143,16 +143,12 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
 }
 
 function mockSettingsFetch(settings: GeneralSectionSettings) {
-  vi.mocked(global.fetch).mockImplementation(async (url) =>
+  vi.mocked(global.fetch).mockImplementation(async () =>
     ({
       ok: true,
-      json: async () => (url === "/api/saved-logins" ? { savedLogins: [] } : { settings })
+      json: async () => ({ settings })
     }) as Response
   );
-}
-
-function settingsCalls() {
-  return vi.mocked(global.fetch).mock.calls.filter(([url]) => url !== "/api/saved-logins");
 }
 
 describe("general section", () => {
@@ -452,10 +448,10 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(settingsCalls()).toHaveLength(1);
+      expect(vi.mocked(global.fetch).mock.calls).toHaveLength(1);
     });
 
-    const putCall = settingsCalls()[0];
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.botPrompt).toEqual({ prompt: "" });
   });
@@ -475,10 +471,10 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(settingsCalls()).toHaveLength(1);
+      expect(vi.mocked(global.fetch).mock.calls).toHaveLength(1);
     });
 
-    const putCall = settingsCalls()[0];
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body).not.toHaveProperty("botPrompt");
   });

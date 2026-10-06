@@ -3,7 +3,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { SavedLoginsSettings } from "@/components/settings/integration-settings/saved-logins-settings";
 import { isSecretRequestAction, SecretRequestCard } from "@/components/secret-request-card";
 import type { MessageTimelineItem, SecretRequestProposalPayload } from "@/lib/types";
 
@@ -57,7 +56,7 @@ describe("secret request card", () => {
     expect(field).toHaveAttribute("autocomplete", "off");
     const fill = screen.getByRole("button", { name: "Fill in" });
     expect(fill).toBeDisabled();
-    const save = screen.getByRole("checkbox", { name: /Save it for example.com/ });
+    const save = screen.getByRole("checkbox", { name: "Save it in your vault as password" });
     expect(save).toBeChecked();
 
     fireEvent.change(field, { target: { value: "hunter22" } });
@@ -75,7 +74,7 @@ describe("secret request card", () => {
 
   it("shows why Eidon refused to type it, and declines on request", async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "The bot's browser is on https://evil.example, not https://example.com, so Eidon didn't type it." }), { status: 409 })
+      new Response(JSON.stringify({ error: "The browser is on https://evil.example, not https://example.com, so Eidon didn't type it." }), { status: 409 })
     );
     render(<SecretRequestCard action={secretAction()} />);
 
@@ -100,33 +99,11 @@ describe("secret request card", () => {
       />
     );
     expect(screen.getByText("Filled in")).toBeInTheDocument();
-    expect(screen.getByText("Typed into the page on https://example.com and saved for next time.")).toBeInTheDocument();
+    expect(screen.getByText("Typed into the page on https://example.com and saved in your vault.")).toBeInTheDocument();
     expect(screen.queryByLabelText("password")).not.toBeInTheDocument();
 
     rerender(<SecretRequestCard action={secretAction()} readOnly />);
-    expect(screen.getByText("The bot asked for your password on https://example.com.")).toBeInTheDocument();
+    expect(screen.getByText("Eidon asked for your password on https://example.com.")).toBeInTheDocument();
   });
 
-  it("lists saved logins without their values and removes them", async () => {
-    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
-      init?.method === "DELETE"
-        ? new Response("{}", { status: 200 })
-        : new Response(
-            JSON.stringify({
-              savedLogins: fetchMock.mock.calls.some(([, options]) => options?.method === "DELETE")
-                ? []
-                : [{ id: "login_1", origin: "https://example.com", label: "password", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-02T00:00:00.000Z", lastUsedAt: "2026-09-03T00:00:00.000Z" }]
-            }),
-            { status: 200 }
-          )
-    );
-    render(<SavedLoginsSettings />);
-
-    expect(await screen.findByText("example.com")).toBeInTheDocument();
-    expect(screen.getByText(/last filled/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Remove the saved password for example.com" }));
-
-    expect(await screen.findByText(/No saved logins yet/)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/saved-logins/login_1", { method: "DELETE" });
-  });
 });

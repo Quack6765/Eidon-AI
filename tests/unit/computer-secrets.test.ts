@@ -24,10 +24,10 @@ import {
 } from "@/lib/computer-secrets";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
-import { listSavedLogins, saveLogin } from "@/lib/saved-logins";
 import { redactSecrets, resetSecretRedactionForTests } from "@/lib/secret-redaction";
 import type { RuntimeAction } from "@/lib/tool-executors";
 import { createLocalUser } from "@/lib/users";
+import { createVaultEntry, getVaultEntry, listVaultEntries, revealVaultSecret } from "@/lib/vault";
 
 const stream = { server: null as WebSocketServer | null, port: 0, received: [] as Array<{ eventType: string; text?: string }> };
 
@@ -60,7 +60,7 @@ function request(context: Awaited<ReturnType<typeof fixture>>, overrides: Partia
   return requestComputerSecret({
     conversationId: context.conversation.id,
     userId: context.user.id,
-    label: "password",
+    name: "password",
     origin: "https://example.com",
     target: "@e5",
     onActionStart: context.onActionStart,
@@ -74,6 +74,13 @@ async function flush() {
 
 function allActionText() {
   return JSON.stringify(getDb().prepare("SELECT * FROM message_actions").all());
+}
+
+function cardPayload(actionId: string) {
+  const card = getDb().prepare("SELECT proposal_payload_json FROM message_actions WHERE id = ?").get(actionId) as {
+    proposal_payload_json: string;
+  };
+  return JSON.parse(card.proposal_payload_json) as Record<string, unknown>;
 }
 
 describe("secret requests", () => {
@@ -114,7 +121,7 @@ describe("secret requests", () => {
     await submitComputerSecret(actionId, context.user.id, { value: "correct-horse-battery", save: true });
 
     await expect(result).resolves.toBe(
-      "The user entered the password into @e5 on https://example.com and saved it for next time. You can't see the value. Continue, for example by submitting the form."
+      'The user entered the password into @e5 on https://example.com and saved it in the vault as "password". You can\'t see the value. Continue, for example by submitting the form.'
     );
     expect(browserMocks.runBrowserSessionCommand.mock.calls.map((call) => call[1])).toEqual([
       ["get", "url", "--json"],
@@ -123,35 +130,112 @@ describe("secret requests", () => {
     expect(typedText()).toBe("correct-horse-battery");
     expect(stream.received.every((event) => (event as { type?: string }).type === "input_keyboard")).toBe(true);
     expect(allActionText()).not.toContain("correct-horse-battery");
-    const card = getDb().prepare("SELECT proposal_payload_json FROM message_actions WHERE id = ?").get(actionId) as {
-      proposal_payload_json: string;
-    };
-    expect(JSON.parse(card.proposal_payload_json)).toMatchObject({ resolution: "filled", saved: true });
+    expect(cardPayload(actionId)).toMatchObject({ resolution: "filled", saved: true });
     expect(redactSecrets(context.conversation.id, "value: correct-horse-battery")).toBe("value: [hidden secret]");
-    expect(listSavedLogins(context.user.id)).toEqual([expect.objectContaining({ origin: "https://example.com", label: "password" })]);
+    const saved = listVaultEntries(context.user.id);
+    expect(saved).toEqual([expect.objectContaining({ name: "password", origin: "https://example.com" })]);
+    expect(revealVaultSecret(context.user.id, saved[0].id)).toBe("correct-horse-battery");
     expect(onWaitChange).toHaveBeenLastCalledWith(false);
   });
 
-  it("fills a saved login for the same site without asking", async () => {
+  it("fills a vault entry for the same site without asking", async () => {
     const context = await fixture("secret-saved");
-    saveLogin(context.user.id, "https://example.com", "password", "saved-value-123");
+    const entry = createVaultEntry(context.user.id, { name: "Password", origin: "https://example.com", secret: "saved-value-123" });
+    const onActionComplete = vi.fn();
+    const onActionError = vi.fn();
 
-    await expect(request(context)).resolves.toContain("Eidon filled the saved password for https://example.com into @e5 without asking");
-    expect(context.onActionStart).not.toHaveBeenCalled();
+    await expect(request(context, { onActionComplete, onActionError })).resolves.toBe(
+      'Eidon filled "Password" from the vault into @e5 without asking the user. You can\'t see the value. If it turns out to be wrong, call request_secret again with replace_saved: true.'
+    );
+    expect(context.onActionStart).toHaveBeenCalledTimes(1);
+    expect(context.onActionStart).toHaveBeenCalledWith({
+      kind: "mcp_tool_call",
+      label: "Fill from vault",
+      detail: "Password",
+      serverId: "integration_vault",
+      toolName: "request_secret",
+      arguments: { name: "Password", origin: "https://example.com", target: "@e5" }
+    });
+    expect(onActionComplete).toHaveBeenCalledWith(context.started[0], {
+      detail: "Password",
+      resultSummary: "Typed into the page on https://example.com"
+    });
     expect(typedText()).toBe("saved-value-123");
     expect(redactSecrets(context.conversation.id, "saved-value-123")).toBe("[hidden secret]");
+    expect(getVaultEntry(context.user.id, entry.id)?.lastUsedAt).toEqual(expect.any(String));
+    expect(allActionText()).not.toContain("saved-value-123");
 
     browserMocks.url = "https://evil.example/";
-    await expect(request(context)).resolves.toBe(
-      "Error: The bot's browser is on https://evil.example, not https://example.com, so Eidon didn't type it."
+    await expect(request(context, { onActionComplete, onActionError })).resolves.toBe(
+      "Error: The browser is on https://evil.example, not https://example.com, so Eidon didn't type it."
     );
+    expect(onActionError).toHaveBeenCalledWith(context.started[1], {
+      detail: "Password",
+      resultSummary: "The browser is on https://evil.example, not https://example.com, so Eidon didn't type it."
+    });
 
     browserMocks.url = "https://example.com/";
     const asked = request(context, { replaceSaved: true, save: true });
     await flush();
-    expect(context.onActionStart).toHaveBeenCalledTimes(1);
-    declineComputerSecret(context.started[0], context.user.id);
-    await expect(asked).resolves.toContain("declined");
+    expect(context.onActionStart).toHaveBeenCalledTimes(3);
+    await submitComputerSecret(context.started[2], context.user.id, { value: "replaced-value-456", save: true });
+    await expect(asked).resolves.toContain('saved it in the vault as "password"');
+    expect(listVaultEntries(context.user.id)).toEqual([expect.objectContaining({ id: entry.id, origin: "https://example.com" })]);
+    expect(revealVaultSecret(context.user.id, entry.id)).toBe("replaced-value-456");
+
+    const declined = request(context, { replaceSaved: true });
+    await flush();
+    declineComputerSecret(context.started[3], context.user.id);
+    await expect(declined).resolves.toContain("declined");
+    expect(revealVaultSecret(context.user.id, entry.id)).toBe("replaced-value-456");
+  });
+
+  it("refuses vault entries tied to another site or to no site without asking", async () => {
+    const context = await fixture("secret-other-site");
+    createVaultEntry(context.user.id, { name: "password", origin: "https://other.example", secret: "other-site-value" });
+    createVaultEntry(context.user.id, { name: "API token", secret: "api-token-value" });
+
+    const otherSite =
+      'Error: "password" in the vault is for https://other.example, so Eidon only types it there. Use another name for a secret on https://example.com.';
+    await expect(request(context)).resolves.toBe(otherSite);
+    await expect(request(context, { replaceSaved: true, save: true })).resolves.toBe(otherSite);
+    await expect(request(context, { name: "api   token" })).resolves.toBe(
+      'Error: "API token" in the vault isn\'t tied to a site, so Eidon won\'t type it into a page. The user can set its site in Settings → Vault.'
+    );
+    expect(context.onActionStart).not.toHaveBeenCalled();
+    expect(browserMocks.runBrowserSessionCommand).not.toHaveBeenCalled();
+    expect(stream.received).toHaveLength(0);
+    expect(redactSecrets(context.conversation.id, "other-site-value api-token-value")).toBe("other-site-value api-token-value");
+  });
+
+  it("does not save over a vault entry that belongs to another site", async () => {
+    const context = await fixture("secret-save-conflict");
+    const result = request(context, { save: true });
+    await flush();
+    const actionId = context.started[0];
+    const entry = createVaultEntry(context.user.id, { name: "PASSWORD", origin: "https://other.example", secret: "kept-value" });
+
+    await submitComputerSecret(actionId, context.user.id, { value: "typed-value", save: true });
+
+    await expect(result).resolves.toBe(
+      "The user entered the password into @e5 on https://example.com. You can't see the value. Continue, for example by submitting the form."
+    );
+    expect(typedText()).toBe("typed-value");
+    expect(cardPayload(actionId)).toMatchObject({ resolution: "filled" });
+    expect(cardPayload(actionId)).not.toHaveProperty("saved");
+    expect(listVaultEntries(context.user.id)).toEqual([expect.objectContaining({ id: entry.id, origin: "https://other.example" })]);
+    expect(revealVaultSecret(context.user.id, entry.id)).toBe("kept-value");
+  });
+
+  it("only saves the answer when the user asks to", async () => {
+    const context = await fixture("secret-no-save");
+    const result = request(context, { save: true });
+    await flush();
+
+    await submitComputerSecret(context.started[0], context.user.id, { value: "one-time-value", save: false });
+
+    await expect(result).resolves.not.toContain("vault");
+    expect(listVaultEntries(context.user.id)).toEqual([]);
   });
 
   it("refuses to type on another site or into a missing field, and keeps the request open", async () => {
@@ -163,7 +247,7 @@ describe("secret requests", () => {
     browserMocks.url = "https://attacker.example/phish";
     await expect(submitComputerSecret(actionId, context.user.id, { value: "hunter22", save: false })).rejects.toMatchObject({
       status: 409,
-      message: "The bot's browser is on https://attacker.example, not https://example.com, so Eidon didn't type it."
+      message: "The browser is on https://attacker.example, not https://example.com, so Eidon didn't type it."
     });
     browserMocks.url = "https://example.com/login";
     browserMocks.focusOk = false;
@@ -172,7 +256,7 @@ describe("secret requests", () => {
     );
     browserMocks.runBrowserSessionCommand.mockResolvedValueOnce({ ok: false, output: "" });
     await expect(submitComputerSecret(actionId, context.user.id, { value: "hunter22", save: false })).rejects.toThrow(
-      "couldn't read the bot's browser address"
+      "couldn't read the browser's address"
     );
     expect(stream.received).toHaveLength(0);
 
@@ -189,7 +273,7 @@ describe("secret requests", () => {
     const expiring = await fixture("secret-expire");
     vi.useFakeTimers();
     try {
-      const result = request(expiring, { label: "one-time code" });
+      const result = request(expiring, { name: "one-time code" });
       await vi.advanceTimersByTimeAsync(SECRET_REQUEST_TIMEOUT_MS);
       await expect(result).resolves.toBe("Nobody entered the one-time code within 30 minutes. Tell the user what you still need and stop.");
     } finally {

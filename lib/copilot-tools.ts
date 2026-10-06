@@ -14,7 +14,6 @@ import type {
   McpServer,
   PromptMessage
 } from "@/lib/types";
-import { getBotByConversationId } from "@/lib/bots";
 
 function promptResult(messages: PromptMessage[]) {
   const content = messages.at(-1)?.content;
@@ -39,8 +38,7 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
       : undefined,
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
     imageGenerationToolEnabled: context.imageGenerationToolEnabled,
-    effectiveVisionMode: context.effectiveVisionMode,
-    computerHandoffEnabled: Boolean(context.conversationId && getBotByConversationId(context.conversationId))
+    effectiveVisionMode: context.effectiveVisionMode
   });
   const mcpServers: McpServer[] = context.mcpToolSets.map(({ server }) => server);
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
