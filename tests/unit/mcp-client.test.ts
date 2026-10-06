@@ -17,6 +17,7 @@ let nextServerVersion: { name: string; version: string } | undefined = {
   name: "Mock MCP Server",
   version: "1.0.0"
 };
+let nextServerCapabilities: { tools?: { listChanged?: boolean } } | undefined = {};
 let nextHttpSessionId = "session_test";
 let nextHttpProtocolVersion = "2025-03-26";
 let nextStderrChunks: Buffer[] = [];
@@ -51,6 +52,8 @@ class MockClient {
   });
 
   getServerVersion = vi.fn(() => nextServerVersion);
+  getServerCapabilities = vi.fn(() => nextServerCapabilities);
+  setNotificationHandler = vi.fn();
   transport: unknown;
 
   constructor(..._args: unknown[]) {
@@ -171,6 +174,7 @@ describe("MCP client", () => {
     nextCallToolError = null;
     nextConnectError = null;
     nextServerVersion = { name: "Mock MCP Server", version: "1.0.0" };
+    nextServerCapabilities = {};
     nextHttpSessionId = "session_test";
     nextHttpProtocolVersion = "2025-03-26";
     nextStderrChunks = [];
@@ -220,6 +224,40 @@ describe("MCP client", () => {
       env: { TOKEN: "test" },
       stderr: "pipe"
     });
+  });
+
+  it("shares one connection between concurrent callers for the same server", async () => {
+    nextCallToolResult = { content: [{ type: "text", text: "ok" }] };
+
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    await Promise.all([
+      callMcpTool(server, "search", {}),
+      callMcpTool(server, "search", {}),
+      callMcpTool(server, "search", {})
+    ]);
+
+    expect(httpTransportInstances).toHaveLength(1);
+    expect(clientInstances).toHaveLength(1);
+    expect(clientInstances[0].connect).toHaveBeenCalledTimes(1);
+    expect(clientInstances[0].callTool).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a failed connection instead of caching the rejection", async () => {
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    nextConnectError = new Error("connect failed");
+    const failed = await callMcpTool(server, "search", {});
+    expect(failed.isError).toBe(true);
+
+    nextConnectError = null;
+    nextCallToolResult = { content: [{ type: "text", text: "ok" }] };
+    const recovered = await callMcpTool(server, "search", {});
+
+    expect(recovered.content[0]?.text).toBe("ok");
+    expect(clientInstances).toHaveLength(2);
   });
 
   it("tests streamable HTTP connections and reports negotiated session details", async () => {
@@ -546,9 +584,104 @@ describe("MCP client", () => {
       ]
     };
 
+    expect((await gatherAllMcpTools([server]))[0]?.tools.map((tool) => tool.name)).toEqual(["safe_read"]);
+
+    await disconnectMcpServer(server);
     const result = await gatherAllMcpTools([server]);
     expect(result[0]?.tools.map((tool) => tool.name)).toEqual(["write_file"]);
     await expect(disconnectMcpServer(createStdioServer())).resolves.toBeUndefined();
+  });
+
+  describe("tool list cache", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object" } });
+
+    it("serves repeated discovery from cache and shares in-flight lists", async () => {
+      nextListToolsResult = { tools: [tool("a")] };
+      const { discoverMcpTools } = await import("@/lib/mcp-client");
+      const server = createHttpServer();
+
+      const [first, second] = await Promise.all([discoverMcpTools(server), discoverMcpTools(server)]);
+      const third = await discoverMcpTools(server);
+
+      expect(first).toEqual(second);
+      expect(third).toEqual(first);
+      expect(clientInstances[0].listTools).toHaveBeenCalledTimes(1);
+    });
+
+    it("refetches after a tools list_changed notification", async () => {
+      nextServerCapabilities = { tools: { listChanged: true } };
+      nextListToolsResult = { tools: [tool("a")] };
+      const { discoverMcpTools } = await import("@/lib/mcp-client");
+      const server = createHttpServer();
+
+      await discoverMcpTools(server);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      nextListToolsResult = { tools: [tool("b")] };
+      expect((await discoverMcpTools(server)).map((entry) => entry.name)).toEqual(["a"]);
+
+      const onChanged = clientInstances[0].setNotificationHandler.mock.calls[0][1] as () => void;
+      onChanged();
+
+      expect((await discoverMcpTools(server)).map((entry) => entry.name)).toEqual(["b"]);
+    });
+
+    it("expires the cache after the TTL when the server does not announce list changes", async () => {
+      nextListToolsResult = { tools: [tool("a")] };
+      const { discoverMcpTools } = await import("@/lib/mcp-client");
+      const server = createHttpServer();
+
+      await discoverMcpTools(server);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 6 * 60_000);
+      nextListToolsResult = { tools: [tool("b")] };
+
+      expect((await discoverMcpTools(server)).map((entry) => entry.name)).toEqual(["b"]);
+    });
+
+    it("backs off from a failing server and retries after the backoff window", async () => {
+      nextListToolsError = new Error("list failed");
+      const { discoverMcpTools, evictMcpClientsByServerId } = await import("@/lib/mcp-client");
+      const server = createHttpServer();
+
+      await expect(discoverMcpTools(server)).resolves.toEqual([]);
+      await expect(discoverMcpTools(server)).resolves.toEqual([]);
+      expect(clientInstances[0].listTools).toHaveBeenCalledTimes(1);
+
+      nextListToolsError = null;
+      nextListToolsResult = { tools: [tool("a")] };
+      await expect(discoverMcpTools(server)).resolves.toEqual([]);
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 31_000);
+      expect((await discoverMcpTools(server)).map((entry) => entry.name)).toEqual(["a"]);
+
+      nextListToolsError = new Error("list failed again");
+      vi.setSystemTime(Date.now() + 6 * 60_000);
+      await expect(discoverMcpTools(server)).resolves.toEqual([]);
+      nextListToolsError = null;
+      await expect(discoverMcpTools(server)).resolves.toEqual([]);
+      evictMcpClientsByServerId(server.id as string);
+      expect((await discoverMcpTools(server)).map((entry) => entry.name)).toEqual(["a"]);
+    });
+
+    it("rejects only the aborted caller", async () => {
+      nextListToolsResult = { tools: [tool("a")] };
+      const { discoverMcpToolsWithStatus } = await import("@/lib/mcp-client");
+      const server = createHttpServer();
+      const controller = new AbortController();
+
+      const aborted = discoverMcpToolsWithStatus(server, controller.signal);
+      const other = discoverMcpToolsWithStatus(server);
+      controller.abort(new Error("stopped"));
+
+      await expect(aborted).rejects.toThrow("stopped");
+      await expect(other).resolves.toMatchObject({ authRequired: false });
+    });
   });
 
   it("returns full text without truncation and preserves resource text content", async () => {

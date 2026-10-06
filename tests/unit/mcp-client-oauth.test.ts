@@ -30,6 +30,8 @@ class MockClient {
 
   callTool = vi.fn(async () => ({ content: [] }));
   getServerVersion = vi.fn(() => ({ name: "Mock MCP Server", version: "1.0.0" }));
+  getServerCapabilities = vi.fn(() => ({}));
+  setNotificationHandler = vi.fn();
 
   constructor(..._args: unknown[]) {
     clientInstances.push(this);

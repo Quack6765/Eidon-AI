@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimatePromptTokens } from "@/lib/tokenization";
@@ -204,7 +205,7 @@ export function buildAnthropicRequest(input: {
 
   if (effort) {
     params.thinking = { type: "adaptive" };
-    params.effort = effort;
+    params.output_config = { effort };
   } else {
     params.temperature = input.settings.temperature;
   }
@@ -228,7 +229,8 @@ function createAnthropicClient(settings: RuntimeProviderProfile, conversationId?
   return new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings),
-    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId)
+    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId),
+    ...providerHttpOptions
   });
 }
 
@@ -251,9 +253,7 @@ export async function* streamAnthropicResponse(input: {
   let answer = "";
   let thinking = "";
   let reasoningSignature: string | undefined;
-  const usage: AnthropicStreamResult["usage"] = {
-    inputTokens: estimatePromptTokens(input.promptMessages)
-  };
+  const usage: AnthropicStreamResult["usage"] = {};
   const toolUseBlocks = new Map<number, { id: string; name: string; json: string }>();
 
   const stream = client.messages.stream(
@@ -269,7 +269,7 @@ export async function* streamAnthropicResponse(input: {
           (startUsage.input_tokens ?? 0) +
           (startUsage.cache_read_input_tokens ?? 0) +
           (startUsage.cache_creation_input_tokens ?? 0);
-        usage.inputTokens = Math.max(reportedInputTokens, usage.inputTokens ?? 0);
+        usage.inputTokens = reportedInputTokens;
         usage.cacheReadTokens = startUsage.cache_read_input_tokens ?? usage.cacheReadTokens;
         usage.cacheCreationTokens = startUsage.cache_creation_input_tokens ?? usage.cacheCreationTokens;
       }
@@ -302,6 +302,10 @@ export async function* streamAnthropicResponse(input: {
     } else if (event.type === "message_delta") {
       usage.outputTokens = event.usage?.output_tokens ?? usage.outputTokens;
     }
+  }
+
+  if (usage.cacheReadTokens === undefined && usage.cacheCreationTokens === undefined) {
+    usage.inputTokens = Math.max(usage.inputTokens ?? 0, estimatePromptTokens(input.promptMessages));
   }
 
   yield {

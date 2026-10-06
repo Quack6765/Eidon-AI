@@ -18,7 +18,7 @@ import {
 type Draft = IntegrationDraft<AppSettings["webSearch"]>;
 
 const PIPELINE_MODE_LABELS: Record<WebSearchPipelineMode, string> = {
-  auto: "Auto — decompose complex queries",
+  auto: "Auto — use the model's own queries",
   always: "Always fan out",
   off: "Off — single search"
 };
@@ -141,7 +141,7 @@ export function WebSearchSettings({
           <div>
             <label htmlFor="web-search-pipeline-mode" className={fieldLabel}>Search pipeline</label>
             <p className="mb-2 text-xs text-[var(--muted)]">
-              Complex questions are decomposed into parallel sub-queries whose results are merged.
+              The model can send several queries per search; they run in parallel and their results are merged. Always fan out asks the model to split every search into sub-queries.
             </p>
             <select
               id="web-search-pipeline-mode"

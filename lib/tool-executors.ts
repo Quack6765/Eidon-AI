@@ -706,18 +706,16 @@ export async function loadSkillIntoTurn(
   loadedSkillIds: Set<string>
 ) {
   throwIfAborted(input.abortSignal);
-  const handle = await input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
   loadedSkillIds.add(skill.id);
   try {
-    await input.onActionComplete?.(actionHandle, {
+    const handle = await input.onActionStart?.({
+      kind: "skill_load",
+      label: "Load skill",
+      detail: getSkillResolvedName(skill),
+      skillId: skill.id
+    });
+    throwIfAborted(input.abortSignal);
+    await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
       detail: getSkillResolvedName(skill),
       resultSummary: "Skill instructions loaded."
     });

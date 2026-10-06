@@ -7,15 +7,14 @@ import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
 import Anthropic from "@anthropic-ai/sdk";
+import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
-
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 export async function callAnthropicAdapterText(input: ProviderTextInput) {
   const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
@@ -41,7 +40,8 @@ export async function discoverAnthropicModels(settings: RuntimeProviderProfile) 
   const client = new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings),
-    defaultHeaders: getOpenCodeSessionHeaders(settings)
+    defaultHeaders: getOpenCodeSessionHeaders(settings),
+    ...providerHttpOptions
   });
   const models = await client.models.list();
   return models.data.map((model) => ({

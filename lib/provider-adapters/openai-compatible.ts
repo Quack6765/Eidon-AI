@@ -33,9 +33,9 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 function normalizeReasoningEffort(
   settings: ProviderProfile
@@ -153,8 +153,6 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
-
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
   const profile = LOW_EFFORT_PURPOSES.has(input.purpose)
@@ -243,9 +241,7 @@ export async function* streamOpenAiCompatibleResponse(
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
-  } = {
-    inputTokens: estimatePromptTokens(contextualPromptMessages)
-  };
+  } = {};
 
   if (getProviderApiMode(settings) === "responses") {
     const reasoning = buildReasoningConfig(settings);
@@ -259,43 +255,20 @@ export async function* streamOpenAiCompatibleResponse(
       ...buildRequestParameters(settings)
     };
 
-    let stream: AsyncIterable<any>;
     if (input.tools?.length) {
-      const toResponseTools = (strict: boolean) =>
-        input.tools!.map((tool) => ({
-          type: "function",
-          name: tool.function.name,
-          description: tool.function.description,
-          parameters: tool.function.parameters ?? {},
-          strict
-        }));
-      responseCreateParams.tools = toResponseTools(true);
-
-      try {
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      } catch (createError) {
-        const isSchemaError =
-          createError instanceof Error &&
-          (createError.message.includes("strict") ||
-            createError.message.includes("schema") ||
-            createError.message.includes("additionalProperties") ||
-            (createError as any).status === 400);
-        if (!isSchemaError) throw createError;
-        responseCreateParams.tools = toResponseTools(false);
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      }
-    } else {
-      stream = await client.responses.create(
-        responseCreateParams as any,
-        { signal }
-      ) as unknown as AsyncIterable<any>;
+      responseCreateParams.tools = input.tools.map((tool) => ({
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters ?? {},
+        strict: false
+      }));
     }
+
+    const stream = await client.responses.create(
+      responseCreateParams as any,
+      { signal }
+    ) as unknown as AsyncIterable<any>;
 
     const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
 
@@ -376,6 +349,8 @@ export async function* streamOpenAiCompatibleResponse(
     } finally {
       if (!abortController.signal.aborted) abortController.abort();
     }
+
+    usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
 
     yield {
       type: "usage",
@@ -500,6 +475,8 @@ export async function* streamOpenAiCompatibleResponse(
     yield { type: "answer_delta", text: answerTail };
   }
   answer = answerInterceptor.answer;
+
+  usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
 
   yield {
     type: "usage",

@@ -73,6 +73,22 @@ describe("web search providers", () => {
     );
   });
 
+  it("passes an identical server to every call so the connection pool key stays stable", async () => {
+    vi.useFakeTimers();
+    try {
+      const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      await searchWeb({ query: "one", settings });
+      vi.setSystemTime(new Date("2026-01-01T00:05:00Z"));
+      await searchWeb({ query: "two", settings });
+
+      expect(callMcpToolMock.mock.calls[0][0]).toEqual(callMcpToolMock.mock.calls[1][0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps Exa transport credentials inside its provider implementation", async () => {
     const settings = createRuntimeAppSettings({
       webSearch: { providerId: "exa", credentials: { apiKey: "exa key+value" } }

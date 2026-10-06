@@ -29,7 +29,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
-import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
+import { ensureCompactedContext, getConversationContextUsage, startBackgroundCompaction } from "@/lib/compaction";
 import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
@@ -338,11 +338,14 @@ async function startAssistantTurn(
     manager.broadcast(conversationId, { type: "delta", conversationId, event });
     globalEmitter.emit("delta", conversationId, event);
   };
+  let pendingUserWaits = 0;
   const toolApproval: ToolApprovalContext = {
     userId: conversationOwnerId ?? null,
     unattended: !bot && Boolean(options?.unattended),
     timeoutMs: bot && options?.unattended ? UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS : undefined,
     async onWaitChange(waiting) {
+      pendingUserWaits += waiting ? 1 : -1;
+      if (pendingUserWaits !== (waiting ? 1 : 0)) return;
       if (waiting) setTurnWaitingForUser(conversationId, true);
       await options?.onUserWait?.(waiting);
       if (!waiting) setTurnWaitingForUser(conversationId, false);
@@ -352,6 +355,7 @@ async function startAssistantTurn(
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
+  let afterTurnEnded: (() => void) | null = null;
   let timelineSortOrder = 0;
   let answerBuffer = "";
   let latestAnswer = "";
@@ -469,39 +473,38 @@ async function startAssistantTurn(
       return { content: queued.content, assistantMessageId };
     }
 
-    const compacted = await ensureCompactedContext(conversation.id, settings, {
-      onCompactionStart() {
-        touchTurnActivity(conversationId);
-        manager.broadcast(conversationId, {
-          type: "delta",
-          conversationId,
-          event: { type: "compaction_start" }
-        });
-      },
-      onCompactionEnd() {
-        touchTurnActivity(conversationId);
-        manager.broadcast(conversationId, {
-          type: "delta",
-          conversationId,
-          event: { type: "compaction_end" }
-        });
-      }
-    }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id);
+    const mcpServers = listEnabledMcpServers();
+    const mcpToolSetsPromise = mcpServers.length
+      ? import("@/lib/mcp-client").then(({ gatherAllMcpTools }) =>
+          gatherAllMcpTools(mcpServers, control.abortController.signal)
+        )
+      : Promise.resolve([]);
+
+    const [compacted, mcpToolSets] = await Promise.all([
+      ensureCompactedContext(conversation.id, settings, {
+        onCompactionStart() {
+          touchTurnActivity(conversationId);
+          manager.broadcast(conversationId, {
+            type: "delta",
+            conversationId,
+            event: { type: "compaction_start" }
+          });
+        },
+        onCompactionEnd() {
+          touchTurnActivity(conversationId);
+          manager.broadcast(conversationId, {
+            type: "delta",
+            conversationId,
+            event: { type: "compaction_end" }
+          });
+        }
+      }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id),
+      mcpToolSetsPromise
+    ]);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
     const skillOwner = bot ?? (options?.skillOwnerUserId ? { userId: options.skillOwnerUserId } : null);
     const skills = appSettings.skillsEnabled ? listConversationSkills(skillOwner) : [];
-    const mcpServers = listEnabledMcpServers();
-
-    let mcpToolSets: Array<{
-      server: (typeof mcpServers)[number];
-      tools: Awaited<ReturnType<typeof import("@/lib/mcp-client")["discoverMcpTools"]>>;
-    }> = [];
-    if (mcpServers.length) {
-      const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-      mcpToolSets = await gatherAllMcpTools(mcpServers, control.abortController.signal);
-      control.throwIfStopped();
-    }
 
     const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
 
@@ -663,10 +666,7 @@ async function startAssistantTurn(
       content: await contentPersistence?.finalize(providerResult.answer) ?? "",
       thinkingContent: providerResult.thinking,
       status: "completed",
-      estimatedTokens:
-        (providerResult.usage.inputTokens ?? 0) +
-        (providerResult.usage.outputTokens ?? 0) +
-        (providerResult.usage.reasoningTokens ?? 0)
+      estimatedTokens: estimateTextTokens(`${providerResult.answer}\n${providerResult.thinking ?? ""}`)
     });
 
     deleteFailedAssistantMessages(conversation.id);
@@ -691,8 +691,9 @@ async function startAssistantTurn(
       messageId: assistantMessageId,
       message: completedMessage ?? undefined
     });
-    const contextUsage = getConversationContextUsage(conversationId);
-    if (contextUsage) {
+    const broadcastContextUsage = () => {
+      const contextUsage = getConversationContextUsage(conversationId);
+      if (!contextUsage) return null;
       const contextUsageEvent: ChatStreamEvent = {
         type: "context_usage",
         contextTokens: contextUsage.contextTokens ?? 0,
@@ -707,7 +708,33 @@ async function startAssistantTurn(
         event: contextUsageEvent
       });
       globalEmitter.emit("delta", conversationId, contextUsageEvent);
-    }
+      return contextUsageEvent;
+    };
+    afterTurnEnded = () => {
+      const usage = broadcastContextUsage();
+      if (!usage || usage.contextTokens <= usage.compactionLimit) return;
+      const broadcastCompaction = (type: "compaction_start" | "compaction_end") =>
+        manager.broadcast(conversationId, { type: "delta", conversationId, event: { type } });
+      startBackgroundCompaction(
+        conversation.id,
+        settings,
+        {
+          onCompactionStart: () => broadcastCompaction("compaction_start"),
+          onCompactionEnd: () => broadcastCompaction("compaction_end")
+        },
+        personaId,
+        appSettings.memoriesEnabled,
+        appSettings.memoriesRigor,
+        undefined,
+        botSystemPrompt,
+        bot?.id
+      ).then(
+        (result) => {
+          if (result.didCompact) broadcastContextUsage();
+        },
+        (error) => console.error("Background compaction failed", error)
+      );
+    };
     return { status: "completed" };
   } catch (error) {
     const stopped =
@@ -809,17 +836,23 @@ async function startAssistantTurn(
       broadcastBotStatus();
       globalEmitter.emit("status", conversationId, "completed");
     }
-    void import("@/lib/queued-chat-dispatcher")
-      .then(({ ensureQueuedDispatch }) =>
-        ensureQueuedDispatch({
-          manager,
-          conversationId,
-          startChatTurn
-        })
-      )
-      .catch((error) => {
+    try {
+      const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+      void ensureQueuedDispatch({
+        manager,
+        conversationId,
+        startChatTurn
+      }).catch((error) => {
         console.error("Queued chat dispatch failed", error);
       });
+    } catch (error) {
+      console.error("Queued chat dispatch failed", error);
+    }
+    try {
+      afterTurnEnded?.();
+    } catch (error) {
+      console.error("Post-turn context usage failed", error);
+    }
   }
 }
 

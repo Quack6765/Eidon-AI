@@ -57,6 +57,12 @@ const INLINE_ATTACHMENT_DIRECTIVE =
   "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
   "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
+const PARALLEL_TOOL_CALLS_DIRECTIVE = [
+  "<use_parallel_tool_calls>",
+  "If you intend to call multiple tools and there are no dependencies between the tool calls, make all of the independent tool calls in the same step. Prioritize calling tools simultaneously whenever the actions can be done in parallel rather than sequentially. For example, when reading 3 pages, make 3 read_page calls at the same time. Read-only tools run concurrently; tools that change state run one at a time in the order you emit them.",
+  "However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. Never use placeholders or guess missing parameters in tool calls.",
+  "</use_parallel_tool_calls>"
+].join("\n");
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
@@ -105,8 +111,7 @@ function buildCapabilitiesStableSegment(
       "topics you are uncertain about, or when the user explicitly requests a search.",
       ...(parallelWebSearch
         ? [
-            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel.",
-            "A single complex query is automatically decomposed into parallel sub-queries, so one call is usually enough."
+            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel, so one call is usually enough."
           ]
         : [
             "If you can answer confidently and accurately from your training data, do so without searching."
@@ -457,7 +462,15 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search", "read_page", "message_bot", "check_bot"]);
+  const parallelizableToolNames = new Set<string>([
+    "web_search",
+    "read_page",
+    "search_workspace",
+    "analyze_image",
+    "load_skill",
+    "message_bot",
+    "check_bot"
+  ]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -509,6 +522,7 @@ export async function resolveAssistantTurn(input: {
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
   }
 
+  promptMessages = mergeSystemMessage(promptMessages, PARALLEL_TOOL_CALLS_DIRECTIVE);
   promptMessages = mergeSystemMessage(promptMessages, MERMAID_DIAGRAM_DIRECTIVE);
   promptMessages = mergeSystemMessage(promptMessages, MARKDOWN_FORMATTING_RULES);
 
@@ -771,74 +785,67 @@ export async function resolveAssistantTurn(input: {
         memoryUserId: input.memoryUserId
       });
 
-    const stepIsFullyParallelizable =
-      toolCalls.length > 1 && toolCalls.every((toolCall) => parallelizableToolNames.has(toolCall.name));
+    const toolCallGroups: ProviderToolCall[][] = [];
+    for (const toolCall of toolCalls) {
+      const lastGroup = toolCallGroups[toolCallGroups.length - 1];
+      if (lastGroup && parallelizableToolNames.has(toolCall.name) && parallelizableToolNames.has(lastGroup[0].name)) {
+        lastGroup.push(toolCall);
+      } else {
+        toolCallGroups.push([toolCall]);
+      }
+    }
 
-    if (stepIsFullyParallelizable) {
+    for (const group of toolCallGroups) {
       assertRunning();
+      const [firstToolCall] = group;
+
+      if (firstToolCall.name === "generate_image") {
+        if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
+          promptMessages = [
+            ...promptMessages,
+            buildToolResultMessage(
+              firstToolCall.id,
+              "Error: generate_image can only be called once per assistant turn. Respond to the user with the generated result instead."
+            )
+          ];
+          continue;
+        }
+
+        imageGenerationToolAttemptedThisStep = true;
+      }
+
       const baseSortOrder = timelineSortOrder;
       const settled = await Promise.allSettled(
-        toolCalls.map((toolCall, index) => runToolCall(toolCall, baseSortOrder + index))
+        group.map((toolCall, index) => runToolCall(toolCall, baseSortOrder + index))
       );
       assertRunning();
       const rejection = settled.find(
         (entry): entry is PromiseRejectedResult => entry.status === "rejected"
       );
       if (rejection) throw rejection.reason;
+
+      const results = settled.map(
+        (entry) =>
+          (entry as PromiseFulfilledResult<Awaited<ReturnType<typeof runToolCall>>>).value
+      );
+      const promptLengthBeforeGroup = promptMessages.length;
       promptMessages = [
         ...promptMessages,
-        ...settled.flatMap((entry) => {
-          const result = (entry as PromiseFulfilledResult<{
-            nextSortOrder: number;
-            promptMessages: PromptMessage[];
-          }>).value;
-          return result.promptMessages.slice(promptMessages.length);
-        })
+        ...results.flatMap((result) => result.promptMessages.slice(promptLengthBeforeGroup))
       ];
-      timelineSortOrder = baseSortOrder + toolCalls.length;
+      timelineSortOrder = group.length === 1 ? results[0].nextSortOrder : baseSortOrder + group.length;
 
-      const anyWebSearchSucceeded = settled.some((entry, index) => {
-        if (toolCalls[index].name !== "web_search") return false;
-        return entry.status === "fulfilled" && Boolean((entry as PromiseFulfilledResult<{ toolSucceeded?: boolean }>).value.toolSucceeded);
-      });
+      const anyWebSearchSucceeded = group.some(
+        (toolCall, index) => toolCall.name === "web_search" && Boolean(results[index].toolSucceeded)
+      );
       if (anyWebSearchSucceeded && !webSearchDirectiveAdded && !input.research) {
         webSearchDirectiveAdded = true;
         promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
       }
-    } else {
-      for (const toolCall of toolCalls) {
-        assertRunning();
 
-        if (toolCall.name === "generate_image") {
-          if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
-            promptMessages = [
-              ...promptMessages,
-              buildToolResultMessage(
-                toolCall.id,
-                "Error: generate_image can only be called once per assistant turn. Respond to the user with the generated result instead."
-              )
-            ];
-            continue;
-          }
-
-          imageGenerationToolAttemptedThisStep = true;
-        }
-
-        const result = await runToolCall(toolCall, timelineSortOrder);
-        assertRunning();
-
-        timelineSortOrder = result.nextSortOrder;
-        promptMessages = result.promptMessages;
-
-        if (toolCall.name === "web_search" && result.toolSucceeded && !webSearchDirectiveAdded && !input.research) {
-          webSearchDirectiveAdded = true;
-          promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
-        }
-
-        if (toolCall.name === "generate_image" && result.toolSucceeded) {
-          imageGenerationToolConsumed = true;
-          promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
-        }
+      if (firstToolCall.name === "generate_image" && results[0].toolSucceeded) {
+        imageGenerationToolConsumed = true;
+        promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
       }
     }
 

@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
@@ -160,9 +161,26 @@ type ConnectedMcpClient = {
   serverId: string | null;
   client: Client;
   transport: StdioClientTransport | StreamableHTTPClientTransport;
+  toolList: { tools: McpTool[]; expiresAt: number } | null;
 };
 
+type ToolDiscovery = { tools: McpTool[]; authRequired: boolean };
+
+type ToolDiscoveryFailure = {
+  serverId: string | null;
+  attempts: number;
+  retryAt: number;
+  authRequired: boolean;
+};
+
+const MCP_TOOL_LIST_TTL_MS = 5 * 60_000;
+const MCP_DISCOVERY_BACKOFF_BASE_MS = 30_000;
+const MCP_DISCOVERY_BACKOFF_MAX_MS = 5 * 60_000;
+
 const connectedClients = new Map<string, ConnectedMcpClient>();
+const pendingConnections = new Map<string, Promise<ConnectedMcpClient>>();
+const pendingDiscoveries = new Map<string, Promise<ToolDiscovery>>();
+const discoveryFailures = new Map<string, ToolDiscoveryFailure>();
 
 function getServerKey(server: McpServer) {
   return JSON.stringify({
@@ -311,6 +329,16 @@ async function createConnectedClient(server: McpServer, abortSignal?: AbortSigna
       connectedClients.delete(key);
     }
   };
+  const connection: ConnectedMcpClient = {
+    key: getServerKey(server),
+    serverId: server.id,
+    client,
+    transport,
+    toolList: null
+  };
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    connection.toolList = null;
+  });
   try {
     await client.connect(transport, {
       timeout: 30_000,
@@ -323,12 +351,7 @@ async function createConnectedClient(server: McpServer, abortSignal?: AbortSigna
   }
   markMcpOAuthConnectionConnected(server.id);
   drainTransportStderr(transport, server.name);
-  return {
-    key: getServerKey(server),
-    serverId: server.id,
-    client,
-    transport
-  };
+  return connection;
 }
 
 export async function getConnectedClient(server: McpServer, abortSignal?: AbortSignal) {
@@ -339,9 +362,21 @@ export async function getConnectedClient(server: McpServer, abortSignal?: AbortS
     return existing;
   }
 
-  const connection = await createConnectedClient(server, abortSignal);
-  connectedClients.set(key, connection);
-  return connection;
+  const pending = pendingConnections.get(key);
+  if (pending) {
+    return pending;
+  }
+
+  const connecting = createConnectedClient(server, abortSignal)
+    .then((connection) => {
+      connectedClients.set(key, connection);
+      return connection;
+    })
+    .finally(() => {
+      pendingConnections.delete(key);
+    });
+  pendingConnections.set(key, connecting);
+  return connecting;
 }
 
 const MCP_TERMINATE_SESSION_TIMEOUT_MS = 5_000;
@@ -441,30 +476,70 @@ export function getToolResultText(result: McpToolCallResult) {
   return result.isError ? "Tool call failed." : "Tool call completed.";
 }
 
+async function fetchToolDiscovery(server: McpServer, key: string): Promise<ToolDiscovery> {
+  try {
+    const connection = await getConnectedClient(server);
+    const result = await connection.client.listTools(undefined, {
+      timeout: 30_000,
+      maxTotalTimeout: 30_000
+    });
+    const tools = result.tools.slice(0, MAX_MCP_DISCOVERED_TOOLS).map(normalizeTool);
+    connection.toolList = {
+      tools,
+      expiresAt: connection.client.getServerCapabilities()?.tools?.listChanged
+        ? Number.POSITIVE_INFINITY
+        : Date.now() + MCP_TOOL_LIST_TTL_MS
+    };
+    discoveryFailures.delete(key);
+    return { tools, authRequired: false };
+  } catch (error) {
+    const attempts = (discoveryFailures.get(key)?.attempts ?? 0) + 1;
+    const authRequired = error instanceof McpAuthenticationRequiredError;
+    discoveryFailures.set(key, {
+      serverId: server.id,
+      attempts,
+      retryAt:
+        Date.now() +
+        Math.min(MCP_DISCOVERY_BACKOFF_BASE_MS * 2 ** (attempts - 1), MCP_DISCOVERY_BACKOFF_MAX_MS),
+      authRequired
+    });
+    return { tools: [], authRequired };
+  }
+}
+
+function rejectOnAbort<T>(promise: Promise<T>, signal: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 export async function discoverMcpToolsWithStatus(
   server: McpServer,
   abortSignal?: AbortSignal
-): Promise<{ tools: McpTool[]; authRequired: boolean }> {
-  try {
-    const connection = await getConnectedClient(server, abortSignal);
-    const result = await connection.client.listTools(undefined, {
-      timeout: 30_000,
-      maxTotalTimeout: 30_000,
-      signal: abortSignal
-    });
-    return {
-      tools: result.tools.slice(0, MAX_MCP_DISCOVERED_TOOLS).map(normalizeTool),
-      authRequired: false
-    };
-  } catch (error) {
-    if (abortSignal?.aborted) {
-      throw error;
-    }
-    return {
-      tools: [],
-      authRequired: error instanceof McpAuthenticationRequiredError
-    };
+): Promise<ToolDiscovery> {
+  const key = getServerKey(server);
+  const cached = connectedClients.get(key)?.toolList;
+  if (cached && cached.expiresAt > Date.now()) {
+    return { tools: cached.tools, authRequired: false };
   }
+
+  const failure = discoveryFailures.get(key);
+  if (failure && failure.retryAt > Date.now()) {
+    return { tools: [], authRequired: failure.authRequired };
+  }
+
+  let pending = pendingDiscoveries.get(key);
+  if (!pending) {
+    pending = fetchToolDiscovery(server, key).finally(() => pendingDiscoveries.delete(key));
+    pendingDiscoveries.set(key, pending);
+  }
+  return abortSignal ? rejectOnAbort(pending, abortSignal) : pending;
 }
 
 export async function discoverMcpTools(server: McpServer, abortSignal?: AbortSignal): Promise<McpTool[]> {
@@ -565,6 +640,11 @@ export async function gatherAllMcpTools(
 }
 
 export function evictMcpClientsByServerId(serverId: string) {
+  for (const [key, failure] of discoveryFailures) {
+    if (failure.serverId === serverId) {
+      discoveryFailures.delete(key);
+    }
+  }
   for (const [key, connection] of connectedClients) {
     if (connection.serverId === serverId) {
       connectedClients.delete(key);
@@ -592,7 +672,7 @@ export async function shutdownAllProcesses() {
 export async function initializeMcpServers() {
   const { listEnabledMcpServers } = await import("@/lib/mcp-servers");
   const servers = listEnabledMcpServers();
-  await Promise.allSettled(servers.map((server) => getConnectedClient(server)));
+  await Promise.allSettled(servers.map((server) => discoverMcpToolsWithStatus(server)));
 }
 
 export async function testMcpServerConnection(server: McpServer) {
