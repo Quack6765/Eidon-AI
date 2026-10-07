@@ -3,7 +3,7 @@ import {
   streamAnthropicResponse
 } from "@/lib/anthropic";
 import { setActiveTokenizer } from "@/lib/tokenization";
-import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
+import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
 import Anthropic from "@anthropic-ai/sdk";
@@ -57,7 +57,7 @@ export async function* streamAnthropicAdapterResponse(
   setActiveTokenizer(input.settings.tokenizerModel ?? "gpt-tokenizer");
   return yield* streamAnthropicResponse({
     settings: input.settings,
-    promptMessages: withDateContextUserMessage(input.promptMessages),
+    promptMessages: withDateContextUserMessage(withToolResultImagesAsUserMessages(input.promptMessages)),
     tools: input.tools,
     conversationId: input.conversationId,
     abortSignal: input.abortSignal

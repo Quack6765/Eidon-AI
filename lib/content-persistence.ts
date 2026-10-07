@@ -1,10 +1,7 @@
-import { createAttachments } from "@/lib/attachments";
 import { getMessage } from "@/lib/conversations";
 import { bindAttachmentsToMessage } from "@/lib/attachments";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
-import { consumeScreenshotArtifact } from "@/lib/screenshot-artifact-capabilities";
-import type { MessageAction } from "@/lib/types";
 
 function appendFailureNotes(content: string, failureNotes: string[]) {
   const trimmed = content.trim();
@@ -48,26 +45,6 @@ async function sanitizeAssistantContent(
     content: sanitizedContent,
     failureNote: inferred.failureNote
   };
-}
-
-export async function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
-  if (action.kind !== "shell_command") {
-    return;
-  }
-
-  const artifact = consumeScreenshotArtifact(action.id);
-  if (!artifact) {
-    return;
-  }
-
-  if ((getMessage(messageId)?.attachments ?? []).some(
-    (attachment) => attachment.filename === artifact.filename
-  )) {
-    return;
-  }
-
-  const [attachment] = await createAttachments(conversationId, [artifact]);
-  bindAttachmentsToMessage(conversationId, messageId, [attachment.id]);
 }
 
 export function createAssistantContentPersistenceTracker(

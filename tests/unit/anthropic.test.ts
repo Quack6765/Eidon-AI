@@ -29,6 +29,7 @@ import {
   toAnthropicTools
 } from "@/lib/anthropic";
 import { estimatePromptTokens } from "@/lib/tokenization";
+import { withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import type { ChatStreamEvent, RuntimeProviderProfile, PromptMessage, ToolDefinition } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
@@ -117,6 +118,40 @@ describe("toAnthropicMessages", () => {
     expect(result[2]).toEqual({
       role: "user",
       content: [{ type: "tool_result", tool_use_id: "t1", content: "result" }]
+    });
+  });
+
+  it("places tool result images after the tool_result blocks in the same user turn", () => {
+    const messages: PromptMessage[] = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "t1", name: "execute_shell_command", arguments: "{}" },
+          { id: "t2", name: "execute_shell_command", arguments: "{}" }
+        ]
+      },
+      {
+        role: "tool",
+        toolCallId: "t1",
+        content: [
+          { type: "text", text: "saved" },
+          { type: "image", attachmentId: "a1", filename: "page.png", mimeType: "image/png", relativePath: "c/a1_page.png" }
+        ]
+      },
+      { role: "tool", toolCallId: "t2", content: "clicked" }
+    ];
+    const result = toAnthropicMessages(withToolResultImagesAsUserMessages(messages));
+    expect(result[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "t1", content: "saved" },
+        { type: "tool_result", tool_use_id: "t2", content: "clicked" },
+        { type: "text", text: "Images returned by the tool calls above:" },
+        { type: "text", text: "Attached image: page.png" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "IMGDATA" } }
+      ]
     });
   });
 

@@ -13,7 +13,7 @@ import {
   buildOpenAIResponsesInput,
   createOpenAIClient
 } from "@/lib/provider-adapters/openai-message-formatting";
-import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
+import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import {
   getResponseOutputItemMessageText,
   getResponseText,
@@ -236,7 +236,7 @@ export async function* streamOpenAiCompatibleResponse(
   input: ProviderStreamInput
 ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const { settings, promptMessages } = input;
-  const contextualPromptMessages = withDateContextUserMessage(promptMessages);
+  const contextualPromptMessages = withDateContextUserMessage(withToolResultImagesAsUserMessages(promptMessages));
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
   const client = createOpenAIClient(settings, getProviderApiKey(settings), input.conversationId);

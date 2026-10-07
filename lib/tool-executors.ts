@@ -22,11 +22,7 @@ import {
 } from "@/lib/web-search-pipeline";
 import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
-import {
-  prepareScreenshotArtifact,
-  registerScreenshotArtifact,
-  revokeScreenshotArtifact
-} from "@/lib/screenshot-artifact-capabilities";
+import { attachScreenshot, prepareScreenshotArtifact, type AttachedScreenshot } from "@/lib/browser-screenshots";
 import { getLatestUserRequestText } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import {
@@ -121,7 +117,7 @@ type SuccessfulReadOnlyToolResult = {
 
 export type { RuntimeAction, SuccessfulReadOnlyToolResult };
 
-export function buildToolResultMessage(toolCallId: string, content: string): PromptMessage {
+export function buildToolResultMessage(toolCallId: string, content: PromptMessage["content"]): PromptMessage {
   return {
     role: "tool",
     toolCallId,
@@ -1007,6 +1003,7 @@ export async function executeShellCommand(
   context: {
     input: {
       conversationId?: string;
+      assistantMessageId?: string;
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -1123,23 +1120,26 @@ export async function executeShellCommand(
       stderr: redactSecrets(context.input.conversationId, shellResult.stderr)
     };
     throwIfAborted(context.input.abortSignal);
-    const resultSummary = summarizeShellResult(result);
+    let resultSummary = summarizeShellResult(result);
     const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
+    let screenshot: AttachedScreenshot | null = null;
 
     sortOrder += 1;
 
     if (!executionSucceeded) {
       await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
     } else {
-      registerScreenshotArtifact(actionHandle, screenshotCandidate);
-      try {
-        await context.input.onActionComplete?.(actionHandle, {
-          detail: buildShellDetail(command),
-          resultSummary
-        });
-      } finally {
-        revokeScreenshotArtifact(actionHandle);
+      const { conversationId, assistantMessageId } = context.input;
+      if (screenshotCandidate && conversationId && assistantMessageId) {
+        screenshot = await attachScreenshot({ candidate: screenshotCandidate, conversationId, assistantMessageId });
       }
+      if (screenshot) {
+        resultSummary = `${resultSummary}\n\n${screenshot.note}`;
+      }
+      await context.input.onActionComplete?.(actionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary
+      });
     }
 
     const resultText = buildShellResultForPrompt({
@@ -1147,7 +1147,10 @@ export async function executeShellCommand(
       resultSummary,
       isError: !executionSucceeded
     });
-    const resultMsg = buildToolResultMessage(toolCallId, resultText);
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      screenshot?.image ? [{ type: "text", text: resultText }, screenshot.image] : resultText
+    );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);

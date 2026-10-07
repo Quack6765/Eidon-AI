@@ -55,7 +55,8 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 - For a CAPTCHA, a payment confirmation or any other step only the user can do, open that step and call \`request_takeover\` if you have it: the user completes the step in your browser and returns control
 - Without those tools, tell the user what to do there
 - Use snapshot + refs for reliable element interaction
-- For screenshots, save to /tmp/ and use the path`
+- Take each screenshot as its own command, not chained, and save it to a new absolute path under /tmp/ such as /tmp/page-1.png: the image is then shown back to you so you can check the page visually
+- Prefer viewport screenshots, and add --full only when you need the whole page`
 };
 
 export function deriveSkillDescription(content: string) {

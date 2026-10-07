@@ -529,15 +529,24 @@ describe("buildCopilotTools", () => {
     }));
   });
 
-  it("mints a verified screenshot capability around a successful Copilot shell action", async () => {
+  it.each([
+    { mode: "native" as const, sendsImage: true },
+    { mode: "none" as const, sendsImage: false }
+  ])("returns a Copilot screenshot to the model as an image only with native vision ($mode)", async ({ mode, sendsImage }) => {
     const { executeLocalShellCommand } = await import("@/lib/local-shell");
-    const { consumeScreenshotArtifact } = await import("@/lib/screenshot-artifact-capabilities");
+    const { createConversation, createMessage, getMessage } = await import("@/lib/conversations");
+    const sharp = (await import("sharp")).default;
+    const conversation = createConversation("Copilot screenshot", null, { providerProfileId: null });
+    const assistantMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      status: "streaming"
+    });
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-copilot-screenshot-"));
     const screenshotPath = path.join(tempDir, "capture.png");
-    const pngBytes = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52
-    ]);
+    const pngBytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#ffffff" } })
+      .png()
+      .toBuffer();
     vi.mocked(executeLocalShellCommand).mockImplementationOnce(async () => {
       fs.writeFileSync(screenshotPath, pngBytes);
       return {
@@ -548,27 +557,30 @@ describe("buildCopilotTools", () => {
         isError: false
       };
     });
-    let consumedArtifact: ReturnType<typeof consumeScreenshotArtifact> = null;
-    const onActionComplete = vi.fn((handle: string | undefined) => {
-      consumedArtifact = handle ? consumeScreenshotArtifact(handle) : null;
-    });
     const ctx = makeCtx({
-      onActionStart: vi.fn().mockReturnValue("shell-screenshot"),
-      onActionComplete
+      conversationId: conversation.id,
+      assistantMessageId: assistantMessage.id,
+      effectiveVisionMode: mode,
+      onActionStart: vi.fn().mockReturnValue("shell-screenshot")
     });
     const shellTool = buildCopilotTools(ctx).find((tool) => tool.name === "execute_shell_command")!;
 
     try {
-      await shellTool.handler!(
-        { command: `agent-browser screenshot ${screenshotPath} --full` },
+      const result = await shellTool.handler!(
+        { command: `agent-browser screenshot ${screenshotPath}` },
         { sessionId: "s1", toolCallId: "tc1", toolName: "execute_shell_command", arguments: {} }
       );
 
-      expect(consumedArtifact).toEqual(expect.objectContaining({
-        filename: "capture.png",
-        mimeType: "image/png",
-        bytes: pngBytes
-      }));
+      expect(getMessage(assistantMessage.id)?.attachments).toHaveLength(1);
+      if (sendsImage) {
+        expect(result).toEqual({
+          textResultForLlm: expect.stringContaining("Screenshot attached as capture.png"),
+          resultType: "success",
+          binaryResultsForLlm: [{ type: "image", mimeType: "image/png", data: pngBytes.toString("base64") }]
+        });
+      } else {
+        expect(result).toEqual(expect.stringContaining("Screenshot attached as capture.png"));
+      }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

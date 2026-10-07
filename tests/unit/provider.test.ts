@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { ChatStreamEvent, RuntimeProviderProfile } from "@/lib/types";
+import type { ChatStreamEvent, PromptMessage, RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const responsesCreate = vi.fn();
@@ -1427,6 +1427,83 @@ describe("provider integration", () => {
         signal: expect.any(AbortSignal)
       })
     );
+  });
+
+  describe("tool result images", () => {
+    const promptMessages: PromptMessage[] = [
+      { role: "user", content: "Check the page" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "call_1", name: "execute_shell_command", arguments: "{}" }]
+      },
+      {
+        role: "tool",
+        toolCallId: "call_1",
+        content: [
+          { type: "text", text: "Status: success" },
+          {
+            type: "image",
+            attachmentId: "att_1",
+            filename: "page.png",
+            mimeType: "image/png",
+            relativePath: "conv_1/att_1_page.png"
+          }
+        ]
+      }
+    ];
+
+    async function drain(stream: AsyncGenerator<unknown, unknown, void>) {
+      while (!(await stream.next()).done) {}
+    }
+
+    it("sends them as a user message after the tool results in chat completions mode", async () => {
+      chatCreate.mockResolvedValue(createAsyncStream([{ choices: [{ delta: { content: "done" } }] }]));
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      await drain(streamProviderResponse({
+        settings: createSettings({ model: "gpt-4o-mini", apiMode: "chat_completions", reasoningSummaryEnabled: false }),
+        promptMessages
+      }));
+
+      const messages = chatCreate.mock.calls.at(-1)?.[0].messages as Array<Record<string, unknown>>;
+      const toolIndex = messages.findIndex((message) => message.role === "tool");
+      expect(messages.slice(toolIndex, toolIndex + 2)).toEqual([
+        { role: "tool", tool_call_id: "call_1", content: "Status: success" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Images returned by the tool calls above:" },
+            { type: "text", text: "Attached image: page.png" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } }
+          ]
+        }
+      ]);
+    });
+
+    it("sends them as a user message after the tool outputs in responses mode", async () => {
+      responsesCreate.mockResolvedValue(createAsyncStream([{ type: "response.output_text.delta", delta: "done" }]));
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      await drain(streamProviderResponse({
+        settings: createSettings({ apiMode: "responses" }),
+        promptMessages
+      }));
+
+      const input = responsesCreate.mock.calls.at(-1)?.[0].input as Array<Record<string, unknown>>;
+      const outputIndex = input.findIndex((item) => item.type === "function_call_output");
+      expect(input.slice(outputIndex, outputIndex + 2)).toEqual([
+        { type: "function_call_output", call_id: "call_1", output: "Status: success" },
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "Images returned by the tool calls above:" },
+            { type: "input_text", text: "Attached image: page.png" },
+            { type: "input_image", image_url: "data:image/png;base64,abc123" }
+          ]
+        }
+      ]);
+    });
   });
 
   it("streams glm reasoning_content deltas when using chat_completions mode", async () => {

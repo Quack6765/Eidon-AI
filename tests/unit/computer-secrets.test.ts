@@ -121,7 +121,7 @@ describe("secret requests", () => {
     await submitComputerSecret(actionId, context.user.id, { value: "correct-horse-battery", save: true });
 
     await expect(result).resolves.toBe(
-      'The user entered the password into @e5 on https://example.com and saved it in the vault as "password". You can\'t see the value. Continue, for example by submitting the form.'
+      'The user entered the password into @e5 on https://example.com and saved it in the vault as "password". The value is hidden from your text output, but a screenshot can show it if the field is not masked. Continue, for example by submitting the form.'
     );
     expect(browserMocks.runBrowserSessionCommand.mock.calls.map((call) => call[1])).toEqual([
       ["get", "url", "--json"],
@@ -145,7 +145,7 @@ describe("secret requests", () => {
     const onActionError = vi.fn();
 
     await expect(request(context, { onActionComplete, onActionError })).resolves.toBe(
-      'Eidon filled "Password" from the vault into @e5 without asking the user. You can\'t see the value. If it turns out to be wrong, call request_secret again with replace_saved: true.'
+      'Eidon filled "Password" from the vault into @e5 without asking the user. The value is hidden from your text output, but a screenshot can show it if the field is not masked. If it turns out to be wrong, call request_secret again with replace_saved: true.'
     );
     expect(context.onActionStart).toHaveBeenCalledTimes(1);
     expect(context.onActionStart).toHaveBeenCalledWith({
@@ -218,7 +218,7 @@ describe("secret requests", () => {
     await submitComputerSecret(actionId, context.user.id, { value: "typed-value", save: true });
 
     await expect(result).resolves.toBe(
-      "The user entered the password into @e5 on https://example.com. You can't see the value. Continue, for example by submitting the form."
+      "The user entered the password into @e5 on https://example.com. The value is hidden from your text output, but a screenshot can show it if the field is not masked. Continue, for example by submitting the form."
     );
     expect(typedText()).toBe("typed-value");
     expect(cardPayload(actionId)).toMatchObject({ resolution: "filled" });

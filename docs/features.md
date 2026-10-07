@@ -171,6 +171,8 @@ A per-user setting caps how many tool steps one turn may take (25 by default), w
 
 **Assistant artifacts.** Files the assistant produces on disk — a screenshot, a generated chart, a downloaded document — are imported back into the transcript as attachments, so its output is browsable in the conversation instead of being stranded in a working directory.
 
+**Browser screenshots.** When the agent runs `agent-browser screenshot` on its own with a new absolute path, the screenshot is attached to the reply and also returned to the model in the same turn, so it can check the page visually. A native-vision model sees the image directly; in `mcp` and `provider` vision modes the tool result carries the stored file path for the vision tools. Screenshots larger than 8000 px on a side or 2 MB stay attached for you but are not sent to the model, and at most 8 are kept in one request. Because the model sees the page, a vault value typed into a field that is not masked can be visible to it in a screenshot; password fields are masked by the browser.
+
 ## Voice input
 
 Dictation from the composer, with a live audio level meter while recording. The transcription backend is an admin-managed choice between the browser's own speech recognition, an embedded offline model that runs on your server, or ElevenLabs, AssemblyAI, or Soniox — see [Providers](./providers.md#speech-to-text).
