@@ -84,6 +84,8 @@ The compaction settings shape the hierarchical summary tree described in [Featur
 | `mcp` | Image handling is delegated to MCP servers flagged as vision servers. Their tools are only exposed to the model in this mode |
 | `provider` | A second provider profile does the looking. Set `visionProviderProfileId` to that profile, and the model gets an `analyze_image` tool that routes image paths to it |
 
+Browser screenshots the agent takes follow the same modes: `native` sends them inline after the tool result, while the other modes give the model the stored file path.
+
 `provider` mode is how you give a strong text model that cannot see images a vision capability: point it at a small vision-capable profile. The referenced profile cannot be the profile itself, and if it is deleted the profile falls back to `none`.
 
 ## GitHub Copilot

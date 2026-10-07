@@ -71,7 +71,7 @@ function describeOutcome(payload: SecretRequestProposalPayload, outcome: SecretO
   if (outcome.resolution === "filled") {
     return `The user entered the ${payload.label} into ${payload.target} on ${payload.origin}${
       outcome.saved ? ` and saved it in the vault as "${payload.label}"` : ""
-    }. You can't see the value. Continue, for example by submitting the form.`;
+    }. The value is hidden from your text output, but a screenshot can show it if the field is not masked. Continue, for example by submitting the form.`;
   }
   if (outcome.resolution === "declined") {
     return `The user declined to enter the ${payload.label}. Don't ask for it again in this task.`;
@@ -165,7 +165,7 @@ export async function requestComputerSecret(input: {
     }
     rememberSecretForRedaction(input.conversationId, saved);
     await input.onActionComplete?.(actionHandle, { detail: entry.name, resultSummary: `Typed into the page on ${origin}` });
-    return `Eidon filled "${entry.name}" from the vault into ${selector} without asking the user. You can't see the value. If it turns out to be wrong, call request_secret again with replace_saved: true.`;
+    return `Eidon filled "${entry.name}" from the vault into ${selector} without asking the user. The value is hidden from your text output, but a screenshot can show it if the field is not masked. If it turns out to be wrong, call request_secret again with replace_saved: true.`;
   }
 
   const payload: SecretRequestProposalPayload = {

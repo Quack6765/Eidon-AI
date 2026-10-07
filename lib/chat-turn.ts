@@ -60,7 +60,7 @@ import {
   updateBotRunStatus
 } from "@/lib/bot-runs";
 import { UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS } from "@/lib/tool-approvals";
-import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
+import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl } from "./content-persistence";
 import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
 import {
   beginTurnActivity,
@@ -74,7 +74,7 @@ import type { ChatResearchOptions, ChatStreamEvent, DelegationChain, ToolApprova
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
-export { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "./content-persistence";
+export { createAssistantContentPersistenceTracker } from "./content-persistence";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
   delta: [string, unknown];
@@ -115,7 +115,6 @@ const globalEmitter = createEmitter<{
 export const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
 const createAssistantContentPersistenceTracker = createAssistantContentPersistenceTrackerImpl;
-const attachAssistantFilesFromCompletedAction = attachAssistantFilesFromCompletedActionImpl;
 
 export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
@@ -621,9 +620,6 @@ async function startAssistantTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
-          if (assistantMessageId) {
-            await attachAssistantFilesFromCompletedAction(conversationId, assistantMessageId, updated);
-          }
           manager.broadcast(conversationId, {
             type: "delta",
             conversationId,

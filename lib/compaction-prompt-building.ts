@@ -1,6 +1,7 @@
 import { buildCompactionSummaryPromptBody } from "@/lib/compaction-summary";
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { callProviderText } from "@/lib/provider";
+import { buildOmittedImagePart } from "@/lib/provider-message-formatting";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { Message, MessageAttachment, PromptContentPart, PromptMessage, RuntimeProviderProfile } from "@/lib/types";
 
@@ -106,13 +107,6 @@ export function buildFileAttachmentPart(attachment: MessageAttachment): PromptCo
   };
 }
 
-function buildOmittedImagePart(attachment: MessageAttachment): PromptContentPart {
-  return {
-    type: "text",
-    text: `[image omitted from context to save tokens: ${attachment.filename} — file remains attached to this message]`
-  };
-}
-
 export function buildUserPromptContent(
   message: Pick<Message, "content" | "attachments">,
   remainingAttachmentTextTokens: { value: number },
@@ -148,7 +142,7 @@ export function buildUserPromptContent(
       });
       return;
     }
-    parts.push(buildOmittedImagePart(attachment));
+    parts.push(buildOmittedImagePart(attachment.filename));
   });
 
   (message.attachments ?? []).forEach((attachment) => {
@@ -167,7 +161,7 @@ export function buildUserPromptContent(
         });
         return;
       }
-      parts.push(buildOmittedImagePart(attachment));
+      parts.push(buildOmittedImagePart(attachment.filename));
       return;
     }
 
