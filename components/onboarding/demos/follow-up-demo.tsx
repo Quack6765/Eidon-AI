@@ -73,7 +73,7 @@ function Pill({ data }: { data: DemoPill }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
     >
-      <ToolPill label={data.label} query={data.query} status={data.status} compact />
+      <ToolPill label={data.label} query={data.query} status={data.status} />
     </motion.div>
   );
 }
@@ -101,7 +101,7 @@ function NewTurnActivity({ replied }: { replied: boolean }) {
 
   return (
     <div className="w-full">
-      <ToolPill label="Thinking" status="running" compact />
+      <ToolPill label="Thinking" status="running" />
     </div>
   );
 }

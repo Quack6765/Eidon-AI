@@ -385,7 +385,7 @@ function CollapsibleActionRow({
     >
       {isOpen && (expandedDetail || action.resultSummary) ? (
         <div
-          className="px-2.5 pb-2"
+          className="px-2 pb-2"
           onClick={() => {
             if (!window.getSelection()?.toString()) {
               onToggle();

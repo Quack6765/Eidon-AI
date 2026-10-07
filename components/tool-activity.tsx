@@ -39,7 +39,6 @@ export function ToolPill({
   statusIcon,
   isOpen,
   onToggle,
-  compact = false,
   children
 }: {
   label: string;
@@ -49,17 +48,11 @@ export function ToolPill({
   statusIcon?: ReactNode;
   isOpen?: boolean;
   onToggle?: () => void;
-  /** Shrinks the label for the onboarding demo tiles; chat keeps the default. */
-  compact?: boolean;
   children?: ReactNode;
 }) {
   const isRunning = status === "running";
   const title = (
-    <span
-      className={`min-w-0 break-words font-medium leading-4 ${
-        compact ? "text-[11px]" : "text-xs"
-      } ${isRunning ? "text-white/55" : "text-white/85"}`}
-    >
+    <span className="min-w-0 break-words text-[11px] font-medium leading-[16.5px] text-white/50">
       {kindIcon ? (
         <span className="mr-1 inline-flex translate-y-px align-middle">{kindIcon}</span>
       ) : null}
@@ -67,9 +60,7 @@ export function ToolPill({
       {query ? (
         <>
           {": "}
-          <span className={isRunning ? "font-normal text-white/45" : "font-normal text-white/55"}>
-            {query}
-          </span>
+          <span className="font-normal text-white/30">{query}</span>
         </>
       ) : null}
     </span>
@@ -83,7 +74,7 @@ export function ToolPill({
   if (!onToggle) {
     return (
       <div
-        className={`inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+        className={`inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border px-2 py-1 ${
           isRunning ? "border-white/6 bg-white/[0.02]" : "border-white/5 bg-white/[0.015]"
         }`}
       >
@@ -102,7 +93,7 @@ export function ToolPill({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex max-w-full items-start gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
+        className={`flex max-w-full items-start gap-1.5 px-2 py-1 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
       >
         {iconChip}
         {title}
