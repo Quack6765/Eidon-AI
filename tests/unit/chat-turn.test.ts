@@ -27,7 +27,8 @@ vi.mock("@/lib/mcp-client", () => ({
 vi.mock("@/lib/compaction", () => ({
   ensureCompactedContext: vi.fn().mockResolvedValue({
     promptMessages: [],
-    compactionNoticeEvent: null
+    promptTokens: 300,
+    didCompact: false
   }),
   getConversationContextUsage: vi.fn().mockReturnValue({
     contextTokens: 512,
@@ -2724,6 +2725,105 @@ describe("chat-turn", () => {
     expect(typeof contextEvent!.compactionLimit).toBe("number");
   });
 
+  async function setupSubscribedConversation() {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const manager = createConversationManager();
+    const sent: Array<{ type: string; event?: { type: string; contextTokens?: number; compactionLimit?: number } }> = [];
+    const { profileId, profile, runtimeProfile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+    manager.subscribe(conv.id, createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data)))));
+    const eventTypes = () => sent.map((message) => message.event?.type);
+    const contextEvents = () =>
+      sent.map((message) => message.event).filter((event) => event?.type === "context_usage");
+    return { manager, conv, runtimeProfile, eventTypes, contextEvents };
+  }
+
+  it("broadcasts the prompt's context usage before the provider starts answering", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { ensureCompactedContext } = await import("@/lib/compaction");
+    const { computeCompactionLimit } = await import("@/lib/tokenization");
+    const { manager, conv, runtimeProfile, contextEvents } = await setupSubscribedConversation();
+
+    vi.mocked(ensureCompactedContext).mockResolvedValueOnce({
+      promptMessages: [],
+      promptTokens: 3200,
+      didCompact: false,
+      memoriesUsed: 2,
+      memoriesTotal: 9
+    });
+    let eventsBeforeAnswer: ReturnType<typeof contextEvents> = [];
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        eventsBeforeAnswer = contextEvents();
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    expect(eventsBeforeAnswer).toEqual([
+      {
+        type: "context_usage",
+        contextTokens: 3200,
+        compactionLimit: computeCompactionLimit(runtimeProfile),
+        memoriesUsed: 2,
+        memoriesTotal: 9
+      }
+    ]);
+    expect(contextEvents().at(-1)).toEqual({
+      type: "context_usage",
+      contextTokens: 512,
+      compactionLimit: 8192,
+      memoriesUsed: 2,
+      memoriesTotal: 9
+    });
+  });
+
+  it("broadcasts context usage after a stopped turn", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+    const { manager, conv, eventTypes, contextEvents } = await setupSubscribedConversation();
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "Partial" };
+      await gate;
+      return { answer: "Partial answer", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const run = startChatTurn(manager, conv.id, "Hi", []);
+    await vi.advanceTimersByTimeAsync(120);
+    requestStop(conv.id);
+    release();
+    await expect(run).resolves.toMatchObject({ status: "stopped" });
+    vi.useRealTimers();
+
+    expect(eventTypes().lastIndexOf("context_usage")).toBeGreaterThan(eventTypes().indexOf("done"));
+    expect(contextEvents().at(-1)).toMatchObject({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("broadcasts context usage after a failed turn", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { manager, conv, eventTypes, contextEvents } = await setupSubscribedConversation();
+
+    vi.mocked(streamProviderResponse).mockImplementationOnce(() => {
+      throw new Error("API key invalid");
+    });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conv.id, "Hi", [])).resolves.toMatchObject({ status: "failed" });
+
+    expect(eventTypes().lastIndexOf("context_usage")).toBeGreaterThan(eventTypes().indexOf("error"));
+    expect(contextEvents().at(-1)).toMatchObject({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
   async function runTurnWithContextUsage(usage: { contextTokens: number; compactionLimit: number }) {
     const { streamProviderResponse } = await import("@/lib/provider");
     const { createConversationManager } = await import("@/lib/conversation-manager");
@@ -2783,7 +2883,7 @@ describe("chat-turn", () => {
     await vi.waitFor(() => {
       expect(
         sent.filter((message) => message.event?.type === "context_usage")
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     });
 
     expect(startBackgroundCompaction).toHaveBeenCalledWith(
@@ -2853,7 +2953,7 @@ describe("chat-turn", () => {
     vi.mocked(getConversationContextUsage).mockReset().mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
   });
 
-  it("does not broadcast context_usage when usage is unavailable", async () => {
+  it("skips the post-turn context_usage when usage is unavailable", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
@@ -2889,12 +2989,13 @@ describe("chat-turn", () => {
     const { startChatTurn } = await import("@/lib/chat-turn");
     await startChatTurn(manager, conv.id, "Hi", []);
 
-    const contextEvent = (sent.filter(
+    const contextEvents = (sent.filter(
       (s: unknown) => (s as { type: string }).type === "delta"
-    ) as Array<{ event: { type: string } }>)
+    ) as Array<{ event: { type: string; contextTokens?: number } }>)
       .map((m) => m.event)
-      .find((e) => e?.type === "context_usage");
-    expect(contextEvent).toBeUndefined();
+      .filter((e) => e?.type === "context_usage");
+    expect(contextEvents).toHaveLength(1);
+    expect(contextEvents[0].contextTokens).toBe(300);
   });
 
   it("broadcasts context_usage with zero when contextTokens is null", async () => {
@@ -2937,7 +3038,8 @@ describe("chat-turn", () => {
       (s: unknown) => (s as { type: string }).type === "delta"
     ) as Array<{ event: { type: string; contextTokens?: number; compactionLimit?: number } }>)
       .map((m) => m.event)
-      .find((e) => e?.type === "context_usage");
+      .filter((e) => e?.type === "context_usage")
+      .at(-1);
     expect(contextEvent!.contextTokens).toBe(0);
     expect(contextEvent!.compactionLimit).toBe(8192);
   });

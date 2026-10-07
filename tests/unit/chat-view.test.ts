@@ -6179,6 +6179,40 @@ describe("chat view", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
+  it("hides the gauge after the conversation is cleared until the next turn reports usage", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_cleared";
+    payload.contextTokens = 6400;
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("50%")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({ type: "conversation_cleared", conversationId: "conv_ctx_cleared" });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_ctx_cleared",
+        event: { type: "message_start", messageId: "msg_after_clear" }
+      });
+    });
+    expect(screen.queryByRole("progressbar")).toBeNull();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_ctx_cleared",
+        event: { type: "context_usage", contextTokens: 3200, compactionLimit: 12800 }
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText("25%")).toBeInTheDocument();
+    });
+  });
+
   it("caps the gauge at 100% when context exceeds the compaction limit", async () => {
     const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
     payload.conversation.id = "conv_ctx_over";

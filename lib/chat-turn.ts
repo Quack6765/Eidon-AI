@@ -31,7 +31,7 @@ import { getConversationManager } from "@/lib/ws-singleton";
 import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
 import { ensureCompactedContext, getConversationContextUsage, startBackgroundCompaction } from "@/lib/compaction";
 import { queueConversationIndex } from "@/lib/semantic-index";
-import { estimateTextTokens } from "@/lib/tokenization";
+import { computeCompactionLimit, estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listConversationSkills } from "@/lib/skill-library";
 import { scheduleSkillReview } from "@/lib/skill-review";
@@ -337,6 +337,18 @@ async function startAssistantTurn(
     manager.broadcast(conversationId, { type: "delta", conversationId, event });
     globalEmitter.emit("delta", conversationId, event);
   };
+  let memoryCounts: { memoriesUsed?: number; memoriesTotal?: number } = {};
+  const broadcastContextUsage = (usage = getConversationContextUsage(conversationId)) => {
+    if (!usage) return null;
+    const event = {
+      type: "context_usage",
+      contextTokens: usage.contextTokens ?? 0,
+      compactionLimit: usage.compactionLimit,
+      ...memoryCounts
+    } satisfies ChatStreamEvent;
+    emitDelta(event);
+    return event;
+  };
   let pendingUserWaits = 0;
   const toolApproval: ToolApprovalContext = {
     userId: conversationOwnerId ?? null,
@@ -501,6 +513,10 @@ async function startAssistantTurn(
       mcpToolSetsPromise
     ]);
     control.throwIfStopped();
+    if (compacted.memoriesUsed !== undefined) {
+      memoryCounts = { memoriesUsed: compacted.memoriesUsed, memoriesTotal: compacted.memoriesTotal };
+    }
+    broadcastContextUsage({ contextTokens: compacted.promptTokens, compactionLimit: computeCompactionLimit(settings) });
     let promptMessages = compacted.promptMessages;
     const skillOwner = bot ?? (options?.skillOwnerUserId ? { userId: options.skillOwnerUserId } : null);
     const skills = appSettings.skillsEnabled ? listConversationSkills(skillOwner) : [];
@@ -687,25 +703,6 @@ async function startAssistantTurn(
       messageId: assistantMessageId,
       message: completedMessage ?? undefined
     });
-    const broadcastContextUsage = () => {
-      const contextUsage = getConversationContextUsage(conversationId);
-      if (!contextUsage) return null;
-      const contextUsageEvent: ChatStreamEvent = {
-        type: "context_usage",
-        contextTokens: contextUsage.contextTokens ?? 0,
-        compactionLimit: contextUsage.compactionLimit,
-        ...(compacted.memoriesUsed !== undefined
-          ? { memoriesUsed: compacted.memoriesUsed, memoriesTotal: compacted.memoriesTotal }
-          : {})
-      };
-      manager.broadcast(conversationId, {
-        type: "delta",
-        conversationId,
-        event: contextUsageEvent
-      });
-      globalEmitter.emit("delta", conversationId, contextUsageEvent);
-      return contextUsageEvent;
-    };
     afterTurnEnded = () => {
       const usage = broadcastContextUsage();
       if (!usage || usage.contextTokens <= usage.compactionLimit) return;
@@ -845,7 +842,8 @@ async function startAssistantTurn(
       console.error("Queued chat dispatch failed", error);
     }
     try {
-      afterTurnEnded?.();
+      if (afterTurnEnded) afterTurnEnded();
+      else if (started) broadcastContextUsage();
     } catch (error) {
       console.error("Post-turn context usage failed", error);
     }

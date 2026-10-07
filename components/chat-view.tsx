@@ -1162,8 +1162,8 @@ export function ChatView({
           setError("");
           setIsConversationActive(false);
           setIsSending(false);
-          setUsedTokens(0);
-          setTokenUsage(payload.conversation.id, 0);
+          setUsedTokens(null);
+          setTokenUsage(payload.conversation.id, null);
           dispatchConversationActivityUpdated({
             conversationId: payload.conversation.id,
             isActive: false
