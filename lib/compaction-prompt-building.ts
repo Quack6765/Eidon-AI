@@ -65,7 +65,8 @@ export function buildTextAttachmentPart(
   attachment: MessageAttachment,
   remainingAttachmentTextTokens: { value: number }
 ): PromptContentPart {
-  const header = `Attached file: ${attachment.filename}\n`;
+  const absolutePath = resolveStoredAttachmentPath(attachment);
+  const header = `Attached file: ${attachment.filename}${absolutePath ? ` (stored at: ${absolutePath})` : ""}\n`;
   const truncationMarker = "\n[truncated]";
   const availableTokens = Math.max(
     remainingAttachmentTextTokens.value -
@@ -90,16 +91,17 @@ export function buildTextAttachmentPart(
   };
 }
 
+function resolveStoredAttachmentPath(attachment: MessageAttachment) {
+  try {
+    return resolveAttachmentPath({ relativePath: attachment.relativePath });
+  } catch {
+    return null;
+  }
+}
+
 export function buildFileAttachmentPart(attachment: MessageAttachment): PromptContentPart {
   const description = `${attachment.mimeType}, ${attachment.byteSize} bytes`;
-
-  let absolutePath: string | null = null;
-  try {
-    absolutePath = resolveAttachmentPath({ relativePath: attachment.relativePath });
-  } catch {
-    absolutePath = null;
-  }
-
+  const absolutePath = resolveStoredAttachmentPath(attachment);
   const storedAt = absolutePath ? ` stored at: ${absolutePath}` : "";
   return {
     type: "text",

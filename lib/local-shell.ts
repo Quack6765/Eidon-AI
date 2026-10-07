@@ -183,7 +183,7 @@ function saveToolOutput(conversationId: string | undefined, content: string) {
     throw new Error("Tool output directory is unavailable");
   }
   const filePath = join(outputDir, `${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
-  writeFileSync(filePath, content, { mode: 0o600, flag: "wx" });
+  writeFileSync(filePath, content.endsWith("\n") ? content : `${content}\n`, { mode: 0o600, flag: "wx" });
   pruneToolOutputFiles(outputDir);
   return filePath;
 }

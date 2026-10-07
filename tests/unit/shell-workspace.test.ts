@@ -190,7 +190,7 @@ describe("long tool output files", () => {
     expect(bounded).toContain("...[truncated]...");
     expect(bounded.endsWith("b")).toBe(true);
     expect(savedPath.startsWith(join(realpathSync(outputRoot), "conv_long"))).toBe(true);
-    expect(readFileSync(savedPath, "utf8")).toBe(summary);
+    expect(readFileSync(savedPath, "utf8")).toBe(`${summary}\n`);
   });
 
   it("says when the capture limit cut the saved output", () => {

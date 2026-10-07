@@ -166,7 +166,7 @@ A per-user setting caps how many tool steps one turn may take (25 by default), w
 
 **Any file type**, up to **100 MB per file** and **100 files per upload**, with a 128 MB cap on the whole upload request. Attach them from the composer or drop them onto the chat.
 
-**Text extraction.** Text and code files are read and their contents made available to the model — `.txt`, `.md`, `.json`, `.csv`, `.tsv`, `.yaml`/`.yml`, `.xml`, `.html`, `.css`, `.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rb`, `.go`, `.rs`, `.java`, `.c`, `.cpp`, `.h`, `.sh`, `.sql`, `.toml`, `.ini`, `.log` — and PDFs are parsed for their text. Images are handled according to the profile's vision mode. Anything else is stored, path-referenced in the prompt, and left for tools to inspect.
+**Text extraction.** Text and code files are read and their contents made available to the model — `.txt`, `.md`, `.json`, `.csv`, `.tsv`, `.yaml`/`.yml`, `.xml`, `.html`, `.css`, `.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rb`, `.go`, `.rs`, `.java`, `.c`, `.cpp`, `.h`, `.sh`, `.sql`, `.toml`, `.ini`, `.log` — and PDFs are parsed for their text. The prompt also gives each file's stored path, so the model can process the whole file with `run_python` when the inlined text is long or cut short. Images are handled according to the profile's vision mode. Anything else is stored, path-referenced in the prompt, and left for tools to inspect.
 
 **Preview.** A modal previews attachments in place, including generated images.
 

@@ -248,7 +248,7 @@ describe("run_python executor", () => {
     expect(content.endsWith("END")).toBe(true);
     expect(content.length).toBeLessThan(8_100);
     expect(existsSync(savedPath)).toBe(true);
-    expect(readFileSync(savedPath, "utf8")).toBe(longOutput);
+    expect(readFileSync(savedPath, "utf8")).toBe(`${longOutput}\n`);
   });
 
   it.skipIf(!hasPython)("computes with a real python3 and hides vault secrets from its output", async () => {
