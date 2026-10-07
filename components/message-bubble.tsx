@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown, defaultRemarkPlugins } from "streamdown";
 import type { Pluggable } from "unified";
@@ -21,7 +21,8 @@ import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import {
   isMessageBotActionKind,
-  summarizeToolActivity
+  summarizeToolActivity,
+  type ToolActivityRow
 } from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
 import { REFERENCE_TAG, remarkReferenceTokens, type ReferenceCandidate } from "@/lib/reference-tokens";
@@ -412,15 +413,100 @@ const ASSISTANT_CONTENT =
 const ASSISTANT_ERROR_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 type ThinkingTimelineItem = Extract<MessageTimelineItem, { timelineKind: "thinking" }>;
 type RenderedThinkingTimelineItem = ThinkingTimelineItem & { content: string };
+type ActionTimelineItem = Extract<MessageTimelineItem, { timelineKind: "action" }>;
 type AssistantBlock =
   | Extract<MessageTimelineItem, { timelineKind: "text" }>
-  | Extract<MessageTimelineItem, { timelineKind: "action" }>
+  | ActionTimelineItem
   | RenderedThinkingTimelineItem;
 
-function isRunningActionBlock(
-  item: AssistantBlock
-): item is Extract<MessageTimelineItem, { timelineKind: "action" }> {
-  return item.timelineKind === "action" && item.status === "running";
+type StatusLinePlan = {
+  id: string;
+  afterIndex: number;
+  label: string;
+  live: boolean;
+  rows: ToolActivityRow[];
+};
+
+function isStatusLineActivity(item: AssistantBlock) {
+  return (
+    item.timelineKind === "thinking" ||
+    (item.timelineKind === "action" &&
+      !isMemoryProposalAction(item) &&
+      !isAutomationProposalAction(item) &&
+      !isToolApprovalAction(item) &&
+      !isMessageDraftAction(item) &&
+      !isComputerHandoffAction(item) &&
+      !isSecretRequestAction(item))
+  );
+}
+
+function getRunningActionLabel(action: ActionTimelineItem) {
+  const query =
+    action.toolName === "web_search"
+      ? (typeof action.arguments?.query === "string" ? action.arguments.query.trim() : "") ||
+        action.detail.trim()
+      : "";
+
+  return query ? `${action.label}: ${query}` : action.label;
+}
+
+function planStatusLines(
+  blocks: AssistantBlock[],
+  renderedTextById: Map<string, string>,
+  tail: { thinking: boolean; working: boolean }
+): StatusLinePlan[] {
+  const segments: { id: string; afterIndex: number; actions: ActionTimelineItem[] }[] = [];
+  let segmentOpen = false;
+
+  blocks.forEach((item, index) => {
+    if (item.timelineKind === "text") {
+      if ((renderedTextById.get(item.id) ?? item.content).trim()) {
+        segmentOpen = false;
+      }
+      return;
+    }
+
+    if (!isStatusLineActivity(item)) {
+      return;
+    }
+
+    if (!segmentOpen) {
+      segments.push({ id: item.id, afterIndex: index, actions: [] });
+      segmentOpen = true;
+    }
+
+    const segment = segments[segments.length - 1];
+    segment.afterIndex = index;
+    if (item.timelineKind === "action") {
+      segment.actions.push(item);
+    }
+  });
+
+  if (!segments.length && (tail.thinking || tail.working)) {
+    segments.push({ id: "turn", afterIndex: -1, actions: [] });
+  }
+
+  return segments.flatMap((segment, index) => {
+    const summary = summarizeToolActivity(segment.actions);
+    const runningAction = [...segment.actions]
+      .reverse()
+      .find((action) => action.status === "running" && !isMessageBotActionKind(action.kind));
+    const isTail = index === segments.length - 1;
+    const live =
+      Boolean(runningAction) ||
+      (isTail && (tail.thinking || (tail.working && summary.total === 0)));
+    const label = runningAction
+      ? getRunningActionLabel(runningAction)
+      : live
+        ? tail.thinking
+          ? "Thinking…"
+          : "Working…"
+        : summary.text;
+
+    return label
+      ? [{ id: segment.id, afterIndex: segment.afterIndex, label, live, rows: summary.rows }]
+      : [];
+  });
 }
 
 function clampStreamingTimeline(
@@ -556,7 +642,6 @@ function MessageBubbleImpl({
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
-  const [statusLineOpen, setStatusLineOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -774,16 +859,6 @@ function MessageBubbleImpl({
     lastRenderableAssistantTextId,
     partialStreamingTextId
   } = derived;
-  const toolActivity = useMemo(
-    () =>
-      summarizeToolActivity(
-        assistantBlocks.filter(
-          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
-            item.timelineKind === "action"
-        )
-      ),
-    [assistantBlocks]
-  );
   const browserSession = useMemo(() => {
     const actions = assistantBlocks.filter(
       (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
@@ -1091,66 +1166,31 @@ function MessageBubbleImpl({
     !lastBlockIsStreamingText &&
     !lastBlockIsRunningDelegate &&
     !(showThinkingShell && thinkingInProgress);
-  const showStatusLine =
-    useStatusLine &&
-    !compactionInProgress &&
-    (awaitingFirstToken ||
-      toolActivity.total > 0 ||
-      (isAssistantStreaming &&
-        (lastBlockIsRunningAction ||
-          lastBlockIsRunningThinking ||
-          thinkingInProgress ||
-          betweenSteps)));
-  const statusLineRunningAction = useStatusLine
-    ? assistantBlocks
-        .slice()
-        .reverse()
-        .find(
-          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
-            isRunningActionBlock(item) && !isMessageBotActionKind(item.kind)
-        )
-    : undefined;
-  const statusLineWebSearchQuery = statusLineRunningAction?.toolName === "web_search"
-    ? (typeof statusLineRunningAction.arguments?.query === "string"
-        ? statusLineRunningAction.arguments.query.trim()
-        : "") || statusLineRunningAction.detail.trim()
-    : "";
-  const statusLineLive =
-    awaitingFirstToken ||
-    Boolean(statusLineRunningAction) ||
-    lastBlockIsRunningThinking ||
-    thinkingInProgress ||
-    (toolActivity.total === 0 && betweenSteps);
-  const statusLineLiveLabel = statusLineRunningAction
-    ? statusLineWebSearchQuery
-      ? `${statusLineRunningAction.label}: ${statusLineWebSearchQuery}`
-      : statusLineRunningAction.label
-    : lastBlockIsRunningThinking || thinkingInProgress
-      ? "Thinking…"
-      : "Working…";
-  const statusLineLabel = statusLineLive ? statusLineLiveLabel : toolActivity.text;
-  const statusLineRecord = showStatusLine ? (
-    <StatusLine
-      label={statusLineLabel}
-      live={statusLineLive}
-      rows={toolActivity.rows}
-      isOpen={statusLineOpen}
-      onToggle={() => setStatusLineOpen((open) => !open)}
-    />
-  ) : null;
-  const statusLineInsertionIndex = assistantBlocks.reduce((insertionIndex, item, index) => {
-    const isActivity =
-      item.timelineKind === "thinking" ||
-      (item.timelineKind === "action" &&
-        !isMemoryProposalAction(item) &&
-        !isAutomationProposalAction(item) &&
-        !isToolApprovalAction(item) &&
-        !isMessageDraftAction(item) &&
-        !isComputerHandoffAction(item) &&
-        !isSecretRequestAction(item));
+  const statusLinePlans =
+    useStatusLine && !compactionInProgress
+      ? planStatusLines(assistantBlocks, renderedAssistantBlockContentById, {
+          thinking: isAssistantStreaming && (lastBlockIsRunningThinking || thinkingInProgress),
+          working: betweenSteps
+        })
+      : [];
+  const statusLinesByAnchor = new Map(
+    statusLinePlans.map((plan) => {
+      const openKey = `status-line_${plan.id}`;
 
-    return isActivity ? index + 1 : insertionIndex;
-  }, 0);
+      return [
+        plan.afterIndex,
+        <div key={openKey} className="w-full">
+          <StatusLine
+            label={plan.label}
+            live={plan.live}
+            rows={plan.rows}
+            isOpen={toolOpenItems[openKey] ?? false}
+            onToggle={() => toggleToolItem(openKey)}
+          />
+        </div>
+      ] as const;
+    })
+  );
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -1397,7 +1437,8 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-center">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
                   <div className="flex w-full flex-col items-start gap-3">
-                    {assistantBlocks.map((item) =>
+                    {statusLinesByAnchor.get(-1)}
+                    {assistantBlocks.flatMap((item, index) => [
                     item.timelineKind === "thinking" ? (
                       renderThinkingShell({
                         id: item.id,
@@ -1425,10 +1466,10 @@ function MessageBubbleImpl({
                           />
                         </div>
                       </div>
-                    ) : null
-                    )}
+                    ) : null,
+                    statusLinesByAnchor.get(index)
+                    ])}
                   </div>
-                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
@@ -1457,71 +1498,60 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
-                    {assistantBlocks.map((item, index) => {
-                      const statusLineSlot =
-                        index === statusLineInsertionIndex && statusLineRecord ? (
-                          <div key="status-line" className="w-full">
-                            {statusLineRecord}
-                          </div>
-                        ) : null;
+                    {statusLinesByAnchor.get(-1)}
+                    {assistantBlocks.flatMap((item, index) => {
+                      const statusLine = statusLinesByAnchor.get(index);
 
                       if (item.timelineKind === "thinking") {
-                        return renderThinkingShell({
-                          id: item.id,
-                          content: item.content,
-                          status: item.status,
-                          duration: item.completedAt
-                            ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
-                            : undefined
-                        });
+                        return [
+                          renderThinkingShell({
+                            id: item.id,
+                            content: item.content,
+                            status: item.status,
+                            duration: item.completedAt
+                              ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
+                              : undefined
+                          }),
+                          statusLine
+                        ];
                       }
 
                       if (item.timelineKind === "action") {
-                        return (
-                          <Fragment key={item.id}>
-                            {statusLineSlot}
-                            {renderAssistantActionItem(item)}
-                          </Fragment>
-                        );
+                        return [renderAssistantActionItem(item), statusLine];
                       }
                       const renderedContent =
                         renderedAssistantBlockContentById.get(item.id) ?? item.content;
 
                       if (!renderedContent) {
-                        return statusLineSlot;
+                        return [];
                       }
                       const isStreamingTailBlock = item.id === streamingTextBlockId;
-                      return (
-                        <Fragment key={item.id}>
-                          {statusLineSlot}
-                          <div
-                            className={ASSISTANT_CONTENT}
-                            data-testid="assistant-message-content"
-                          >
-                            <div className="markdown-body" onClick={openMermaidFullscreenFromCard}>
-                              <AssistantMarkdown
-                                content={renderedContent}
-                                isAnimating={isStreamingTailBlock}
-                                showCaret={isStreamingTailBlock}
-                                isStatic={!isStreamingTailBlock && message.status === "completed"}
-                                linkSafety={linkSafety}
+                      return [
+                        <div
+                          key={item.id}
+                          className={ASSISTANT_CONTENT}
+                          data-testid="assistant-message-content"
+                        >
+                          <div className="markdown-body" onClick={openMermaidFullscreenFromCard}>
+                            <AssistantMarkdown
+                              content={renderedContent}
+                              isAnimating={isStreamingTailBlock}
+                              showCaret={isStreamingTailBlock}
+                              isStatic={!isStreamingTailBlock && message.status === "completed"}
+                              linkSafety={linkSafety}
+                            />
+                          </div>
+                          {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                            <div className="mt-3">
+                              <AssistantInlineImageAttachments
+                                attachments={assistantImageAttachments}
+                                onPreview={handleAttachmentPreview}
                               />
                             </div>
-                            {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
-                              <div className="mt-3">
-                                <AssistantInlineImageAttachments
-                                  attachments={assistantImageAttachments}
-                                  onPreview={handleAttachmentPreview}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        </Fragment>
-                      );
+                          ) : null}
+                        </div>
+                      ];
                     })}
-                    {statusLineRecord && statusLineInsertionIndex >= assistantBlocks.length ? (
-                      <div className="w-full">{statusLineRecord}</div>
-                    ) : null}
                     {showStandaloneAssistantImageBubble ? (
                       <div
                         className={ASSISTANT_CONTENT}
@@ -1578,9 +1608,9 @@ function MessageBubbleImpl({
                   </div>
                 ) : null}
               </div>
-            ) : statusLineRecord ? (
-              <div className="w-full">{statusLineRecord}</div>
-            ) : null}
+            ) : (
+              statusLinesByAnchor.get(-1) ?? null
+            )}
           </div>
         </div>
       </div>
