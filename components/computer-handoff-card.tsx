@@ -61,7 +61,7 @@ export function ComputerHandoffCard({
           <button
             type="button"
             onClick={() => setStageOpen(true)}
-            className="inline-flex h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-3 text-[12px] font-medium text-white transition hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent)] px-3 text-[12px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
           >
             Take over
           </button>

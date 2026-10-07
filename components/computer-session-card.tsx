@@ -176,7 +176,7 @@ export function ComputerSessionCard({
                     type="button"
                     onClick={() => void changeControl("return")}
                     disabled={pendingControl !== null}
-                    className={SECONDARY_BUTTON}
+                    className={PRIMARY_BUTTON}
                   >
                     {pendingControl === "return" ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
                     Return control
