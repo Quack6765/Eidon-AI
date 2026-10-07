@@ -395,6 +395,20 @@ function routeFetch(routes: Record<string, () => Response>) {
   });
 }
 
+function deferFetch(url: string) {
+  const request: { resolve?: (response: Response) => void } = {};
+  vi.mocked(global.fetch).mockImplementation((input) => {
+    if (input === url) {
+      return new Promise<Response>((resolve) => {
+        request.resolve = resolve;
+      });
+    }
+    if (input === "/api/personas") return Promise.resolve(jsonResponse({ personas: [] }));
+    return Promise.resolve(jsonResponse({}));
+  });
+  return request;
+}
+
 function createRewindThread() {
   return [
     createMessage({ id: "msg_u1", role: "user", content: "First question" }),
@@ -2370,6 +2384,131 @@ describe("chat view", () => {
 
     expect(screen.getByDisplayValue("Edited prompt")).toBeInTheDocument();
     expect(screen.getByText("Old answer")).toBeInTheDocument();
+  });
+
+  it("shows the restarted reply when its stream starts before the edit response arrives", async () => {
+    const editRequest = deferFetch("/api/messages/msg_u1/edit-restart");
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit message" })[0]);
+    fireEvent.change(screen.getByDisplayValue("First question"), {
+      target: { value: "Edited question" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
+    await waitFor(() => expect(editRequest.resolve).toBeDefined());
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_restarted" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Fresh answer" }
+      });
+    });
+    await act(async () => {
+      editRequest.resolve!(jsonResponse({
+        conversation: createPayload().conversation,
+        messages: [createMessage({ id: "msg_u1", role: "user", content: "Edited question" })]
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Fresh answer")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.getByText("Edited question")).toBeInTheDocument();
+    expect(screen.queryByText("First answer")).toBeNull();
+    expect(screen.queryByText("Second question")).toBeNull();
+    expect(screen.queryByText("Second answer")).toBeNull();
+  });
+
+  it("shows the regenerated reply when its stream starts before the regenerate response arrives", async () => {
+    const regenerateRequest = deferFetch("/api/messages/msg_u2/regenerate");
+    renderWithProvider(
+      React.createElement(ChatView, { payload: { ...createPayload(), messages: createRewindThread() } })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+    await waitFor(() => expect(regenerateRequest.resolve).toBeDefined());
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_regenerated" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Regenerated answer" }
+      });
+    });
+    await act(async () => {
+      regenerateRequest.resolve!(jsonResponse({
+        conversation: createPayload().conversation,
+        messages: createRewindThread().slice(0, 3)
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Regenerated answer")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Second answer")).toBeNull();
+  });
+
+  it("keeps a retried reply that finished before the retry response arrived", async () => {
+    const retryRequest = deferFetch("/api/messages/msg_failed/retry");
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({ id: "msg_user", role: "user", content: "Question" }),
+            createMessage({ id: "msg_failed", content: "Provider timed out", status: "error" })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry message" }));
+    await waitFor(() => expect(retryRequest.resolve).toBeDefined());
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_retried" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_retried",
+          message: createMessage({ id: "msg_retried", content: "Retried answer" })
+        }
+      });
+    });
+    await act(async () => {
+      retryRequest.resolve!(jsonResponse({
+        conversation: createPayload().conversation,
+        messages: [createMessage({ id: "msg_user", role: "user", content: "Question" })]
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Retried answer")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Provider timed out")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "More message actions" })[0]);
+    expect(screen.getByRole("menuitem", { name: "Rewind to here" })).toBeInTheDocument();
   });
 
   it("shows a local fork error and does not navigate when the fork request fails", async () => {
