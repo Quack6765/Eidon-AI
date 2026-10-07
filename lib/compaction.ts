@@ -15,6 +15,7 @@ import {
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
+import { buildBotSystemPrompt, getBotByConversationId } from "@/lib/bots";
 import {
   extractOpenTasks,
   selectCompactionMemoryNodes
@@ -674,11 +675,13 @@ export function estimateContextUsage(
   personaId?: string,
   memoriesEnabled: boolean = false,
   memoriesRigor: MemoryRigor = "balanced",
-  conversationMessages: Message[] = listMessages(conversationId)
+  conversationMessages: Message[] = listMessages(conversationId),
+  personaContentOverride?: string | null,
+  memoryBotId?: string | null
 ): { contextTokens: number; compactionLimit: number } {
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
-  const personaContent = persona?.content;
+  const personaContent = personaContentOverride ?? persona?.content;
   const activeMemoryNodes = getActiveMemoryNodes(conversationId);
 
   const { contextTokens, compactionLimit } = computeFirstPassContext(
@@ -689,7 +692,8 @@ export function estimateContextUsage(
     settings.freshTailCount,
     activeMemoryNodes,
     memoriesEnabled,
-    memoriesRigor
+    memoriesRigor,
+    memoryBotId
   );
 
   return { contextTokens, compactionLimit };
@@ -713,6 +717,7 @@ export function getConversationContextUsage(
 
   const messages = listMessages(conversationId);
   const hasContentMessages = messages.some((message) => message.role !== "system");
+  const bot = getBotByConversationId(conversationId);
 
   const { contextTokens, compactionLimit } = estimateContextUsage(
     conversationId,
@@ -720,7 +725,9 @@ export function getConversationContextUsage(
     undefined,
     appSettings.memoriesEnabled,
     appSettings.memoriesRigor,
-    messages
+    messages,
+    bot ? buildBotSystemPrompt(bot, appSettings.botSystemPrompt) : undefined,
+    bot?.id
   );
 
   return { contextTokens: hasContentMessages ? contextTokens : null, compactionLimit };

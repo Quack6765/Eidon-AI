@@ -17,9 +17,10 @@ import { getDb } from "@/lib/db";
 import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { MAX_PROMPT_IMAGES } from "@/lib/constants";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
-import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/settings";
+import { getDefaultRuntimeProviderProfile, getSettingsForUser, updateProviderCatalog } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import { createLocalUser } from "@/lib/users";
+import { buildBotSystemPrompt, createBot } from "@/lib/bots";
 import type { Message, MessageAction, MessageAttachment, PromptMessage } from "@/lib/types";
 
 function allSystemText(messages: PromptMessage[]) {
@@ -1997,6 +1998,33 @@ describe("estimateContextUsage", () => {
 
     expect(estimate.contextTokens).toBe(compacted.promptTokens);
     expect(estimate.compactionLimit).toBe(12000);
+  });
+
+  it("getConversationContextUsage counts an agent's instructions and memories like its turn does", async () => {
+    seedProfile();
+    const owner = await createLocalUser({ username: "context-agent-owner", password: "Password123!", role: "user" });
+    const bot = createBot({ name: "Scout", systemPrompt: "Track every launch checklist item. ".repeat(40) }, owner.id);
+    createMemory("Scout reports to the launch channel", "preference", owner.id, { botId: bot.id });
+    createMessage({ conversationId: bot.homeConversationId, role: "user", content: "What is left?" });
+    createMessage({ conversationId: bot.homeConversationId, role: "assistant", content: "Two checklist items." });
+
+    const settings = getDefaultRuntimeProviderProfile()!;
+    const appSettings = getSettingsForUser(owner.id);
+    const compacted = await ensureCompactedContext(
+      bot.homeConversationId,
+      settings,
+      {},
+      undefined,
+      appSettings.memoriesEnabled,
+      appSettings.memoriesRigor,
+      undefined,
+      buildBotSystemPrompt(bot, appSettings.botSystemPrompt),
+      bot.id
+    );
+
+    const usage = getConversationContextUsage(bot.homeConversationId);
+    expect(usage!.contextTokens).toBe(compacted.promptTokens);
+    expect(usage!.contextTokens).toBeGreaterThan(estimateContextUsage(bot.homeConversationId, settings).contextTokens);
   });
 });
 
