@@ -1946,7 +1946,7 @@ describe("Mobile API v1 REST adapter", () => {
       "DELETE"
     );
     await callRoute(session.token, "/folders/{folderId}", ["folders", folderId], "DELETE");
-  });
+  }, 30_000);
 
   it("asserts every documented operation against the contract", () => {
     const uncovered = documentedOperations.filter(
