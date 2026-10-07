@@ -1540,6 +1540,33 @@ export function ChatView({
     selectedProfile &&
     selectedProfile.visionMode === "none";
 
+  function beginTurnRestart() {
+    resetStreamingState();
+    setIsSending(true);
+    return new Set(messagesRef.current.map((message) => message.id));
+  }
+
+  function applyTurnRestart(
+    result: { conversation?: Conversation; messages?: Message[] },
+    messageIdsBeforeRestart: Set<string>
+  ) {
+    if (result.messages) {
+      const snapshot = sanitizeMessages(result.messages);
+      const snapshotIds = new Set(snapshot.map((message) => message.id));
+      setMessages((current) => [
+        ...snapshot,
+        ...current.filter(
+          (message) => !messageIdsBeforeRestart.has(message.id) && !snapshotIds.has(message.id)
+        )
+      ]);
+    }
+
+    if (result.conversation) {
+      setConversationTitle(result.conversation.title);
+      setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+    }
+  }
+
   async function updateUserMessage(messageId: string, content: string) {
     const previousMessage = messages.find((message) => message.id === messageId);
 
@@ -1551,6 +1578,7 @@ export function ChatView({
 
     setError("");
     setUpdatingMessageId(messageId);
+    const messageIdsBeforeRestart = beginTurnRestart();
 
     try {
       const response = await fetch(`/api/messages/${messageId}/edit-restart`, {
@@ -1572,29 +1600,9 @@ export function ChatView({
         throw new Error(message);
       }
 
-      const result = (await response.json()) as {
-        conversation?: Conversation;
-        messages?: Message[];
-      };
-
-      resetStreamingState();
-
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
-
-      if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-        dispatchConversationActivityUpdated({
-          conversationId: result.conversation.id,
-          isActive: true
-        });
-      }
-
-      setIsSending(true);
-      setIsConversationActive(true);
+      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
     } catch (caughtError) {
+      setIsSending(false);
       setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
       throw caughtError;
     } finally {
@@ -1668,6 +1676,7 @@ export function ChatView({
 
     setError("");
     setRetryingMessageId(messageId);
+    const messageIdsBeforeRestart = beginTurnRestart();
 
     try {
       const response = await fetch(`/api/messages/${messageId}/retry`, {
@@ -1685,29 +1694,9 @@ export function ChatView({
         throw new Error(message);
       }
 
-      const result = (await response.json()) as {
-        conversation?: Conversation;
-        messages?: Message[];
-      };
-
-      resetStreamingState();
-
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
-
-      if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-        dispatchConversationActivityUpdated({
-          conversationId: result.conversation.id,
-          isActive: true
-        });
-      }
-
-      setIsSending(true);
-      setIsConversationActive(true);
+      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
     } catch (caughtError) {
+      setIsSending(false);
       setError(
         caughtError instanceof Error ? caughtError.message : "Message retry failed"
       );
@@ -1728,6 +1717,7 @@ export function ChatView({
 
     setError("");
     setRegeneratingMessageId(messageId);
+    const messageIdsBeforeRestart = new Set(messagesRef.current.map((message) => message.id));
 
     try {
       const response = await fetch(`/api/messages/${messageId}/regenerate`, {
@@ -1750,13 +1740,9 @@ export function ChatView({
         messages?: Message[];
       };
 
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
+      applyTurnRestart(result, messageIdsBeforeRestart);
 
       if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
         dispatchConversationActivityUpdated({
           conversationId: result.conversation.id,
           isActive: true
