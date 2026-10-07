@@ -103,7 +103,7 @@ export function buildFileAttachmentPart(attachment: MessageAttachment): PromptCo
   const storedAt = absolutePath ? ` stored at: ${absolutePath}` : "";
   return {
     type: "text",
-    text: `Attached file: ${attachment.filename} (${description})${storedAt} — binary content is not inlined; inspect or process it with execute_shell_command or other tools when useful.`
+    text: `Attached file: ${attachment.filename} (${description})${storedAt} — binary content is not inlined; inspect or process it with run_python or execute_shell_command when useful.`
   };
 }
 

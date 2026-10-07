@@ -51,7 +51,7 @@ Only the Chief of Staff can call `create_bot` and `update_bot`. Other bots that 
 - **Live view.** While a turn is running, the card shows the bot's tab as a live frame, streamed over a WebSocket. **Take control** opens a full-screen stage that relays your clicks and typing to the tab.
 - **Hand-offs.** A bot calls `request_takeover` when a step only you can do — sign-in, two-factor, CAPTCHA, payment. The thread shows a **Your turn in the browser** card with what the bot needs; you take over, finish the step, and return control with an optional note. The bot waits up to 30 minutes, and the card records whether you returned control, nobody took over, or the run was stopped.
 - **Secrets.** Bots fill passwords and codes from your [vault](#vault) with `request_secret`, the same way as in any other conversation.
-- **Sandbox.** Each bot's shell, browser daemon, and Chromium run sandboxed in the bot's own workspace, and the bot browsers are budgeted against the container's memory limit.
+- **Sandbox.** Each bot's shell, Python, browser daemon, and Chromium run sandboxed in the bot's own workspace, and the bot browsers are budgeted against the container's memory limit. Inside the sandbox a bot can also read, but not change, its conversation's attachments and saved tool output.
 
 **Shared skills.** The team shares one skill library at `bot-workspaces/<user>/shared/skills/` — shared with every agent on this team rather than kept per bot. Any bot can extend it with `skill_manage`, and an optional **Learn from each task** pass captures recurring workflows as skills after a run, marked **Skill review** in the timeline. Unused skills go stale and are archived — never deleted — by skill maintenance, and can be restored. See [MCP and skills](./mcp-and-skills.md#skills).
 
@@ -96,7 +96,7 @@ A toggle in the composer switches a turn into deep research mode.
 - `list_secrets`: shows entry names, websites, usernames, and notes. It never shows values.
 - `save_secret`: saves or updates an entry, typically after you give it a credential in the chat.
 - `request_secret`: types a value into a field of its browser. Eidon fills a stored entry itself, but only when the page is on the entry's website. Otherwise you enter the value on a masked card, and you can save it to the vault under the requested name.
-- `execute_shell_command` with `secrets`: passes entries to that command as environment variables.
+- `execute_shell_command` or `run_python` with `secrets`: passes entries to that command or program as environment variables.
 
 The model can't delete entries and can't move an entry to another website; only you can do that, in Settings.
 
@@ -105,7 +105,7 @@ The model can't delete entries and can't move an entry to another website; only 
 **Limits.**
 
 - Redaction is best effort and is not kept after a server restart. A command that deliberately transforms a value can still print it.
-- Bot shells run sandboxed when the host kernel supports Landlock. Shells in regular conversations never do, so an approved command there can read Eidon's data directory and, with it, the vault. Keep shell approvals narrow if the vault holds anything sensitive.
+- Bot shells and Python run sandboxed when the host kernel supports Landlock. Shells and Python in regular conversations never do, so an approved command or program there can read Eidon's data directory and, with it, the vault. Keep shell and `python3` approvals narrow if the vault holds anything sensitive.
 
 ## Automations
 
@@ -140,7 +140,8 @@ Which tools appear depends on your configuration. The full set:
 | `mcp_<server>_<tool>` | An MCP server is enabled and connected | One entry per discovered tool. Vision-flagged servers only appear in `mcp` vision mode |
 | `load_skill` | At least one skill is enabled and relevant | Loads a skill's full instructions into the turn |
 | `skill_manage` | The conversation belongs to a bot and skills are enabled | Creates, edits, and deletes skills in the team's shared skill library |
-| `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace), optionally with vault secrets as environment variables. Default timeout 30s, 120s for `agent-browser` commands, output capped at 8,000 characters |
+| `execute_shell_command` | Always | Runs a shell command in the container (or the bot's workspace), optionally with vault secrets as environment variables. Default timeout 120s, up to 10 minutes. Output over 8,000 characters is trimmed to its start and end, and the full output is saved under `tool-output/<conversation>/` in the data directory, keeping the 20 newest files |
+| `run_python` | Always | Runs a Python 3 program from the model, piped to `python3` in the same working directory, for exact calculations and data processing. Optional `packages` are installed for that run with `uv`. Approval uses the `python3` command family, and the approval card shows the source. Same timeout, output, and vault-secret handling as `execute_shell_command` |
 | `read_page` | Always | Fetches a URL and returns its main content as Markdown, up to 32,000 characters. Static content only; parallel calls in one step are supported |
 | `create_automation` | Always | Proposes a scheduled or one-time automation for your approval |
 | `list_secrets` | Always | Lists the [vault](#vault) entries without their values |

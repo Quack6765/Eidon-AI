@@ -51,7 +51,7 @@ describe("buildFileAttachmentPart", () => {
 
       expect(text).toContain("Attached file: archive.zip (application/zip, 2048 bytes)");
       expect(text).toContain(`stored at: ${attachmentAbsolutePath(attachment)}`);
-      expect(text).toContain("execute_shell_command");
+      expect(text).toContain("inspect or process it with run_python or execute_shell_command");
     } finally {
       fs.rmSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments"), {
         recursive: true,

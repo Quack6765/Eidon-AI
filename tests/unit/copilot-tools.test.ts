@@ -313,6 +313,7 @@ describe("buildCopilotTools", () => {
 
     expect(shellTool?.overridesBuiltInTool).toBe(true);
     expect(loadSkillTool?.overridesBuiltInTool).toBe(true);
+    expect(tools.find((t) => t.name === "run_python")?.overridesBuiltInTool).toBe(false);
   });
 
   it("uses the stable server slug in MCP function names", () => {

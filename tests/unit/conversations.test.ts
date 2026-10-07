@@ -1870,6 +1870,17 @@ describe("conversation helpers", () => {
     expect(fs.existsSync(attachmentDir)).toBe(false);
   });
 
+  it("deletes the conversation's saved tool output with it", async () => {
+    const { resolveToolOutputDir } = await import("@/lib/local-shell");
+    const conversation = createConversation();
+    const outputDir = resolveToolOutputDir(conversation.id, true)!;
+    fs.writeFileSync(path.join(outputDir, "1700000000000-00000000.txt"), "long output");
+
+    deleteConversation(conversation.id);
+
+    expect(fs.existsSync(outputDir)).toBe(false);
+  });
+
   it("still deletes a conversation when an attachment file is already missing",  async () => {
     const conversation = createConversation();
     const [attachment] = await createAttachments(conversation.id, [

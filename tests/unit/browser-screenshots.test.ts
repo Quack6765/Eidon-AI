@@ -161,6 +161,19 @@ describe("browser screenshots", () => {
     expect(getMessage(assistantMessage.id)?.actions?.[0]?.resultSummary).toBe(`screenshot result\n\n${note}`);
   });
 
+  it("keeps the screenshot note after trimming long command output", async () => {
+    const screenshotPath = path.join(tempDir, "long.png");
+    writeOnRun(screenshotPath, await createPng(16, 16));
+    shellMocks.summarizeShellResult.mockReturnValue("o".repeat(20_000));
+    const { context, onActionComplete } = createExecutionContext();
+
+    await executeShellCommand("tool-long", { command: `agent-browser screenshot ${screenshotPath}` }, context);
+
+    const summary = onActionComplete.mock.calls[0]![1].resultSummary ?? "";
+    expect(summary.startsWith("[Output was 20,000 characters")).toBe(true);
+    expect(summary).toMatch(/\n\nScreenshot attached as long\.png \(stored at .+\)\.$/);
+  });
+
   it.each([
     { name: "compound command", command: (pathname: string) => `agent-browser screenshot ${pathname} --full && true` },
     { name: "lookalike browser executable", command: (pathname: string) => `/tmp/agent-browser screenshot ${pathname}` },

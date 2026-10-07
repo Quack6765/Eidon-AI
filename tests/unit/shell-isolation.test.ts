@@ -66,6 +66,18 @@ describe("shell isolation", () => {
     expect(spawnSyncMock).not.toHaveBeenCalled();
   });
 
+  it("adds the extra read-only folders it is given, even inside the data dir", () => {
+    resetShellIsolationForTests(4);
+    const attachments = join(process.env.EIDON_DATA_DIR!, "attachments", "conv_1");
+
+    const { args } = isolateCommand("/bin/sh", ["-lc", "ls"], { readWrite: ["/work/bot"], readOnly: [attachments] });
+
+    const readOnly = args.flatMap((arg, index) => (args[index - 1] === "--ro" ? [arg] : []));
+    const readWrite = args.flatMap((arg, index) => (args[index - 1] === "--rw" ? [arg] : []));
+    expect(readOnly).toContain(attachments);
+    expect(readWrite).not.toContain(attachments);
+  });
+
   it("wraps a command with read-only system paths and only the folders and ports it may use", () => {
     resetShellIsolationForTests(4);
     vi.stubEnv("PATH", ["/usr/local/bin", "relative/bin", "/", join(process.env.EIDON_DATA_DIR!, "bin"), "/usr/local/bin"].join(":"));
