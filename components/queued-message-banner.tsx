@@ -130,9 +130,13 @@ export function QueuedMessageBanner({
               className={cn("px-3 py-3", index > 0 && "border-t border-white/6")}
             >
               {isRedirecting ? (
-                <div className="mb-2 flex items-center gap-1 text-xs text-white/50">
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                  Joins the current run at its next step
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-violet-400/20 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-violet-200/80">
+                    Steer
+                  </span>
+                  <span className="min-w-0 text-xs text-white/50">
+                    Sends automatically between tool calls
+                  </span>
                 </div>
               ) : null}
               {item.status !== "pending" ? (

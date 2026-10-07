@@ -97,6 +97,7 @@ export function Shell({
   const settingsPageTitle = isSettingsPage
     ? ({
         "/settings/account": "Account",
+        "/settings/vault": "Vault",
         "/settings/general": "General",
         "/settings/providers": "Providers",
         "/settings/personas": "Personas",

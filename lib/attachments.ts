@@ -219,18 +219,20 @@ function resolveAttachmentAbsolutePath(relativePath: string) {
   return resolveSafeAttachmentFilePath(root, relativePath, false);
 }
 
-function removeConversationAttachmentDirIfEmpty(conversationId: string) {
-  let root: string;
-  let dir: string;
+export function getConversationAttachmentDir(conversationId: string) {
   try {
-    root = getAttachmentsRoot();
-    dir = resolveAttachmentStoragePath(root, conversationId);
+    const root = getAttachmentsRoot();
+    const dir = resolveAttachmentStoragePath(root, conversationId);
     assertSafeAttachmentDirectory(root, dir, false);
+    return dir;
   } catch {
-    return;
+    return null;
   }
+}
 
-  if (fs.readdirSync(dir).length === 0) {
+function removeConversationAttachmentDirIfEmpty(conversationId: string) {
+  const dir = getConversationAttachmentDir(conversationId);
+  if (dir && fs.readdirSync(dir).length === 0) {
     fs.rmdirSync(dir);
   }
 }

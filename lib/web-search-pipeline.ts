@@ -210,7 +210,6 @@ function forgetQuery(scopeKey: string, query: string) {
 export function buildPlanningPrompt(input: {
   query: string;
   userContext?: string;
-  forceFanOut: boolean;
   maxQueries: number;
 }): string {
   const userContext = (input.userContext ?? "").slice(0, PLANNING_USER_CONTEXT_MAX_CHARS).trim();
@@ -220,25 +219,14 @@ export function buildPlanningPrompt(input: {
   if (userContext) {
     lines.push("", "Latest user message:", userContext);
   }
-  lines.push("", `Assistant's search query: "${input.query}"`, "");
-  if (input.forceFanOut) {
-    lines.push(
-      "Split this search into parallel sub-queries that together cover everything needed to answer.",
-      `Reply with ONLY minified JSON, no markdown fences, no extra text:`,
-      `{"action":"fan_out","subqueries":["<query 1>","<query 2>",...]}`
-    );
-  } else {
-    lines.push(
-      "Decide how to execute this search:",
-      '- "direct" if one straightforward search is enough: a single fact, entity, definition, price, score, date, or a navigational lookup.',
-      '- "fan_out" if the question spans multiple distinct facets, comparisons, multiple entities, or if different phrasings would surface different sources.',
-      "",
-      "Reply with ONLY minified JSON, no markdown fences, no extra text:",
-      '{"action":"direct"}',
-      "or",
-      '{"action":"fan_out","subqueries":["<query 1>","<query 2>",...]}'
-    );
-  }
+  lines.push(
+    "",
+    `Assistant's search query: "${input.query}"`,
+    "",
+    "Split this search into parallel sub-queries that together cover everything needed to answer.",
+    `Reply with ONLY minified JSON, no markdown fences, no extra text:`,
+    `{"action":"fan_out","subqueries":["<query 1>","<query 2>",...]}`
+  );
   lines.push(
     "",
     "Sub-query rules:",
@@ -269,7 +257,6 @@ export async function planWebSearch(input: {
   providerProfile?: RuntimeProviderProfile;
   query: string;
   userContext?: string;
-  forceFanOut: boolean;
   maxQueries: number;
   conversationId?: string;
   abortSignal?: AbortSignal;
@@ -284,7 +271,6 @@ export async function planWebSearch(input: {
         prompt: buildPlanningPrompt({
           query: input.query,
           userContext: input.userContext,
-          forceFanOut: input.forceFanOut,
           maxQueries: input.maxQueries
         }),
         purpose: "web_search_planning",
@@ -565,12 +551,14 @@ export async function runWebSearchPipeline(input: {
   } else if (explicitQueries.length >= MIN_FAN_OUT_QUERIES) {
     strategy = "fan_out";
     plannedQueries = explicitQueries;
+  } else if (input.mode === "auto") {
+    strategy = "direct";
+    plannedQueries = [input.query || explicitQueries[0] || ""].filter(Boolean);
   } else {
     const plan = await planWebSearch({
       providerProfile: input.providerProfile,
       query: input.query || explicitQueries[0] || "",
       userContext: input.userContext,
-      forceFanOut: input.mode === "always",
       maxQueries: input.maxQueries,
       conversationId: input.conversationId,
       abortSignal: input.abortSignal

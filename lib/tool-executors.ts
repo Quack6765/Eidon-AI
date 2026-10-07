@@ -1,4 +1,4 @@
-import { resolveAbsoluteImagePathPart } from "@/lib/attachments";
+import { getConversationAttachmentDir, resolveAbsoluteImagePathPart } from "@/lib/attachments";
 import { searchWorkspace } from "@/lib/semantic-index";
 import { streamProviderResponse } from "@/lib/provider";
 import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
@@ -11,7 +11,14 @@ import {
 import { assertFutureRunAt, assertValidSchedule } from "@/lib/automations";
 import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
-import { executeLocalShellCommand, getShellCommandLabel, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
+import {
+  boundShellResultSummary,
+  executeLocalShellCommand,
+  getShellCommandLabel,
+  resolveShellWorkspaceDir,
+  resolveToolOutputDir,
+  summarizeShellResult
+} from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
@@ -22,11 +29,7 @@ import {
 } from "@/lib/web-search-pipeline";
 import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
-import {
-  prepareScreenshotArtifact,
-  registerScreenshotArtifact,
-  revokeScreenshotArtifact
-} from "@/lib/screenshot-artifact-capabilities";
+import { attachScreenshot, prepareScreenshotArtifact, type AttachedScreenshot } from "@/lib/browser-screenshots";
 import { getLatestUserRequestText } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import {
@@ -72,7 +75,15 @@ import { requestComputerHandoff } from "@/lib/computer-handoff";
 import { requestComputerSecret } from "@/lib/computer-secrets";
 import { resolveBotSandbox, type BotSandbox } from "./bot-sandbox";
 import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
-import { redactSecrets } from "@/lib/secret-redaction";
+import { redactSecrets, rememberSecretForRedaction } from "@/lib/secret-redaction";
+import {
+  listVaultEntries,
+  readVaultSecret,
+  resolveVaultEnv,
+  saveVaultSecretForAgent,
+  type VaultEntry,
+  type VaultEnvRequest
+} from "@/lib/vault";
 import type {
   AutomationCalendarFrequency,
   AutomationScheduleKind,
@@ -113,7 +124,7 @@ type SuccessfulReadOnlyToolResult = {
 
 export type { RuntimeAction, SuccessfulReadOnlyToolResult };
 
-export function buildToolResultMessage(toolCallId: string, content: string): PromptMessage {
+export function buildToolResultMessage(toolCallId: string, content: PromptMessage["content"]): PromptMessage {
   return {
     role: "tool",
     toolCallId,
@@ -131,10 +142,9 @@ export function isProposalToolCall(name: string) {
   );
 }
 
-function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
+function buildShellResultForPrompt(input: { heading: string[]; resultSummary: string; isError: boolean }) {
   return [
-    "Local shell command result",
-    `Command: ${input.command}`,
+    ...input.heading,
     `Status: ${input.isError ? "error" : "success"}`,
     "Result:",
     input.resultSummary
@@ -698,18 +708,16 @@ export async function loadSkillIntoTurn(
   loadedSkillIds: Set<string>
 ) {
   throwIfAborted(input.abortSignal);
-  const handle = await input.onActionStart?.({
-    kind: "skill_load",
-    label: "Load skill",
-    detail: getSkillResolvedName(skill),
-    skillId: skill.id
-  });
-  throwIfAborted(input.abortSignal);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
   loadedSkillIds.add(skill.id);
   try {
-    await input.onActionComplete?.(actionHandle, {
+    const handle = await input.onActionStart?.({
+      kind: "skill_load",
+      label: "Load skill",
+      detail: getSkillResolvedName(skill),
+      skillId: skill.id
+    });
+    throwIfAborted(input.abortSignal);
+    await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
       detail: getSkillResolvedName(skill),
       resultSummary: "Skill instructions loaded."
     });
@@ -995,87 +1003,187 @@ export async function executeSkillManage(
   };
 }
 
-export async function executeShellCommand(
-  toolCallId: string,
-  args: Record<string, unknown>,
-  context: {
-    input: {
-      conversationId?: string;
-      abortSignal?: AbortSignal;
-      toolApproval?: ToolApprovalContext;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
-) {
+type ShellToolContext = {
+  input: {
+    conversationId?: string;
+    assistantMessageId?: string;
+    abortSignal?: AbortSignal;
+    toolApproval?: ToolApprovalContext;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  };
+  timelineSortOrder: number;
+  promptMessages: PromptMessage[];
+};
+
+type ShellToolRequest = {
+  command: string;
+  stdin?: string;
+  timeoutMs?: number;
+  vaultEnv: { resolved: Array<{ entry: VaultEntry; variable: string }> };
+  approval: Pick<ToolApprovalProposalPayload, "families" | "classified" | "command"> & { invocation?: string };
+  action: { label: string; detail: string; toolName?: string; arguments: Record<string, unknown> };
+  resultHeading: string[];
+};
+
+function toolErrorResult(toolCallId: string, context: ShellToolContext, message: string) {
+  return {
+    nextSortOrder: context.timelineSortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, message)]
+  };
+}
+
+function listResolvedSecrets(vaultEnv: ShellToolRequest["vaultEnv"]) {
+  return vaultEnv.resolved.map(({ entry, variable }) => ({ name: entry.name, variable }));
+}
+
+export async function executeShellCommand(toolCallId: string, args: Record<string, unknown>, context: ShellToolContext) {
   throwIfAborted(context.input.abortSignal);
-  let sortOrder = context.timelineSortOrder;
   const command = String(args.command ?? "").trim();
   const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
 
   if (!command) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: Shell command is required.");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolErrorResult(toolCallId, context, "Error: Shell command is required.");
   }
+
+  const vaultEnv = resolveShellSecrets(context.input, args.secrets);
+  if ("error" in vaultEnv) {
+    return toolErrorResult(toolCallId, context, `Error: ${vaultEnv.error}`);
+  }
+  const secrets = listResolvedSecrets(vaultEnv);
 
   if (
     getShellCommandLabel(command) === "Web browser" &&
     getComputerControl(conversationBrowserTarget(context.input.conversationId)) === "user"
   ) {
-    const resultMsg = buildToolResultMessage(
+    return toolErrorResult(
       toolCallId,
+      context,
       "Error: The user has control of the browser right now. Wait until they return it, then try again. Use request_takeover if you need them to do a step for you."
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const classification = classifyShellCommand(command);
+  return runShellTool(toolCallId, context, {
+    command,
+    timeoutMs,
+    vaultEnv,
+    approval: { families: classification.families, classified: classification.classified, command },
+    action: {
+      label: getShellCommandLabel(command),
+      detail: buildShellDetail(command),
+      arguments: { command, timeoutMs, ...(secrets.length ? { secrets } : {}) }
+    },
+    resultHeading: ["Local shell command result", `Command: ${command}`]
+  });
+}
+
+const PYTHON_PACKAGE_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?(?:(?:==|!=|<=|>=|~=|<|>)[A-Za-z0-9.*+!_-]+(?:,(?:==|!=|<=|>=|~=|<|>)[A-Za-z0-9.*+!_-]+)*)?$/;
+const MAX_PYTHON_PACKAGES = 10;
+
+function parsePythonPackages(value: unknown): string[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_PYTHON_PACKAGES) return null;
+  const packages = value.map((item) => (typeof item === "string" ? item.trim() : ""));
+  return packages.every((item) => PYTHON_PACKAGE_PATTERN.test(item)) ? packages : null;
+}
+
+export async function executePythonCode(toolCallId: string, args: Record<string, unknown>, context: ShellToolContext) {
+  throwIfAborted(context.input.abortSignal);
+  const code = typeof args.code === "string" ? args.code : "";
+  const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
+
+  if (!code.trim()) {
+    return toolErrorResult(toolCallId, context, "Error: Python code is required.");
+  }
+
+  const packages = parsePythonPackages(args.packages);
+  if (!packages) {
+    return toolErrorResult(
+      toolCallId,
+      context,
+      `Error: packages must be a list of at most ${MAX_PYTHON_PACKAGES} PyPI requirements such as "pandas" or "numpy>=2".`
+    );
+  }
+
+  const vaultEnv = resolveShellSecrets(context.input, args.secrets);
+  if ("error" in vaultEnv) {
+    return toolErrorResult(toolCallId, context, `Error: ${vaultEnv.error}`);
+  }
+  const secrets = listResolvedSecrets(vaultEnv);
+
+  const command = packages.length
+    ? `uv run --quiet --no-project ${packages.map((pkg) => `--with '${pkg}'`).join(" ")} python3 -u -`
+    : "python3 -u -";
+  return runShellTool(toolCallId, context, {
+    command,
+    stdin: code,
+    timeoutMs,
+    vaultEnv,
+    approval: {
+      families: ["python3"],
+      classified: true,
+      command: packages.length ? `# packages: ${packages.join(", ")}\n${code}` : code,
+      invocation: "python3"
+    },
+    action: {
+      label: "Python",
+      detail: buildShellDetail(code.replace(/\s+/g, " ").trim()),
+      toolName: "run_python",
+      arguments: { code, ...(packages.length ? { packages } : {}), timeoutMs, ...(secrets.length ? { secrets } : {}) }
+    },
+    resultHeading: ["Python result"]
+  });
+}
+
+async function runShellTool(toolCallId: string, context: ShellToolContext, request: ShellToolRequest) {
+  let sortOrder = context.timelineSortOrder;
+  const { command, action } = request;
+  const secrets = listResolvedSecrets(request.vaultEnv);
   const approvalPayload: ToolApprovalProposalPayload = {
     operation: "tool_approval",
     scope: "shell",
-    families: classification.families,
-    classified: classification.classified,
-    command
+    families: request.approval.families,
+    classified: request.approval.classified,
+    command: request.approval.command,
+    ...(secrets.length ? { arguments: { secrets } } : {})
   };
   const approval = await requestToolExecutionApproval({
     payload: approvalPayload,
     label: buildToolApprovalPromptHeading(approvalPayload),
-    detail: buildShellDetail(command),
+    detail: action.detail,
     userId: context.input.toolApproval?.userId ?? null,
     unattended: context.input.toolApproval?.unattended ?? true,
     timeoutMs: context.input.toolApproval?.timeoutMs,
     onWaitChange: context.input.toolApproval?.onWaitChange,
     abortSignal: context.input.abortSignal,
-    onActionStart: context.input.onActionStart
+    onActionStart: context.input.onActionStart,
+    invocation: request.approval.invocation
   });
+
+  const runtimeAction: RuntimeAction = {
+    kind: "shell_command",
+    label: action.label,
+    detail: action.detail,
+    ...(action.toolName ? { toolName: action.toolName } : {}),
+    arguments: action.arguments
+  };
 
   if (!approval.approved) {
     if (!approval.promptActionId) {
-      const denialHandle = await context.input.onActionStart?.({
-        kind: "shell_command",
-        label: getShellCommandLabel(command),
-        detail: buildShellDetail(command),
-        arguments: { command, timeoutMs }
-      });
+      const denialHandle = await context.input.onActionStart?.(runtimeAction);
       const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
       await context.input.onActionError?.(denialActionHandle, {
-        detail: buildShellDetail(command),
+        detail: action.detail,
         resultSummary: approval.message
       });
     }
-    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolErrorResult(toolCallId, context, approval.message);
   }
 
-  const handle = await context.input.onActionStart?.({
-    kind: "shell_command",
-    label: getShellCommandLabel(command),
-    detail: buildShellDetail(command),
-    arguments: { command, timeoutMs }
-  });
+  const handle = await context.input.onActionStart?.(runtimeAction);
   const actionHandle = typeof handle === "string" ? handle : undefined;
   const screenshotCandidate = prepareScreenshotArtifact(command);
 
@@ -1089,15 +1197,18 @@ export async function executeShellCommand(
   try {
     const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
     const browserEnv = await prepareBrowserEnv(browserTarget, usesBrowser);
-    const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget) : null;
+    const botShell = sandbox ? await botShellSandbox(sandbox, browserTarget, context.input.conversationId) : null;
     throwIfAborted(context.input.abortSignal);
-    if (usesBrowser) setComputerCaption(browserTarget, buildShellDetail(command));
+    if (usesBrowser) setComputerCaption(browserTarget, action.detail);
+    const secretEnv = readShellSecrets(request.vaultEnv, context.input);
     const shellResult = await executeLocalShellCommand({
       command,
-      timeoutMs,
+      stdin: request.stdin,
+      timeoutMs: request.timeoutMs,
       abortSignal: context.input.abortSignal,
       cwd,
       env: { ...browserEnv, ...botShell?.env },
+      secretEnv,
       isolation: botShell?.rules
     });
     const result = {
@@ -1106,36 +1217,48 @@ export async function executeShellCommand(
       stderr: redactSecrets(context.input.conversationId, shellResult.stderr)
     };
     throwIfAborted(context.input.abortSignal);
-    const resultSummary = summarizeShellResult(result);
+    let resultSummary = boundShellResultSummary(summarizeShellResult(result), {
+      conversationId: context.input.conversationId,
+      captureTruncated: result.captureTruncated
+    });
     const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
+    let screenshot: AttachedScreenshot | null = null;
 
     sortOrder += 1;
 
     if (!executionSucceeded) {
-      await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
+      await context.input.onActionError?.(actionHandle, { detail: action.detail, resultSummary });
     } else {
-      registerScreenshotArtifact(actionHandle, screenshotCandidate);
-      try {
-        await context.input.onActionComplete?.(actionHandle, {
-          detail: buildShellDetail(command),
-          resultSummary
-        });
-      } finally {
-        revokeScreenshotArtifact(actionHandle);
+      const { conversationId, assistantMessageId } = context.input;
+      if (screenshotCandidate && conversationId && assistantMessageId) {
+        screenshot = await attachScreenshot({ candidate: screenshotCandidate, conversationId, assistantMessageId });
       }
+      if (screenshot) {
+        resultSummary = `${resultSummary}\n\n${screenshot.note}`;
+      }
+      await context.input.onActionComplete?.(actionHandle, {
+        detail: action.detail,
+        resultSummary
+      });
     }
 
     const resultText = buildShellResultForPrompt({
-      command,
+      heading: request.resultHeading,
       resultSummary,
       isError: !executionSucceeded
     });
-    const resultMsg = buildToolResultMessage(toolCallId, resultText);
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      screenshot?.image ? [{ type: "text", text: resultText }, screenshot.image] : resultText
+    );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "Shell command execution failed";
-    await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
+    const message = redactSecrets(
+      context.input.conversationId,
+      error instanceof Error ? error.message : "Shell command execution failed"
+    );
+    await context.input.onActionError?.(actionHandle, { detail: action.detail, resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } finally {
@@ -1143,12 +1266,174 @@ export async function executeShellCommand(
   }
 }
 
-async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget) {
+type VaultContextInput = { conversationId?: string; toolApproval?: ToolApprovalContext };
+
+function vaultOwner(input: VaultContextInput) {
+  const userId = input.toolApproval?.userId;
+  return userId && input.conversationId ? { userId, conversationId: input.conversationId } : null;
+}
+
+const VAULT_UNAVAILABLE = "The vault is only available in the user's own conversations.";
+
+function parseSecretRequests(value: unknown): VaultEnvRequest[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  const requests: VaultEnvRequest[] = [];
+  for (const item of value) {
+    const { name, variable } = (item ?? {}) as Record<string, unknown>;
+    if (typeof name !== "string" || typeof variable !== "string") return null;
+    requests.push({ name, variable });
+  }
+  return requests;
+}
+
+function resolveShellSecrets(input: VaultContextInput, value: unknown) {
+  const requests = parseSecretRequests(value);
+  if (!requests) return { error: "secrets must be a list of { name, variable } objects." };
+  if (!requests.length) return { resolved: [] };
+  const owner = vaultOwner(input);
+  if (!owner) return { error: VAULT_UNAVAILABLE };
+  return resolveVaultEnv(owner.userId, requests);
+}
+
+function readShellSecrets(vaultEnv: { resolved: Array<{ entry: VaultEntry; variable: string }> }, input: VaultContextInput) {
+  const owner = vaultOwner(input);
+  if (!owner || !vaultEnv.resolved.length) return undefined;
+  return Object.fromEntries(
+    vaultEnv.resolved.map(({ entry, variable }) => {
+      const value = readVaultSecret(owner.userId, entry.id);
+      if (value === null) throw new Error(`"${entry.name}" is no longer in the vault.`);
+      rememberSecretForRedaction(owner.conversationId, value);
+      return [variable, value];
+    })
+  );
+}
+
+function describeVaultEntry(entry: VaultEntry) {
+  return [
+    `- ${entry.name}`,
+    entry.origin ? `site: ${entry.origin}` : "no site",
+    entry.username ? `username: ${entry.username}` : "",
+    entry.notes ? `notes: ${entry.notes}` : "",
+    `updated ${entry.updatedAt.slice(0, 10)}`
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+async function executeListSecrets(
+  toolCallId: string,
+  context: {
+    input: VaultContextInput & {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const owner = vaultOwner(context.input);
+  if (!owner) {
+    return {
+      nextSortOrder: context.timelineSortOrder,
+      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${VAULT_UNAVAILABLE}`)]
+    };
+  }
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Check vault",
+    detail: "",
+    serverId: "integration_vault",
+    toolName: "list_secrets",
+    arguments: {}
+  });
+  const entries = listVaultEntries(owner.userId);
+  const summary = entries.length === 1 ? "1 secret" : `${entries.length} secrets`;
+  await context.input.onActionComplete?.(typeof handle === "string" ? handle : undefined, { resultSummary: summary });
+  const resultText = entries.length
+    ? `The user's vault (values are never shown):\n${entries.map(describeVaultEntry).join("\n")}`
+    : "The user's vault is empty.";
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
+  };
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+async function executeSaveSecret(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: VaultContextInput & {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const owner = vaultOwner(context.input);
+  const name = optionalString(args.name)?.trim() ?? "";
+  const secret = optionalString(args.secret) || undefined;
+  if (secret && owner) rememberSecretForRedaction(owner.conversationId, secret);
+  const fail = (message: string) => ({
+    nextSortOrder: context.timelineSortOrder,
+    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
+  });
+  if (!owner) return fail(VAULT_UNAVAILABLE);
+  if (!name) return fail("save_secret needs a name.");
+
+  const input = {
+    name,
+    origin: optionalString(args.origin),
+    username: optionalString(args.username),
+    notes: optionalString(args.notes)
+  };
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Save to vault",
+    detail: name,
+    serverId: "integration_vault",
+    toolName: "save_secret",
+    arguments: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const result = saveVaultSecretForAgent(owner.userId, { ...input, secret });
+  if ("error" in result) {
+    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: result.error });
+    return {
+      nextSortOrder: context.timelineSortOrder + 1,
+      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${result.error}`)]
+    };
+  }
+  const verb = result.created ? "Saved" : "Updated";
+  await context.input.onActionComplete?.(actionHandle, { detail: result.entry.name, resultSummary: `${verb} in your vault` });
+  return {
+    nextSortOrder: context.timelineSortOrder + 1,
+    promptMessages: [
+      ...context.promptMessages,
+      buildToolResultMessage(
+        toolCallId,
+        `${verb} "${result.entry.name}" in the user's vault${result.entry.origin ? ` for ${result.entry.origin}` : ""}. Refer to it by that name; never repeat the value.`
+      )
+    ]
+  };
+}
+
+async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget, conversationId?: string) {
   const proxyPort = await ensureEgressProxy();
+  const conversationDirs = conversationId
+    ? [getConversationAttachmentDir(conversationId), resolveToolOutputDir(conversationId, false)]
+    : [];
   return {
     env: { HOME: sandbox.homeDir, ...egressProxyEnv(proxyPort) },
     rules: {
       readWrite: [sandbox.workspaceDir, sandbox.sharedDir, sandbox.homeDir, browserTarget.socketDir, ...sandboxScratchDirs()],
+      readOnly: conversationDirs.filter((dir): dir is string => Boolean(dir)),
       connectPorts: resolveBrowserExecutable() ? [proxyPort] : undefined
     }
   };
@@ -1193,6 +1478,8 @@ async function executeRequestSecret(
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -1203,13 +1490,15 @@ async function executeRequestSecret(
   const resultText = await requestComputerSecret({
     conversationId: context.input.conversationId,
     userId: context.input.toolApproval?.userId,
-    label: String(args.label ?? ""),
+    name: String(args.name ?? ""),
     origin: String(args.origin ?? ""),
     target: String(args.target ?? ""),
     save: args.save === true || replaceSaved,
     replaceSaved,
     abortSignal: context.input.abortSignal,
     onActionStart: context.input.onActionStart,
+    onActionComplete: context.input.onActionComplete,
+    onActionError: context.input.onActionError,
     onWaitChange: context.input.toolApproval?.onWaitChange
   });
   throwIfAborted(context.input.abortSignal);
@@ -1904,12 +2193,24 @@ export async function executeToolCall(
     return executeShellCommand(toolCallId, args, context);
   }
 
+  if (name === "run_python") {
+    return executePythonCode(toolCallId, args, context);
+  }
+
   if (name === "request_takeover") {
     return executeRequestTakeover(toolCallId, args, context);
   }
 
   if (name === "request_secret") {
     return executeRequestSecret(toolCallId, args, context);
+  }
+
+  if (name === "list_secrets") {
+    return executeListSecrets(toolCallId, context);
+  }
+
+  if (name === "save_secret") {
+    return executeSaveSecret(toolCallId, args, context);
   }
 
   if (name === "message_bot") {

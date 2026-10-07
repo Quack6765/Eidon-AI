@@ -13,6 +13,22 @@ export function truncateText(value: string, maxChars: number) {
   return `${value.slice(0, maxChars - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
+const MIDDLE_TRUNCATION_MARKER = "\n...[truncated]...\n";
+
+export function truncateMiddle(value: string, maxChars: number) {
+  if (value.length <= maxChars) {
+    return value;
+  }
+
+  const keptChars = maxChars - MIDDLE_TRUNCATION_MARKER.length;
+  if (keptChars <= 0) {
+    return truncateText(value, maxChars);
+  }
+
+  const headChars = Math.floor(keptChars * 0.4);
+  return `${value.slice(0, headChars)}${MIDDLE_TRUNCATION_MARKER}${value.slice(value.length - (keptChars - headChars))}`;
+}
+
 export function appendBoundedText(current: string, chunk: string, maxChars: number) {
   if (current.length >= maxChars) {
     return { value: current, truncated: true };

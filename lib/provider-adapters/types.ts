@@ -19,6 +19,14 @@ export type ProviderTextPurpose =
   | "research_planning"
   | "speech_cleanup";
 
+export const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set([
+  "title",
+  "image_instruction",
+  "web_search_planning",
+  "research_planning",
+  "speech_cleanup"
+]);
+
 export type ProviderTextInput = {
   settings: RuntimeProviderProfile;
   prompt: string;

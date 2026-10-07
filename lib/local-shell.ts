@@ -1,7 +1,19 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants as fsConstants, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { appendBoundedText, truncateText } from "@/lib/bounded-text";
+import { appendBoundedText, truncateMiddle } from "@/lib/bounded-text";
 import { env } from "@/lib/env";
 import { isolateCommand, type IsolationRules } from "@/lib/shell-isolation";
 
@@ -33,8 +45,8 @@ export const SHELL_ENV_EXTRA_ALLOWLIST = [
   "NODE_USE_ENV_PROXY"
 ] as const;
 
-export function buildShellEnv(extraEnv?: Record<string, string>) {
-  const shellEnv: Record<string, string> = {};
+export function buildShellEnv(extraEnv?: Record<string, string>, secretEnv?: Record<string, string>) {
+  const shellEnv: Record<string, string> = { ...secretEnv };
 
   for (const name of SHELL_ENV_ALLOWLIST) {
     const value = process.env[name];
@@ -106,14 +118,96 @@ export function resolveShellWorkspaceDir(conversationId?: string) {
   return workspaceDir;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const WEB_BROWSER_TIMEOUT_MS = 120_000;
+export const DEFAULT_SHELL_TIMEOUT_MS = 120_000;
 export const MAX_SHELL_TIMEOUT_MS = 600_000;
 const FORCE_KILL_DELAY_MS = 2_000;
-const MAX_OUTPUT_CHARS = 8_000;
+export const MAX_OUTPUT_CHARS = 8_000;
+const MAX_CAPTURE_CHARS = 1_000_000;
 const SHELL_SEGMENT_SEPARATOR_PATTERN = /&&|\|\||[;|\n]/;
 const WEB_BROWSER_COMMAND_SEGMENT_PATTERN =
   /^(?:(?:env)\s+)?(?:(?:[A-Z_][A-Z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+))\s+)*(?:(?:npx|bunx)\s+|pnpm\s+(?:exec|dlx)\s+|yarn\s+dlx\s+)?(?:(?:\.{1,2}\/|\/)?(?:[^\s/]+\/)*agent-browser)(?:\s|$)/i;
+const TOOL_OUTPUT_FILE_PATTERN = /^\d{13}-[0-9a-f]{8}\.txt$/;
+const MAX_TOOL_OUTPUT_FILES = 20;
+
+export function resolveToolOutputDir(conversationId: string | undefined, create: boolean) {
+  const requestedRoot = join(resolve(env.EIDON_DATA_DIR), "tool-output");
+  if (create) {
+    mkdirSync(requestedRoot, { recursive: true, mode: 0o700 });
+  } else if (!existsSync(requestedRoot)) {
+    return null;
+  }
+  if (lstatSync(requestedRoot).isSymbolicLink()) {
+    throw new Error("Tool output root must not be a symbolic link");
+  }
+
+  const outputDir = join(realpathSync(requestedRoot), toPosixSegment(conversationId ?? "", "shared"));
+  if (create) {
+    mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+  } else if (!existsSync(outputDir)) {
+    return null;
+  }
+  const stats = lstatSync(outputDir);
+  if (!stats.isDirectory() || stats.isSymbolicLink() || realpathSync(outputDir) !== outputDir) {
+    throw new Error("Tool output directory is not a plain directory");
+  }
+
+  return outputDir;
+}
+
+export function removeToolOutputDir(conversationId: string) {
+  const outputDir = resolveToolOutputDir(conversationId, false);
+  if (outputDir) {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+}
+
+function pruneToolOutputFiles(outputDir: string) {
+  const files = readdirSync(outputDir).filter((name) => TOOL_OUTPUT_FILE_PATTERN.test(name)).sort();
+  for (const name of files.slice(0, -MAX_TOOL_OUTPUT_FILES)) {
+    const filePath = join(outputDir, name);
+    try {
+      if (lstatSync(filePath).isFile()) {
+        unlinkSync(filePath);
+      }
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+  }
+}
+
+function saveToolOutput(conversationId: string | undefined, content: string) {
+  const outputDir = resolveToolOutputDir(conversationId, true);
+  if (!outputDir) {
+    throw new Error("Tool output directory is unavailable");
+  }
+  const filePath = join(outputDir, `${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+  writeFileSync(filePath, content.endsWith("\n") ? content : `${content}\n`, { mode: 0o600, flag: "wx" });
+  pruneToolOutputFiles(outputDir);
+  return filePath;
+}
+
+export function boundShellResultSummary(
+  summary: string,
+  options: { conversationId?: string; captureTruncated?: boolean }
+) {
+  if (summary.length <= MAX_OUTPUT_CHARS) {
+    return summary;
+  }
+
+  let note: string;
+  try {
+    const filePath = saveToolOutput(options.conversationId, summary);
+    note = options.captureTruncated
+      ? `[Output exceeded ${MAX_CAPTURE_CHARS.toLocaleString("en-US")} characters per stream; the captured part is saved to ${filePath}. Read parts of it with execute_shell_command or run_python instead of re-running the command.]`
+      : `[Output was ${summary.length.toLocaleString("en-US")} characters; the full output is saved to ${filePath}. Read parts of it with execute_shell_command or run_python instead of re-running the command.]`;
+  } catch {
+    note = `[Output was ${summary.length.toLocaleString("en-US")} characters; only its start and end are shown.]`;
+  }
+
+  return `${note}\n\n${truncateMiddle(summary, Math.max(MAX_OUTPUT_CHARS - note.length - 2, 0))}`;
+}
 
 export type ShellExecutionResult = {
   stdout: string;
@@ -121,20 +215,8 @@ export type ShellExecutionResult = {
   exitCode: number | null;
   timedOut: boolean;
   isError: boolean;
+  captureTruncated?: boolean;
 };
-
-function getDefaultTimeoutMs(command: string) {
-  return getShellCommandLabel(command) === "Web browser" ? WEB_BROWSER_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
-}
-
-function truncateOutput(value: string) {
-  return truncateText(value, MAX_OUTPUT_CHARS);
-}
-
-function formatCapturedOutput(value: string, wasTruncated: boolean) {
-  const trimmed = value.trim();
-  return wasTruncated ? truncateOutput(`${trimmed} `) : trimmed;
-}
 
 function createAbortError() {
   const error = new Error("Shell command aborted");
@@ -169,7 +251,7 @@ function validateCommand(command: string) {
   return trimmed;
 }
 
-function resolveShellPath() {
+export function resolveShellPath() {
   const shellPath = process.env.SHELL?.trim();
 
   if (!shellPath) {
@@ -192,14 +274,16 @@ export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
   env?: Record<string, string>;
+  secretEnv?: Record<string, string>;
   isolation?: IsolationRules;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
+  stdin?: string;
 }) {
   const command = validateCommand(input.command);
-  const timeoutMs = Math.min(input.timeoutMs ?? getDefaultTimeoutMs(command), MAX_SHELL_TIMEOUT_MS);
+  const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS);
   const cwd = input.cwd ?? resolveShellWorkspaceDir();
-  const shellEnv = buildShellEnv(input.env);
+  const shellEnv = buildShellEnv(input.env, input.secretEnv);
 
   if (input.abortSignal?.aborted) {
     throw createAbortError();
@@ -272,35 +356,42 @@ export async function executeLocalShellCommand(input: {
       handleAbort();
     }
 
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      const appended = appendBoundedText(stdout, chunk.toString(), MAX_OUTPUT_CHARS);
+    child.stdin.on("error", () => {});
+    child.stdin.end(input.stdin ?? "");
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      const appended = appendBoundedText(stdout, chunk, MAX_CAPTURE_CHARS);
       stdout = appended.value;
       stdoutTruncated ||= appended.truncated;
     });
 
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      const appended = appendBoundedText(stderr, chunk.toString(), MAX_OUTPUT_CHARS);
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      const appended = appendBoundedText(stderr, chunk, MAX_CAPTURE_CHARS);
       stderr = appended.value;
       stderrTruncated ||= appended.truncated;
     });
 
     child.on("error", (error) => {
       finish({
-        stdout: formatCapturedOutput(stdout, stdoutTruncated),
-        stderr: truncateOutput(`${formatCapturedOutput(stderr, stderrTruncated)}${stderr ? "\n" : ""}${error.message}`),
+        stdout: stdout.trim(),
+        stderr: [stderr.trim(), error.message].filter(Boolean).join("\n"),
         exitCode: null,
         timedOut,
-        isError: true
+        isError: true,
+        captureTruncated: stdoutTruncated || stderrTruncated
       });
     });
 
     child.on("close", (exitCode) => {
       finish({
-        stdout: formatCapturedOutput(stdout, stdoutTruncated),
-        stderr: formatCapturedOutput(stderr, stderrTruncated),
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
         exitCode,
         timedOut,
-        isError: timedOut || exitCode !== 0
+        isError: timedOut || exitCode !== 0,
+        captureTruncated: stdoutTruncated || stderrTruncated
       });
     });
   });

@@ -55,6 +55,8 @@ import {
   releaseChatTurnStart
 } from "@/lib/chat-turn-control";
 import { queueFollowUpMessage, sendQueuedMessageNow } from "@/lib/queued-chat-dispatcher";
+import { getGlobalPreferences } from "@/lib/global-preferences";
+import { updateUserPreferences } from "@/lib/user-preferences";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import { updateProviderCatalog } from "@/lib/settings";
 
@@ -112,6 +114,9 @@ describe("bot attention and control", () => {
 
   it("redirects a running bot turn with a message sent mid-run, splitting the reply around it", async () => {
     const user = await createLocalUser({ username: "redirectbot", password: "password-123", role: "user" as const });
+    // Steering is the owner's choice now, not something bot conversations do on
+    // their own, so this case opts in explicitly.
+    updateUserPreferences(user.id, getGlobalPreferences(), { followUpBehavior: "steer" });
     const bot = createBot({ name: "Scout" }, user.id);
     const { manager, events } = recordingManager();
     const observed: Record<string, unknown> = {};

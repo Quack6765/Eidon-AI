@@ -43,6 +43,8 @@ type Usage = {
   inputTokens?: number;
   outputTokens?: number;
   reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 };
 
 const IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE =
@@ -57,6 +59,12 @@ const INLINE_ATTACHMENT_DIRECTIVE =
   "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
   "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
+const PARALLEL_TOOL_CALLS_DIRECTIVE = [
+  "<use_parallel_tool_calls>",
+  "If you intend to call multiple tools and there are no dependencies between the tool calls, make all of the independent tool calls in the same step. Prioritize calling tools simultaneously whenever the actions can be done in parallel rather than sequentially. For example, when reading 3 pages, make 3 read_page calls at the same time. Read-only tools run concurrently; tools that change state run one at a time in the order you emit them.",
+  "However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. Never use placeholders or guess missing parameters in tool calls.",
+  "</use_parallel_tool_calls>"
+].join("\n");
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
@@ -105,8 +113,7 @@ function buildCapabilitiesStableSegment(
       "topics you are uncertain about, or when the user explicitly requests a search.",
       ...(parallelWebSearch
         ? [
-            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel.",
-            "A single complex query is automatically decomposed into parallel sub-queries, so one call is usually enough."
+            "When one question spans multiple facets, pass several distinct queries in a single web_search call (queries) — they execute in parallel, so one call is usually enough."
           ]
         : [
             "If you can answer confidently and accurately from your training data, do so without searching."
@@ -241,15 +248,19 @@ function replaceImagesWithTextPlaceholders(promptMessages: PromptMessage[]): Pro
   });
 }
 
-function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
-  const systemIndex = promptMessages.findIndex((m) => m.role === "system");
-  if (systemIndex === -1) return [{ role: "system", content }, ...promptMessages];
-  return promptMessages.map((m, i) => i === systemIndex ? { ...m, content: `${m.content}\n\n${content}` } : m);
+function appendTrailingGuidance(promptMessages: PromptMessage[], guidance: string[]): PromptMessage[] {
+  const content = guidance.filter(Boolean).join("\n\n");
+  if (!content) return promptMessages;
+  return [...promptMessages, { role: "user", content, volatile: true }];
 }
 
-function appendTrailingGuidance(promptMessages: PromptMessage[], content: string): PromptMessage[] {
-  if (!content) return promptMessages;
-  return [...promptMessages, { role: "user", content }];
+function splitLateSystemMessages(promptMessages: PromptMessage[]) {
+  const systemIndex = promptMessages.findIndex((message) => message.role === "system");
+  const late = promptMessages.filter((message, index) => message.role === "system" && index !== systemIndex);
+  return {
+    promptMessages: promptMessages.filter((message) => !late.includes(message)),
+    guidance: late.map((message) => (typeof message.content === "string" ? message.content : ""))
+  };
 }
 
 function getEffectiveVisionMode(
@@ -272,35 +283,35 @@ function prepareProviderPromptMessages(input: {
   promptMessages: PromptMessage[];
   settings: RuntimeProviderProfile;
   visionMcpServers?: McpServer[];
-}) {
+}): { promptMessages: PromptMessage[]; guidance: string[] } {
   const imageAttachments = extractImageAttachments(input.promptMessages);
   if (imageAttachments.length === 0) {
-    return input.promptMessages;
+    return { promptMessages: input.promptMessages, guidance: [] };
   }
 
   const visionServers = input.visionMcpServers ?? [];
   const effectiveVisionMode = getEffectiveVisionMode(input.settings, visionServers.length > 0);
   if (effectiveVisionMode === "native") {
-    return input.promptMessages;
+    return { promptMessages: input.promptMessages, guidance: [] };
   }
 
   const providerPromptMessages = replaceImagesWithTextPlaceholders(input.promptMessages);
 
   if (effectiveVisionMode === "mcp" && visionServers.length > 0) {
-    return mergeSystemMessage(
-      providerPromptMessages,
-      buildVisionMcpDirective(visionServers, imageAttachments)
-    );
+    return {
+      promptMessages: providerPromptMessages,
+      guidance: [buildVisionMcpDirective(visionServers, imageAttachments)]
+    };
   }
 
   if (effectiveVisionMode === "provider") {
-    return mergeSystemMessage(
-      providerPromptMessages,
-      buildProviderVisionDirective(imageAttachments)
-    );
+    return {
+      promptMessages: providerPromptMessages,
+      guidance: [buildProviderVisionDirective(imageAttachments)]
+    };
   }
 
-  return mergeSystemMessage(providerPromptMessages, NON_NATIVE_VISION_DIRECTIVE);
+  return { promptMessages: providerPromptMessages, guidance: [NON_NATIVE_VISION_DIRECTIVE] };
 }
 
 async function forceDirectAnswerAfterToolLoop(input: {
@@ -312,17 +323,20 @@ async function forceDirectAnswerAfterToolLoop(input: {
   enableStreamRetry?: boolean;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
+  guidance: string[];
   directive?: string;
 }) {
-  const providerPromptMessages = prepareProviderPromptMessages({
-    promptMessages: mergeSystemMessage(
-      input.promptMessages,
-      input.directive ??
-        "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
-    ),
+  const prepared = prepareProviderPromptMessages({
+    promptMessages: input.promptMessages,
     settings: input.settings,
     visionMcpServers: input.visionMcpServers
   });
+  const providerPromptMessages = appendTrailingGuidance(prepared.promptMessages, [
+    ...input.guidance,
+    ...prepared.guidance,
+    input.directive ??
+      "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
+  ]);
 
   const buildForcedStream = () =>
     streamProviderResponse({
@@ -427,7 +441,9 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
-  let promptMessages = input.promptMessages;
+  const split = splitLateSystemMessages(input.promptMessages);
+  let promptMessages = split.promptMessages;
+  const turnGuidance: string[] = [...split.guidance];
 
   const visionMcpServers = input.visionMcpServers ?? [];
   const effectiveVisionMode = getEffectiveVisionMode(input.settings, visionMcpServers.length > 0);
@@ -457,7 +473,15 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search", "read_page", "message_bot", "check_bot"]);
+  const parallelizableToolNames = new Set<string>([
+    "web_search",
+    "read_page",
+    "search_workspace",
+    "analyze_image",
+    "load_skill",
+    "message_bot",
+    "check_bot"
+  ]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -485,9 +509,10 @@ export async function resolveAssistantTurn(input: {
     (server) => !(server.isVisionMcp && effectiveVisionMode !== "mcp")
   );
 
-  if (turnSkills.length || visibleMcpServers.length || input.mcpToolSets.length) {
-    promptMessages = mergeSystemMessage(
-      promptMessages,
+  const systemSegments: string[] = [];
+
+  if (input.skills.length || visibleMcpServers.length || input.mcpToolSets.length) {
+    systemSegments.push(
       buildCapabilitiesStableSegment(
         visibleMcpServers,
         hasWebSearch,
@@ -500,22 +525,29 @@ export async function resolveAssistantTurn(input: {
       )
     );
   }
-  if (shouldAddInlineAttachmentDirective(promptMessages)) {
-    promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
-  }
 
   if (hasImageGeneration) {
-    promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POLICY_DIRECTIVE);
-    promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
+    systemSegments.push(IMAGE_TOOL_POLICY_DIRECTIVE, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
   }
 
-  promptMessages = mergeSystemMessage(promptMessages, MERMAID_DIAGRAM_DIRECTIVE);
-  promptMessages = mergeSystemMessage(promptMessages, MARKDOWN_FORMATTING_RULES);
+  systemSegments.push(PARALLEL_TOOL_CALLS_DIRECTIVE, MERMAID_DIAGRAM_DIRECTIVE, MARKDOWN_FORMATTING_RULES);
+
+  const systemIndex = promptMessages.findIndex((message) => message.role === "system");
+  promptMessages =
+    systemIndex === -1
+      ? [{ role: "system", content: systemSegments.join("\n\n") }, ...promptMessages]
+      : promptMessages.map((message, index) =>
+          index === systemIndex ? { ...message, content: `${message.content}\n\n${systemSegments.join("\n\n")}` } : message
+        );
+
+  if (shouldAddInlineAttachmentDirective(promptMessages)) {
+    turnGuidance.push(INLINE_ATTACHMENT_DIRECTIVE);
+  }
 
   let timelineSortOrder = 0;
 
   if (input.research) {
-    promptMessages = mergeSystemMessage(promptMessages, buildResearchDirective(input.research.plan));
+    turnGuidance.push(buildResearchDirective(input.research.plan));
     if (input.research.plan?.length) {
       const detail = formatResearchPlan(input.research.plan);
       const handle = await input.onActionStart?.({ kind: "research_plan", label: "Research plan", detail });
@@ -537,7 +569,7 @@ export async function resolveAssistantTurn(input: {
       timelineSortOrder += 1;
     }
     if (invokedSkillContents.length) {
-      promptMessages = mergeSystemMessage(promptMessages, buildInvokedSkillsDirective(invokedSkillContents));
+      turnGuidance.push(buildInvokedSkillsDirective(invokedSkillContents));
     }
 
     if (input.botTeam && !userContent.startsWith(BOT_AUTHORED_PROMPT_PREFIX)) {
@@ -547,7 +579,7 @@ export async function resolveAssistantTurn(input: {
         input.botTeam.roster.map((entry) => entry.name)
       );
       if (mentionedBots.length) {
-        promptMessages = mergeSystemMessage(promptMessages, buildBotMentionDirective(mentionedBots));
+        turnGuidance.push(buildBotMentionDirective(mentionedBots));
       }
     }
   };
@@ -594,7 +626,6 @@ export async function resolveAssistantTurn(input: {
       webSearchEnabled: hasWebSearch,
       webSearchPipelineMode: hasWebSearch ? webSearchPipeline.mode : undefined,
       imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
-      imageGenerationToolEnabled: !imageGenerationToolConsumed,
       effectiveVisionMode,
       visionToolEnabled:
         effectiveVisionMode === "provider" &&
@@ -607,14 +638,16 @@ export async function resolveAssistantTurn(input: {
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
-    const providerPromptMessages = appendTrailingGuidance(
-      prepareProviderPromptMessages({
-        promptMessages,
-        settings: input.settings,
-        visionMcpServers
-      }),
-      buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled)
-    );
+    const prepared = prepareProviderPromptMessages({
+      promptMessages,
+      settings: input.settings,
+      visionMcpServers
+    });
+    const providerPromptMessages = appendTrailingGuidance(prepared.promptMessages, [
+      buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled),
+      ...turnGuidance,
+      ...prepared.guidance
+    ]);
 
     const buildProviderStream = () =>
       streamProviderResponse({
@@ -636,7 +669,7 @@ export async function resolveAssistantTurn(input: {
           memoriesEnabled: input.memoriesEnabled ?? false,
           effectiveVisionMode,
           memoryUserId: input.memoryUserId,
-          imageGenerationToolEnabled: !imageGenerationToolConsumed,
+          toolApproval: input.toolApproval,
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,
           onActionError: input.onActionError,
@@ -685,8 +718,7 @@ export async function resolveAssistantTurn(input: {
         if (memoryIntentRetries < 1) {
           memoryIntentRetries += 1;
           await input.onEvent?.({ type: "answer_reset" });
-          promptMessages = mergeSystemMessage(
-            promptMessages,
+          turnGuidance.push(
             "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If the fact is durable and would still matter in an unrelated future conversation, call the memory tool now — the call is the offer, so do not ask for permission in words first. If it only matters in this conversation, drop the claim, propose nothing, and answer normally without mentioning memory."
           );
           continue;
@@ -697,10 +729,7 @@ export async function resolveAssistantTurn(input: {
         if (emptyAnswerRetries < 1) {
           emptyAnswerRetries += 1;
           await input.onEvent?.({ type: "answer_reset" });
-          promptMessages = mergeSystemMessage(
-            promptMessages,
-            "Your previous response was empty. Answer the user directly. Do not emit an empty response."
-          );
+          turnGuidance.push("Your previous response was empty. Answer the user directly. Do not emit an empty response.");
           continue;
         }
         throw new Error("Provider returned an empty response");
@@ -751,6 +780,7 @@ export async function resolveAssistantTurn(input: {
         enableStreamRetry: input.enableStreamRetry,
         onEvent: input.onEvent,
         onAnswerSegment: input.onAnswerSegment,
+        guidance: [buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled), ...turnGuidance],
         directive: input.research ? RESEARCH_FINAL_ANSWER_DIRECTIVE : undefined
       });
 
@@ -770,74 +800,67 @@ export async function resolveAssistantTurn(input: {
         memoryUserId: input.memoryUserId
       });
 
-    const stepIsFullyParallelizable =
-      toolCalls.length > 1 && toolCalls.every((toolCall) => parallelizableToolNames.has(toolCall.name));
+    const toolCallGroups: ProviderToolCall[][] = [];
+    for (const toolCall of toolCalls) {
+      const lastGroup = toolCallGroups[toolCallGroups.length - 1];
+      if (lastGroup && parallelizableToolNames.has(toolCall.name) && parallelizableToolNames.has(lastGroup[0].name)) {
+        lastGroup.push(toolCall);
+      } else {
+        toolCallGroups.push([toolCall]);
+      }
+    }
 
-    if (stepIsFullyParallelizable) {
+    for (const group of toolCallGroups) {
       assertRunning();
+      const [firstToolCall] = group;
+
+      if (firstToolCall.name === "generate_image") {
+        if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
+          promptMessages = [
+            ...promptMessages,
+            buildToolResultMessage(
+              firstToolCall.id,
+              "Error: generate_image can only be called once per assistant turn. Respond to the user with the generated result instead."
+            )
+          ];
+          continue;
+        }
+
+        imageGenerationToolAttemptedThisStep = true;
+      }
+
       const baseSortOrder = timelineSortOrder;
       const settled = await Promise.allSettled(
-        toolCalls.map((toolCall, index) => runToolCall(toolCall, baseSortOrder + index))
+        group.map((toolCall, index) => runToolCall(toolCall, baseSortOrder + index))
       );
       assertRunning();
       const rejection = settled.find(
         (entry): entry is PromiseRejectedResult => entry.status === "rejected"
       );
       if (rejection) throw rejection.reason;
+
+      const results = settled.map(
+        (entry) =>
+          (entry as PromiseFulfilledResult<Awaited<ReturnType<typeof runToolCall>>>).value
+      );
+      const promptLengthBeforeGroup = promptMessages.length;
       promptMessages = [
         ...promptMessages,
-        ...settled.flatMap((entry) => {
-          const result = (entry as PromiseFulfilledResult<{
-            nextSortOrder: number;
-            promptMessages: PromptMessage[];
-          }>).value;
-          return result.promptMessages.slice(promptMessages.length);
-        })
+        ...results.flatMap((result) => result.promptMessages.slice(promptLengthBeforeGroup))
       ];
-      timelineSortOrder = baseSortOrder + toolCalls.length;
+      timelineSortOrder = group.length === 1 ? results[0].nextSortOrder : baseSortOrder + group.length;
 
-      const anyWebSearchSucceeded = settled.some((entry, index) => {
-        if (toolCalls[index].name !== "web_search") return false;
-        return entry.status === "fulfilled" && Boolean((entry as PromiseFulfilledResult<{ toolSucceeded?: boolean }>).value.toolSucceeded);
-      });
+      const anyWebSearchSucceeded = group.some(
+        (toolCall, index) => toolCall.name === "web_search" && Boolean(results[index].toolSucceeded)
+      );
       if (anyWebSearchSucceeded && !webSearchDirectiveAdded && !input.research) {
         webSearchDirectiveAdded = true;
-        promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
+        turnGuidance.push(WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
       }
-    } else {
-      for (const toolCall of toolCalls) {
-        assertRunning();
 
-        if (toolCall.name === "generate_image") {
-          if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
-            promptMessages = [
-              ...promptMessages,
-              buildToolResultMessage(
-                toolCall.id,
-                "Error: generate_image can only be called once per assistant turn. Respond to the user with the generated result instead."
-              )
-            ];
-            continue;
-          }
-
-          imageGenerationToolAttemptedThisStep = true;
-        }
-
-        const result = await runToolCall(toolCall, timelineSortOrder);
-        assertRunning();
-
-        timelineSortOrder = result.nextSortOrder;
-        promptMessages = result.promptMessages;
-
-        if (toolCall.name === "web_search" && result.toolSucceeded && !webSearchDirectiveAdded && !input.research) {
-          webSearchDirectiveAdded = true;
-          promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
-        }
-
-        if (toolCall.name === "generate_image" && result.toolSucceeded) {
-          imageGenerationToolConsumed = true;
-          promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
-        }
+      if (firstToolCall.name === "generate_image" && results[0].toolSucceeded) {
+        imageGenerationToolConsumed = true;
+        turnGuidance.push(IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
       }
     }
 

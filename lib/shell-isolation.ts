@@ -7,7 +7,7 @@ const REGISTRY_KEY = Symbol.for("eidon.shell-isolation");
 const PROBE_TIMEOUT_MS = 5_000;
 const SYSTEM_READ_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt", "/proc", "/sys"];
 
-export type IsolationRules = { readWrite: string[]; connectPorts?: number[] };
+export type IsolationRules = { readWrite: string[]; readOnly?: string[]; connectPorts?: number[] };
 export type IsolationStatus = "active" | "filesystem" | "unavailable";
 
 type Registry = { abi: number | null };
@@ -62,7 +62,7 @@ export function isolateCommand(command: string, args: string[], rules: Isolation
     command: "python3",
     args: [
       launcherPath(),
-      ...readablePaths().flatMap((path) => ["--ro", path]),
+      ...[...readablePaths(), ...(rules.readOnly ?? [])].flatMap((path) => ["--ro", path]),
       "--dev",
       "/dev",
       "--rw",

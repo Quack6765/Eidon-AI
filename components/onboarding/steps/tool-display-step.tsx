@@ -1,6 +1,6 @@
 "use client";
 
-import { useDemoClock } from "@/components/onboarding/demos/demo-script";
+import { DEMO_SCRIPT, useDemoClock } from "@/components/onboarding/demos/demo-script";
 import { StatusLineDemo } from "@/components/onboarding/demos/status-line-demo";
 import { ToolPillsDemo } from "@/components/onboarding/demos/tool-pills-demo";
 import { OnboardingOptionTile } from "@/components/onboarding/onboarding-step-shell";
@@ -14,7 +14,7 @@ export function ToolDisplayStep({
   onChange: (value: ToolCallDisplayMode) => void;
 }) {
   // One clock for both demos, so they always show the same moment of the turn.
-  const { phase } = useDemoClock();
+  const { phase } = useDemoClock(DEMO_SCRIPT);
 
   return (
     <div role="radiogroup" aria-label="Tool activity display" className="grid gap-3 sm:grid-cols-2">

@@ -1,5 +1,7 @@
 import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { isOfficialOpenAiApiBaseUrl } from "@/lib/provider-catalog";
 import {
+  getProviderApiBaseUrl,
   getProviderApiKey,
   getProviderApiMode,
   resolveProviderProfileCapabilities
@@ -11,7 +13,7 @@ import {
   buildOpenAIResponsesInput,
   createOpenAIClient
 } from "@/lib/provider-adapters/openai-message-formatting";
-import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
+import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import {
   getResponseOutputItemMessageText,
   getResponseText,
@@ -33,9 +35,9 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput,
-  ProviderTextPurpose
+  ProviderTextInput
 } from "@/lib/provider-adapters/types";
+import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 function normalizeReasoningEffort(
   settings: ProviderProfile
@@ -153,7 +155,11 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
+function buildPromptCacheParameters(settings: ProviderProfile, conversationId?: string) {
+  return conversationId && isOfficialOpenAiApiBaseUrl(getProviderApiBaseUrl(settings))
+    ? { prompt_cache_key: conversationId }
+    : {};
+}
 
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
@@ -230,7 +236,7 @@ export async function* streamOpenAiCompatibleResponse(
   input: ProviderStreamInput
 ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const { settings, promptMessages } = input;
-  const contextualPromptMessages = withDateContextUserMessage(promptMessages);
+  const contextualPromptMessages = withDateContextUserMessage(withToolResultImagesAsUserMessages(promptMessages));
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
   const client = createOpenAIClient(settings, getProviderApiKey(settings), input.conversationId);
@@ -243,9 +249,8 @@ export async function* streamOpenAiCompatibleResponse(
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
-  } = {
-    inputTokens: estimatePromptTokens(contextualPromptMessages)
-  };
+    cacheReadTokens?: number;
+  } = {};
 
   if (getProviderApiMode(settings) === "responses") {
     const reasoning = buildReasoningConfig(settings);
@@ -256,46 +261,24 @@ export async function* streamOpenAiCompatibleResponse(
       stream: true,
       max_output_tokens: settings.maxOutputTokens,
       reasoning,
-      ...buildRequestParameters(settings)
+      ...buildRequestParameters(settings),
+      ...buildPromptCacheParameters(settings, input.conversationId)
     };
 
-    let stream: AsyncIterable<any>;
     if (input.tools?.length) {
-      const toResponseTools = (strict: boolean) =>
-        input.tools!.map((tool) => ({
-          type: "function",
-          name: tool.function.name,
-          description: tool.function.description,
-          parameters: tool.function.parameters ?? {},
-          strict
-        }));
-      responseCreateParams.tools = toResponseTools(true);
-
-      try {
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      } catch (createError) {
-        const isSchemaError =
-          createError instanceof Error &&
-          (createError.message.includes("strict") ||
-            createError.message.includes("schema") ||
-            createError.message.includes("additionalProperties") ||
-            (createError as any).status === 400);
-        if (!isSchemaError) throw createError;
-        responseCreateParams.tools = toResponseTools(false);
-        stream = await client.responses.create(
-          responseCreateParams as any,
-          { signal }
-        ) as unknown as AsyncIterable<any>;
-      }
-    } else {
-      stream = await client.responses.create(
-        responseCreateParams as any,
-        { signal }
-      ) as unknown as AsyncIterable<any>;
+      responseCreateParams.tools = input.tools.map((tool) => ({
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters ?? {},
+        strict: false
+      }));
     }
+
+    const stream = await client.responses.create(
+      responseCreateParams as any,
+      { signal }
+    ) as unknown as AsyncIterable<any>;
 
     const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
 
@@ -327,7 +310,8 @@ export async function* streamOpenAiCompatibleResponse(
           usage = {
             inputTokens: event.response.usage.input_tokens ?? 0,
             outputTokens: event.response.usage.output_tokens ?? 0,
-            reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
+            reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens,
+            cacheReadTokens: event.response.usage.input_tokens_details?.cached_tokens
           };
         }
 
@@ -377,11 +361,14 @@ export async function* streamOpenAiCompatibleResponse(
       if (!abortController.signal.aborted) abortController.abort();
     }
 
+    usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
+
     yield {
       type: "usage",
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      reasoningTokens: usage.reasoningTokens
+      reasoningTokens: usage.reasoningTokens,
+      cacheReadTokens: usage.cacheReadTokens
     };
 
     const toolCalls = [...pendingToolCalls].map(([id, call]) => ({
@@ -404,8 +391,13 @@ export async function* streamOpenAiCompatibleResponse(
     stream: true,
     max_completion_tokens: settings.maxOutputTokens,
     ...buildChatCompletionsOptions(settings),
-    ...buildRequestParameters(settings)
+    ...buildRequestParameters(settings),
+    ...buildPromptCacheParameters(settings, input.conversationId)
   };
+
+  if (isOfficialOpenAiApiBaseUrl(getProviderApiBaseUrl(settings))) {
+    chatCreateParams.stream_options = { include_usage: true };
+  }
 
   if (input.tools?.length) {
     chatCreateParams.tools = input.tools;
@@ -474,7 +466,8 @@ export async function* streamOpenAiCompatibleResponse(
       if (chunk.usage) {
         usage = {
           inputTokens: chunk.usage.prompt_tokens,
-          outputTokens: chunk.usage.completion_tokens
+          outputTokens: chunk.usage.completion_tokens,
+          cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens
         };
       }
     }
@@ -501,10 +494,13 @@ export async function* streamOpenAiCompatibleResponse(
   }
   answer = answerInterceptor.answer;
 
+  usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
+
   yield {
     type: "usage",
     inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens
   };
 
   const toolCalls: ProviderToolCall[] = [];

@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-import { executeLocalShellCommand, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
+import {
+  boundShellResultSummary,
+  executeLocalShellCommand,
+  MAX_OUTPUT_CHARS,
+  removeToolOutputDir,
+  resolveShellWorkspaceDir,
+  resolveToolOutputDir,
+  summarizeShellResult
+} from "@/lib/local-shell";
 
 const dataDir = resolve(process.env.EIDON_DATA_DIR ?? "./.test-data");
 const workspaceRoot = `${dataDir}-workspaces`;
@@ -157,4 +165,76 @@ describe("shell workspace containment", () => {
     const stubbornPid = Number(readFileSync(join(workspaceDir, "stubborn.pid"), "utf8"));
     await vi.waitFor(() => expect(() => process.kill(stubbornPid, 0)).toThrow(), { timeout: 5_000, interval: 100 });
   }, 10_000);
+});
+
+describe("long tool output files", () => {
+  const outputRoot = join(dataDir, "tool-output");
+
+  afterEach(() => {
+    rmSync(outputRoot, { recursive: true, force: true });
+  });
+
+  it("returns short output unchanged and writes nothing", () => {
+    expect(boundShellResultSummary("short", { conversationId: "conv_short" })).toBe("short");
+    expect(existsSync(outputRoot)).toBe(false);
+  });
+
+  it("saves long output and returns the note first with the start and end within the inline budget", () => {
+    const summary = `${"a".repeat(6_000)}${"b".repeat(6_000)}`;
+
+    const bounded = boundShellResultSummary(summary, { conversationId: "conv_long" });
+    const savedPath = /saved to (\S+\.txt)\./.exec(bounded)?.[1] ?? "";
+
+    expect(bounded.startsWith("[Output was 12,000 characters; the full output is saved to ")).toBe(true);
+    expect(bounded.length).toBeLessThanOrEqual(MAX_OUTPUT_CHARS);
+    expect(bounded).toContain("...[truncated]...");
+    expect(bounded.endsWith("b")).toBe(true);
+    expect(savedPath.startsWith(join(realpathSync(outputRoot), "conv_long"))).toBe(true);
+    expect(readFileSync(savedPath, "utf8")).toBe(`${summary}\n`);
+  });
+
+  it("says when the capture limit cut the saved output", () => {
+    const bounded = boundShellResultSummary("x".repeat(9_000), { conversationId: "conv_cap", captureTruncated: true });
+
+    expect(bounded).toMatch(/^\[Output exceeded 1,000,000 characters per stream; the captured part is saved to /);
+  });
+
+  it("keeps the 20 newest output files and leaves other files alone", () => {
+    const outputDir = resolveToolOutputDir("conv_prune", true)!;
+    for (let index = 0; index < 22; index += 1) {
+      writeFileSync(join(outputDir, `${String(1_700_000_000_000 + index)}-0000000${index % 10}.txt`), "old");
+    }
+    writeFileSync(join(outputDir, "notes.txt"), "keep");
+
+    boundShellResultSummary("y".repeat(9_000), { conversationId: "conv_prune" });
+
+    const files = readdirSync(outputDir).filter((name) => name !== "notes.txt");
+    expect(files).toHaveLength(20);
+    expect(files).not.toContain("1700000000000-00000000.txt");
+    expect(readdirSync(outputDir)).toContain("notes.txt");
+  });
+
+  it("refuses a symlinked output folder and falls back to an inline note", () => {
+    const outside = mkdtempSync(join(tmpdir(), "eidon-tool-output-"));
+    tempDirs.push(outside);
+    mkdirSync(outputRoot, { recursive: true });
+    symlinkSync(outside, join(outputRoot, "conv_link"));
+
+    expect(() => resolveToolOutputDir("conv_link", true)).toThrow("Tool output directory is not a plain directory");
+    const bounded = boundShellResultSummary("z".repeat(9_000), { conversationId: "conv_link" });
+
+    expect(bounded.startsWith("[Output was 9,000 characters; only its start and end are shown.]")).toBe(true);
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it("removes a conversation's output folder and ignores one that was never created", () => {
+    const outputDir = resolveToolOutputDir("conv_remove", true)!;
+    writeFileSync(join(outputDir, "1700000000000-00000000.txt"), "saved");
+
+    removeToolOutputDir("conv_remove");
+    removeToolOutputDir("conv_never");
+
+    expect(existsSync(outputDir)).toBe(false);
+    expect(resolveToolOutputDir("conv_never", false)).toBeNull();
+  });
 });

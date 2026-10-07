@@ -1,5 +1,6 @@
-import type { Tool } from "@github/copilot-sdk";
+import type { Tool, ToolResultObject } from "@github/copilot-sdk";
 
+import { readAttachmentBuffer } from "@/lib/attachments";
 import { throwIfChatTurnAborted } from "@/lib/chat-turn-control";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import {
@@ -12,15 +13,26 @@ import {
 import type { RuntimeToolContext } from "@/lib/runtime-tool-context";
 import type {
   McpServer,
-  PromptMessage
+  PromptMessage,
+  VisionMode
 } from "@/lib/types";
-import { getBotByConversationId } from "@/lib/bots";
 
-function promptResult(messages: PromptMessage[]) {
+function promptResult(messages: PromptMessage[], effectiveVisionMode: VisionMode): string | ToolResultObject {
   const content = messages.at(-1)?.content;
   if (typeof content === "string") return content;
   if (!content) return "";
-  return content.map((part) => ("text" in part ? part.text : "")).join("");
+  const text = content.map((part) => ("text" in part ? part.text : "")).filter(Boolean).join("\n");
+  const images = content.filter((part) => part.type === "image");
+  if (effectiveVisionMode !== "native" || !images.length) return text;
+  return {
+    textResultForLlm: text,
+    resultType: "success",
+    binaryResultsForLlm: images.map((image) => ({
+      type: "image",
+      mimeType: image.mimeType,
+      data: readAttachmentBuffer(image).toString("base64")
+    }))
+  };
 }
 
 export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
@@ -38,9 +50,7 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
       ? getWebSearchPipeline(context.appSettings.webSearch.configuration).mode
       : undefined,
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
-    imageGenerationToolEnabled: context.imageGenerationToolEnabled,
-    effectiveVisionMode: context.effectiveVisionMode,
-    computerHandoffEnabled: Boolean(context.conversationId && getBotByConversationId(context.conversationId))
+    effectiveVisionMode: context.effectiveVisionMode
   });
   const mcpServers: McpServer[] = context.mcpToolSets.map(({ server }) => server);
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
@@ -88,7 +98,7 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
       );
       timelineSortOrder = result.nextSortOrder;
       throwIfChatTurnAborted(context.abortSignal);
-      return promptResult(result.promptMessages);
+      return promptResult(result.promptMessages, context.effectiveVisionMode);
     }
   }));
 }

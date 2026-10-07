@@ -70,6 +70,7 @@ const settings: GeneralSectionSettings = {
   confirmExternalLinks: true,
   toolCallDisplay: "pills",
   defaultView: "chat",
+  followUpBehavior: "queue",
   hasCompletedOnboarding: true,
   speechTranscription: {
     providerId: "browser",
@@ -139,7 +140,7 @@ describe("settings mobile layout", () => {
     expect(container.firstElementChild).toHaveClass("w-full");
     expect(container.firstElementChild).toHaveClass("flex-1");
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Conversation Retention and links" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Conversation Retention and follow-ups" })).toBeInTheDocument();
   });
 
   it("shows a settings-specific mobile header when browsing settings", () => {

@@ -6,9 +6,14 @@ vi.mock("node:child_process", () => ({
   spawn: spawnMock
 }));
 
+class MockStream extends EventEmitter {
+  setEncoding = vi.fn();
+}
+
 class MockChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
+  stdin = Object.assign(new EventEmitter(), { end: vi.fn() });
+  stdout = new MockStream();
+  stderr = new MockStream();
   kill = vi.fn();
 }
 
@@ -65,7 +70,7 @@ describe("local shell", () => {
     await resultPromise;
   });
 
-  it("runs unrestricted commands and truncates long output", async () => {
+  it("runs unrestricted commands and keeps long output for the caller to bound", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();
     spawnMock.mockReturnValue(child);
@@ -93,9 +98,45 @@ describe("local shell", () => {
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBe(false);
     expect(result.isError).toBe(false);
-    expect(result.stdout.endsWith("...[truncated]")).toBe(true);
+    expect(result.stdout).toBe("x".repeat(8_050));
+    expect(result.captureTruncated).toBe(false);
     expect(result.stderr).toBe("warning");
     expect(summarizeShellResult(result)).toContain("warning");
+  });
+
+  it("caps the captured output of each stream and flags the cut", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({ command: "yes", cwd: "/tmp/eidon" });
+    child.stdout.emit("data", "y".repeat(600_000));
+    child.stdout.emit("data", "y".repeat(600_000));
+    child.emit("close", 0);
+
+    const result = await resultPromise;
+    expect(result.stdout).toHaveLength(1_000_000);
+    expect(result.captureTruncated).toBe(true);
+    expect(child.stdout.setEncoding).toHaveBeenCalledWith("utf8");
+    expect(child.stderr.setEncoding).toHaveBeenCalledWith("utf8");
+  });
+
+  it("closes stdin, writing the given input first", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const plain = new MockChild();
+    spawnMock.mockReturnValueOnce(plain);
+    const plainPromise = executeLocalShellCommand({ command: "cat", cwd: "/tmp/eidon" });
+    expect(plain.stdin.end).toHaveBeenCalledWith("");
+    plain.emit("close", 0);
+    await plainPromise;
+
+    const piped = new MockChild();
+    spawnMock.mockReturnValueOnce(piped);
+    const pipedPromise = executeLocalShellCommand({ command: "python3 -u -", cwd: "/tmp/eidon", stdin: "print(1)" });
+    expect(piped.stdin.end).toHaveBeenCalledWith("print(1)");
+    piped.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    piped.emit("close", 1);
+    await expect(pipedPromise).resolves.toMatchObject({ exitCode: 1, isError: true });
   });
 
   it("allows shell redirection and compound commands", async () => {
@@ -404,20 +445,21 @@ describe("local shell", () => {
     child.emit("close", null);
   });
 
-  it("gives agent-browser commands a longer default timeout", async () => {
+  it("gives every command a two-minute default timeout", async () => {
     vi.useFakeTimers();
-    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { executeLocalShellCommand, DEFAULT_SHELL_TIMEOUT_MS } = await import("@/lib/local-shell");
     const child = new MockChild();
     spawnMock.mockReturnValue(child);
 
     const resultPromise = executeLocalShellCommand({
-      command: "agent-browser screenshot /tmp/example.png --full"
+      command: "npm test"
     });
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(120_000);
+    await vi.advanceTimersByTimeAsync(DEFAULT_SHELL_TIMEOUT_MS - 1);
     expect(child.kill).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(90_000);
+    await vi.advanceTimersByTimeAsync(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 
     child.emit("close", null);
@@ -503,6 +545,56 @@ describe("shell environment scrubbing", () => {
     }
     for (const name of Object.keys(shellEnv)) {
       expect([...SHELL_ENV_ALLOWLIST, ...SHELL_ENV_EXTRA_ALLOWLIST] as readonly string[]).toContain(name);
+    }
+  });
+
+  it("adds vault secrets to the child environment without letting them replace allowlisted values", async () => {
+    const { buildShellEnv } = await import("@/lib/local-shell");
+    const shellEnv = buildShellEnv(
+      { HOME: "/workspace/home" },
+      { GITHUB_TOKEN: "ghp_secret", PATH: "/evil/bin", HOME: "/evil/home" }
+    );
+
+    expect(shellEnv.GITHUB_TOKEN).toBe("ghp_secret");
+    expect(shellEnv.PATH).toBe(process.env.PATH);
+    expect(shellEnv.HOME).toBe("/workspace/home");
+    expect(buildShellEnv(undefined, { API_KEY: "key" }).API_KEY).toBe("key");
+    expect(buildShellEnv()).not.toHaveProperty("GITHUB_TOKEN");
+  });
+
+  it("passes vault secrets to the spawned command", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "printenv MY_TOKEN",
+      env: { AGENT_BROWSER_SESSION: "probe" },
+      secretEnv: { MY_TOKEN: "vault-value" }
+    });
+
+    const childEnv = spawnMock.mock.calls[0][2].env as Record<string, string>;
+    expect(childEnv.MY_TOKEN).toBe("vault-value");
+    expect(childEnv.AGENT_BROWSER_SESSION).toBe("probe");
+    child.emit("close", 0);
+    await resultPromise;
+  });
+
+  it("lets a real shell command read a vault secret by its variable", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { spawn } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    spawnMock.mockImplementation(spawn);
+    vi.stubEnv("SHELL", "/bin/sh");
+    try {
+      const result = await executeLocalShellCommand({
+        command: 'printf %s "$MY_TOKEN"',
+        secretEnv: { MY_TOKEN: "s3cr3t value" }
+      });
+
+      expect(result).toMatchObject({ exitCode: 0, isError: false });
+      expect(result.stdout).toBe("s3cr3t value");
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

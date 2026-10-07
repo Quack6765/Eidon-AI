@@ -18,7 +18,7 @@ export function ToolPillsDemo({ phase }: { phase: DemoPhase }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           >
-            <ToolPill label={pill.label} query={pill.query} status={pill.status} compact />
+            <ToolPill label={pill.label} query={pill.query} status={pill.status} />
           </motion.div>
         ))}
       </AnimatePresence>

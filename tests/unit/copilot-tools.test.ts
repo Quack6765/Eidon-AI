@@ -256,6 +256,29 @@ describe("buildCopilotTools", () => {
     expect(names).not.toContain("load_skill");
   });
 
+  it("exposes the browser hand-off and vault tools outside bot conversations", () => {
+    const names = buildCopilotTools(makeCtx({ conversationId: "conv_plain" })).map((tool) => tool.name);
+
+    expect(names).toEqual(
+      expect.arrayContaining(["request_takeover", "request_secret", "list_secrets", "save_secret"])
+    );
+  });
+
+  it("passes the turn's owner to vault tools so they reach the user's vault", async () => {
+    const invocation = { sessionId: "s1", toolCallId: "tc1", toolName: "list_secrets", arguments: {} };
+    const owned = buildCopilotTools(
+      makeCtx({ conversationId: "conv_vault", toolApproval: { userId: "user_vault", unattended: false } })
+    ).find((tool) => tool.name === "list_secrets")!;
+    const anonymous = buildCopilotTools(makeCtx({ conversationId: "conv_vault" })).find(
+      (tool) => tool.name === "list_secrets"
+    )!;
+
+    expect(await owned.handler!({}, invocation)).toBe("The user's vault is empty.");
+    expect(await anonymous.handler!({}, invocation)).toBe(
+      "Error: The vault is only available in the user's own conversations."
+    );
+  });
+
   it("always includes shell tool", () => {
     const ctx = makeCtx();
 
@@ -290,6 +313,7 @@ describe("buildCopilotTools", () => {
 
     expect(shellTool?.overridesBuiltInTool).toBe(true);
     expect(loadSkillTool?.overridesBuiltInTool).toBe(true);
+    expect(tools.find((t) => t.name === "run_python")?.overridesBuiltInTool).toBe(false);
   });
 
   it("uses the stable server slug in MCP function names", () => {
@@ -506,15 +530,24 @@ describe("buildCopilotTools", () => {
     }));
   });
 
-  it("mints a verified screenshot capability around a successful Copilot shell action", async () => {
+  it.each([
+    { mode: "native" as const, sendsImage: true },
+    { mode: "none" as const, sendsImage: false }
+  ])("returns a Copilot screenshot to the model as an image only with native vision ($mode)", async ({ mode, sendsImage }) => {
     const { executeLocalShellCommand } = await import("@/lib/local-shell");
-    const { consumeScreenshotArtifact } = await import("@/lib/screenshot-artifact-capabilities");
+    const { createConversation, createMessage, getMessage } = await import("@/lib/conversations");
+    const sharp = (await import("sharp")).default;
+    const conversation = createConversation("Copilot screenshot", null, { providerProfileId: null });
+    const assistantMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      status: "streaming"
+    });
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-copilot-screenshot-"));
     const screenshotPath = path.join(tempDir, "capture.png");
-    const pngBytes = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52
-    ]);
+    const pngBytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#ffffff" } })
+      .png()
+      .toBuffer();
     vi.mocked(executeLocalShellCommand).mockImplementationOnce(async () => {
       fs.writeFileSync(screenshotPath, pngBytes);
       return {
@@ -525,27 +558,30 @@ describe("buildCopilotTools", () => {
         isError: false
       };
     });
-    let consumedArtifact: ReturnType<typeof consumeScreenshotArtifact> = null;
-    const onActionComplete = vi.fn((handle: string | undefined) => {
-      consumedArtifact = handle ? consumeScreenshotArtifact(handle) : null;
-    });
     const ctx = makeCtx({
-      onActionStart: vi.fn().mockReturnValue("shell-screenshot"),
-      onActionComplete
+      conversationId: conversation.id,
+      assistantMessageId: assistantMessage.id,
+      effectiveVisionMode: mode,
+      onActionStart: vi.fn().mockReturnValue("shell-screenshot")
     });
     const shellTool = buildCopilotTools(ctx).find((tool) => tool.name === "execute_shell_command")!;
 
     try {
-      await shellTool.handler!(
-        { command: `agent-browser screenshot ${screenshotPath} --full` },
+      const result = await shellTool.handler!(
+        { command: `agent-browser screenshot ${screenshotPath}` },
         { sessionId: "s1", toolCallId: "tc1", toolName: "execute_shell_command", arguments: {} }
       );
 
-      expect(consumedArtifact).toEqual(expect.objectContaining({
-        filename: "capture.png",
-        mimeType: "image/png",
-        bytes: pngBytes
-      }));
+      expect(getMessage(assistantMessage.id)?.attachments).toHaveLength(1);
+      if (sendsImage) {
+        expect(result).toEqual({
+          textResultForLlm: expect.stringContaining("Screenshot attached as capture.png"),
+          resultType: "success",
+          binaryResultsForLlm: [{ type: "image", mimeType: "image/png", data: pngBytes.toString("base64") }]
+        });
+      } else {
+        expect(result).toEqual(expect.stringContaining("Screenshot attached as capture.png"));
+      }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

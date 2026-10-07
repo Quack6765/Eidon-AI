@@ -3,15 +3,20 @@ import { runBrowserSessionCommand, type BrowserSessionTarget } from "@/lib/agent
 import { conversationBrowserTarget, hasComputerStream, typeComputerText } from "@/lib/agent-computer-relay";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
-import { normalizeLoginLabel, normalizeLoginOrigin, readSavedLogin, saveLogin } from "@/lib/saved-logins";
 import { rememberSecretForRedaction } from "@/lib/secret-redaction";
 import { settleUserGate, waitForUserGate } from "@/lib/user-gate";
 import type { RuntimeAction } from "@/lib/tool-executors";
 import type { SecretRequestProposalPayload, SecretRequestResolution } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
+import {
+  findVaultEntry,
+  normalizeSecretName,
+  normalizeSecretOrigin,
+  readVaultSecret,
+  saveVaultSecretForAgent
+} from "@/lib/vault";
 
 export const SECRET_REQUEST_TIMEOUT_MS = 30 * 60_000;
-export const MAX_SECRET_CHARS = 1_000;
 
 type SecretOutcome = { resolution: SecretRequestResolution; saved?: boolean };
 
@@ -65,8 +70,8 @@ function resolveSecretCard(actionId: string, payload: SecretRequestProposalPaylo
 function describeOutcome(payload: SecretRequestProposalPayload, outcome: SecretOutcome) {
   if (outcome.resolution === "filled") {
     return `The user entered the ${payload.label} into ${payload.target} on ${payload.origin}${
-      outcome.saved ? " and saved it for next time" : ""
-    }. You can't see the value. Continue, for example by submitting the form.`;
+      outcome.saved ? ` and saved it in the vault as "${payload.label}"` : ""
+    }. The value is hidden from your text output, but a screenshot can show it if the field is not masked. Continue, for example by submitting the form.`;
   }
   if (outcome.resolution === "declined") {
     return `The user declined to enter the ${payload.label}. Don't ask for it again in this task.`;
@@ -86,7 +91,7 @@ async function readBrowserOrigin(target: BrowserSessionTarget) {
     .find((entry) => entry.trim().startsWith("{"));
   try {
     const url = (JSON.parse(line ?? "") as { data?: { url?: unknown } }).data?.url;
-    return typeof url === "string" ? normalizeLoginOrigin(url) : null;
+    return typeof url === "string" ? normalizeSecretOrigin(url) : null;
   } catch {
     return null;
   }
@@ -97,14 +102,14 @@ async function fillSecret(target: BrowserSessionTarget, origin: string, selector
   if (actual !== origin) {
     throw new SecretRequestError(
       actual
-        ? `The bot's browser is on ${actual}, not ${origin}, so Eidon didn't type it.`
-        : "Eidon couldn't read the bot's browser address, so it didn't type it.",
+        ? `The browser is on ${actual}, not ${origin}, so Eidon didn't type it.`
+        : "Eidon couldn't read the browser's address, so it didn't type it.",
       409
     );
   }
   const focused = await runBrowserSessionCommand(target, ["focus", selector]);
   if (!focused.ok) {
-    throw new SecretRequestError("Eidon couldn't find the field the bot pointed at, so it didn't type it.", 409);
+    throw new SecretRequestError("Eidon couldn't find the field the agent pointed at, so it didn't type it.", 409);
   }
   await typeComputerText(target, value);
 }
@@ -112,42 +117,60 @@ async function fillSecret(target: BrowserSessionTarget, origin: string, selector
 export async function requestComputerSecret(input: {
   conversationId?: string;
   userId?: string | null;
-  label: string;
+  name: string;
   origin: string;
   target: string;
   save?: boolean;
   replaceSaved?: boolean;
   abortSignal?: AbortSignal;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+  onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+  onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
   onWaitChange?: (waiting: boolean) => Promise<void> | void;
 }) {
-  const origin = normalizeLoginOrigin(input.origin);
+  const origin = normalizeSecretOrigin(input.origin);
   if (!origin) return "Error: origin must be the page's web origin, for example https://example.com.";
   const selector = input.target.trim();
   if (!selector) return "Error: target must be the field to fill, for example @e5 from a snapshot or #password.";
-  const label = normalizeLoginLabel(input.label) || "password";
+  const name = normalizeSecretName(input.name) || "password";
   if (!input.conversationId) return "Secrets can't be requested in this conversation. Ask the user to do the step themselves.";
   const browser = conversationBrowserTarget(input.conversationId);
   if (!hasComputerStream(browser)) {
     return "Your browser is not open yet. Open the page with the field first (agent-browser open <url>), then call request_secret again.";
   }
 
-  if (input.userId && !input.replaceSaved) {
-    const saved = readSavedLogin(input.userId, origin, label);
-    if (saved !== null) {
-      try {
-        await fillSecret(browser, origin, selector, saved);
-      } catch (error) {
-        return `Error: ${error instanceof Error ? error.message : "Eidon couldn't fill the saved value."}`;
-      }
-      rememberSecretForRedaction(input.conversationId, saved);
-      return `Eidon filled the saved ${label} for ${origin} into ${selector} without asking the user. You can't see the value. If it turns out to be wrong, call request_secret again with replace_saved: true.`;
+  const entry = input.userId ? findVaultEntry(input.userId, name) : null;
+  if (entry && entry.origin !== origin) {
+    return entry.origin
+      ? `Error: "${entry.name}" in the vault is for ${entry.origin}, so Eidon only types it there. Use another name for a secret on ${origin}.`
+      : `Error: "${entry.name}" in the vault isn't tied to a site, so Eidon won't type it into a page. The user can set its site in Settings → Vault.`;
+  }
+  if (entry && input.userId && !input.replaceSaved) {
+    const handle = await input.onActionStart?.({
+      kind: "mcp_tool_call",
+      label: "Fill from vault",
+      detail: entry.name,
+      serverId: "integration_vault",
+      toolName: "request_secret",
+      arguments: { name: entry.name, origin, target: selector }
+    });
+    const actionHandle = typeof handle === "string" ? handle : undefined;
+    const saved = readVaultSecret(input.userId, entry.id) ?? "";
+    try {
+      await fillSecret(browser, origin, selector, saved);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Eidon couldn't fill the saved value.";
+      await input.onActionError?.(actionHandle, { detail: entry.name, resultSummary: message });
+      return `Error: ${message}`;
     }
+    rememberSecretForRedaction(input.conversationId, saved);
+    await input.onActionComplete?.(actionHandle, { detail: entry.name, resultSummary: `Typed into the page on ${origin}` });
+    return `Eidon filled "${entry.name}" from the vault into ${selector} without asking the user. The value is hidden from your text output, but a screenshot can show it if the field is not masked. If it turns out to be wrong, call request_secret again with replace_saved: true.`;
   }
 
   const payload: SecretRequestProposalPayload = {
     operation: "secret_request",
-    label,
+    label: name,
     origin,
     target: selector,
     save: Boolean(input.save)
@@ -155,7 +178,7 @@ export async function requestComputerSecret(input: {
   const handle = await input.onActionStart?.({
     kind: "secret_request",
     status: "pending",
-    label: `Enter your ${label}`,
+    label: `Enter your ${name}`,
     detail: origin,
     proposalState: "pending",
     proposalPayload: payload
@@ -208,8 +231,9 @@ export async function submitComputerSecret(actionId: string, userId: string, inp
   const { payload, conversationId } = loadPendingSecretRequest(actionId, userId);
   await fillSecret(conversationBrowserTarget(conversationId), payload.origin, payload.target, input.value);
   rememberSecretForRedaction(conversationId, input.value);
-  if (input.save) saveLogin(userId, payload.origin, payload.label, input.value);
-  const outcome: SecretOutcome = { resolution: "filled", saved: input.save };
+  const saved =
+    input.save && "entry" in saveVaultSecretForAgent(userId, { name: payload.label, origin: payload.origin, secret: input.value });
+  const outcome: SecretOutcome = { resolution: "filled", saved };
   const action = resolveSecretCard(actionId, payload, outcome);
   settleUserGate(actionId, outcome);
   return action;

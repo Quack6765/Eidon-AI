@@ -26,8 +26,8 @@ export default async function OnboardingPage() {
         hasProviderConfigured={hasProviderConfigured}
         hasMcpServerConfigured={hasMcpServerConfigured}
         settings={{
-          defaultView: settings.defaultView,
           toolCallDisplay: settings.toolCallDisplay,
+          followUpBehavior: settings.followUpBehavior,
           defaultProviderProfileId: settings.defaultProviderProfileId,
           providerProfiles: settings.providerProfiles,
           skillsEnabled: settings.skillsEnabled

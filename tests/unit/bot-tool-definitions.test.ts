@@ -15,7 +15,7 @@ function botTools(botTeam?: TeamOptions) {
   });
 }
 
-function toolNamed(name: string, botTeam: TeamOptions) {
+function toolNamed(name: string, botTeam?: TeamOptions) {
   return botTools(botTeam).find((tool) => tool.function.name === name);
 }
 
@@ -60,5 +60,77 @@ describe("bot instruction tool definitions", () => {
     expect(chiefNames).toContain("update_bot");
     expect(workerNames).not.toContain("create_bot");
     expect(workerNames).not.toContain("update_bot");
+  });
+
+  it("offers the browser hand-off and vault tools in every conversation, not only to bots", () => {
+    for (const botTeam of [undefined, { isChief: true, roster: [] as [] }, { isChief: false, roster: [] as [] }]) {
+      expect(botTools(botTeam).map((tool) => tool.function.name)).toEqual(
+        expect.arrayContaining(["request_takeover", "request_secret", "list_secrets", "save_secret"])
+      );
+    }
+  });
+
+  it("names request_secret's vault entry with name instead of label", () => {
+    const shape = parameterShape(toolNamed("request_secret"));
+    expect(shape.properties?.name).toBeTruthy();
+    expect(shape.properties?.label).toBeUndefined();
+    expect(shape.required).toEqual(["name", "origin", "target"]);
+  });
+
+  it("describes list_secrets without parameters and save_secret with an optional value", () => {
+    expect(parameterShape(toolNamed("list_secrets"))).toEqual({ type: "object", properties: {} });
+
+    const save = parameterShape(toolNamed("save_secret"));
+    expect(Object.keys(save.properties ?? {})).toEqual(["name", "secret", "origin", "username", "notes"]);
+    expect(save.required).toEqual(["name"]);
+  });
+
+  it("lets execute_shell_command take vault secrets as environment variables", () => {
+    const secrets = parameterShape(toolNamed("execute_shell_command")).properties?.secrets as {
+      type: string;
+      items: { properties: Record<string, unknown>; required: string[] };
+    };
+    expect(secrets.type).toBe("array");
+    expect(Object.keys(secrets.items.properties)).toEqual(["name", "variable"]);
+    expect(secrets.items.required).toEqual(["name", "variable"]);
+    expect(parameterShape(toolNamed("execute_shell_command")).required).toEqual(["command"]);
+  });
+
+  it("describes the shell's host, working directory and limits, and points computation to run_python", () => {
+    const description = toolNamed("execute_shell_command")?.function.description ?? "";
+
+    expect(description).toMatch(/^Run a shell command on the (Linux|macOS|Windows|\w+) host with `\S+ -lc`\./);
+    expect(description).toContain("persistent working directory");
+    expect(description).toContain("stdin is empty");
+    expect(description).toContain("Output longer than 8,000 characters");
+    expect(description).toContain("use run_python instead");
+    expect((parameterShape(toolNamed("execute_shell_command")).properties?.timeout_ms as { description: string }).description).toBe(
+      "Timeout in milliseconds (default 120000, max 600000)"
+    );
+  });
+
+  it("offers run_python with code, optional uv packages, a timeout and vault secrets", () => {
+    const tool = toolNamed("run_python");
+    const shape = parameterShape(tool);
+
+    expect(tool?.function.description).toContain("instead of working the result out mentally");
+    expect(tool?.function.description).toContain("Only the standard library is available unless you list packages");
+    expect(Object.keys(shape.properties ?? {})).toEqual(["code", "packages", "timeout_ms", "secrets"]);
+    expect(shape.required).toEqual(["code"]);
+    expect(shape.properties?.packages).toMatchObject({ type: "array", items: { type: "string" }, maxItems: 10 });
+    expect((shape.properties?.secrets as { description: string }).description).toContain('os.environ["VARIABLE"]');
+  });
+
+  it("keeps run_python subject to the tool allowlist", () => {
+    const names = buildToolDefinitions({
+      mcpToolSets: [],
+      skills: [],
+      loadedSkillIds: new Set<string>(),
+      memoriesEnabled: false,
+      effectiveVisionMode: "none",
+      toolAllowlist: ["execute_shell_command"]
+    }).map((tool) => tool.function.name);
+
+    expect(names).toEqual(["execute_shell_command"]);
   });
 });

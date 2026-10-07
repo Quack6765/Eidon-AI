@@ -27,12 +27,14 @@ vi.mock("@/lib/mcp-client", () => ({
 vi.mock("@/lib/compaction", () => ({
   ensureCompactedContext: vi.fn().mockResolvedValue({
     promptMessages: [],
-    compactionNoticeEvent: null
+    promptTokens: 300,
+    didCompact: false
   }),
   getConversationContextUsage: vi.fn().mockReturnValue({
     contextTokens: 512,
     compactionLimit: 8192
-  })
+  }),
+  startBackgroundCompaction: vi.fn().mockResolvedValue({ didCompact: false })
 }));
 
 vi.mock("@/lib/conversation-title-generator", () => ({
@@ -132,6 +134,42 @@ describe("chat-turn", () => {
     expect(messages[1].status).toBe("completed");
   });
 
+  it("stores the assistant message's own token estimate instead of the turn's provider usage", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const conv = createConversation(undefined, undefined, { providerProfileId: null });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return {
+          answer: "Hello",
+          thinking: "",
+          usage: { inputTokens: 120000, outputTokens: 1, reasoningTokens: 50 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    expect(assistant?.estimatedTokens).toBeGreaterThan(0);
+    expect(assistant?.estimatedTokens).toBeLessThan(100);
+  });
+
   it("applies the conversation reasoning effort override at turn start", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
@@ -212,6 +250,53 @@ describe("chat-turn", () => {
     const messages = listVisibleMessages(conv.id);
     const assistantMsg = messages.find((m) => m.role === "assistant");
     expect(assistantMsg?.status).toBe("error");
+  });
+
+  it("reports a user wait only when the first approval opens and the last one resolves", async () => {
+    const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
+      toolApproval?: { onWaitChange?: (waiting: boolean) => Promise<void> | void };
+    }) => {
+      await input.toolApproval?.onWaitChange?.(true);
+      await input.toolApproval?.onWaitChange?.(true);
+      await input.toolApproval?.onWaitChange?.(false);
+      await input.toolApproval?.onWaitChange?.(false);
+      return { answer: "done", thinking: "", usage: {} };
+    });
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn
+    }));
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateProviderCatalog } = await import("@/lib/settings");
+
+      const manager = createConversationManager();
+
+      const { profileId, profile } = setupProviderProfile();
+      updateProviderCatalog({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      const waits: boolean[] = [];
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      await startChatTurn(manager, conv.id, "Hi", [], undefined, {
+        onUserWait: (waiting) => {
+          waits.push(waiting);
+        }
+      });
+
+      expect(waits).toEqual([true, false]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      vi.resetModules();
+    }
   });
 
   it("marks started actions as error when the runtime fails after starting them", async () => {
@@ -550,6 +635,43 @@ describe("chat-turn", () => {
     expect(assistant?.status).toBe("stopped");
     expect(assistant?.content).toContain("Partial");
     vi.useRealTimers();
+  });
+
+  it("discovers MCP tools while context compaction is still running", async () => {
+    const { gatherAllMcpTools } = await import("@/lib/mcp-client");
+    const { ensureCompactedContext } = await import("@/lib/compaction");
+    const { streamProviderResponse } = await import("@/lib/provider");
+    vi.mocked(gatherAllMcpTools).mockClear();
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createMcpServer } = await import("@/lib/mcp-servers");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    createMcpServer({ name: "Parallel discovery", url: "https://mcp.example.com" });
+    const conversation = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    let gatherCalledDuringCompaction = false;
+    vi.mocked(ensureCompactedContext).mockImplementationOnce(async () => {
+      await vi.waitFor(() => expect(gatherAllMcpTools).toHaveBeenCalled());
+      gatherCalledDuringCompaction = true;
+      return { promptMessages: [], promptTokens: 0, didCompact: false };
+    });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(createConversationManager(), conversation.id, "Hi", []);
+
+    expect(gatherCalledDuringCompaction).toBe(true);
   });
 
   it("persists MCP discovery aborts caused by Stop as stopped instead of failed", async () => {
@@ -1058,9 +1180,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).toEqual(expect.any(String));
     expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
@@ -1101,9 +1221,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
     expect(systemPrompt).not.toContain("Do not embed data: image URLs");
@@ -1144,9 +1262,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).toEqual(expect.any(String));
     expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
@@ -1183,9 +1299,7 @@ describe("chat-turn", () => {
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
-    const systemPrompt = providerCall?.promptMessages.find(
-      (message: { role: string; content: unknown }) => message.role === "system"
-    )?.content;
+    const systemPrompt = providerCall?.promptMessages.at(-1)?.content;
 
     expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
     expect(systemPrompt).not.toContain("Do not embed data: image URLs");
@@ -1265,6 +1379,100 @@ describe("chat-turn", () => {
         }
       })
     );
+  });
+
+  it("injects a steered follow-up mid-run, moving it out of the queue and into the transcript", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { updateUserPreferences } = await import("@/lib/user-preferences");
+    const { getGlobalPreferences } = await import("@/lib/global-preferences");
+    const { createLocalUser: createSteerOwner } = await import("@/lib/users");
+    const { createConversation, listQueuedMessages, listVisibleMessages } = await import(
+      "@/lib/conversations"
+    );
+    const { queueFollowUpMessage } = await import("@/lib/queued-chat-dispatcher");
+
+    const user = await createSteerOwner({
+      username: "steer-follow-up-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    updateUserPreferences(user.id, getGlobalPreferences(), { followUpBehavior: "steer" });
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      memoriesEnabled: true,
+      providerProfiles: [profile]
+    });
+
+    const conv = createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null },
+      user.id
+    );
+
+    // The follow-up is sent while the first tool call is in flight, which is the
+    // only window in which a steer can be claimed.
+    let queueWhileRunning: Array<{ status: string }> = [];
+    mockedStreamProviderResponse
+      .mockReturnValueOnce(
+        (async function* () {
+          queueFollowUpMessage({
+            conversationId: conv.id,
+            content: "Use the European numbers too"
+          });
+          queueWhileRunning = listQueuedMessages(conv.id).map((item) => ({ status: item.status }));
+          return {
+            answer: "",
+            thinking: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                name: "create_memory",
+                arguments: JSON.stringify({ content: "Prefers EU figures", category: "personal" })
+              }
+            ],
+            usage: { inputTokens: 5 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "Redone with Europe." };
+          return {
+            answer: "Redone with Europe.",
+            thinking: "",
+            usage: { inputTokens: 9, outputTokens: 4 }
+          };
+        })()
+      );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Compare Q3 to the market", []);
+
+    // It waited in the overlay while the run was still working...
+    expect(queueWhileRunning).toEqual([{ status: "pending" }]);
+
+    // ...then left it, because the turn picked it up between tool calls.
+    expect(listQueuedMessages(conv.id)).toEqual([]);
+
+    const messages = listVisibleMessages(conv.id);
+    expect(messages.filter((message) => message.role === "user").map((message) => message.content))
+      .toEqual(["Compare Q3 to the market", "Use the European numbers too"]);
+
+    const queueUpdatedLists = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event as { queuedMessages: Array<{ content: string }> });
+    // The turn broadcasts the emptied overlay as soon as it takes the steer; the
+    // "it is waiting" broadcast belongs to the queue route, not to the turn.
+    expect(queueUpdatedLists.map((event) => event.queuedMessages.length)).toEqual([0]);
   });
 
   it("ensures queued dispatch runs after the turn finalizes", async () => {
@@ -1905,7 +2113,7 @@ describe("chat-turn", () => {
     });
 
     expect(result).toEqual({ status: "completed" });
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Find subsidy pages\n2. Compare amounts");
 
@@ -1947,7 +2155,7 @@ describe("chat-turn", () => {
     });
 
     expect(result).toEqual({ status: "completed" });
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Find subsidy pages");
     const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
@@ -2069,7 +2277,7 @@ describe("chat-turn", () => {
 
     expect(response.status).toBe(200);
     await response.text();
-    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);
     expect(systemPrompt).toContain("Deep research mode is active");
     expect(systemPrompt).toContain("1. Step one");
   });
@@ -2517,7 +2725,235 @@ describe("chat-turn", () => {
     expect(typeof contextEvent!.compactionLimit).toBe("number");
   });
 
-  it("does not broadcast context_usage when usage is unavailable", async () => {
+  async function setupSubscribedConversation() {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const manager = createConversationManager();
+    const sent: Array<{ type: string; event?: { type: string; contextTokens?: number; compactionLimit?: number } }> = [];
+    const { profileId, profile, runtimeProfile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+    manager.subscribe(conv.id, createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data)))));
+    const eventTypes = () => sent.map((message) => message.event?.type);
+    const contextEvents = () =>
+      sent.map((message) => message.event).filter((event) => event?.type === "context_usage");
+    return { manager, conv, runtimeProfile, eventTypes, contextEvents };
+  }
+
+  it("broadcasts the prompt's context usage before the provider starts answering", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { ensureCompactedContext } = await import("@/lib/compaction");
+    const { computeCompactionLimit } = await import("@/lib/tokenization");
+    const { manager, conv, runtimeProfile, contextEvents } = await setupSubscribedConversation();
+
+    vi.mocked(ensureCompactedContext).mockResolvedValueOnce({
+      promptMessages: [],
+      promptTokens: 3200,
+      didCompact: false,
+      memoriesUsed: 2,
+      memoriesTotal: 9
+    });
+    let eventsBeforeAnswer: ReturnType<typeof contextEvents> = [];
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        eventsBeforeAnswer = contextEvents();
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    expect(eventsBeforeAnswer).toEqual([
+      {
+        type: "context_usage",
+        contextTokens: 3200,
+        compactionLimit: computeCompactionLimit(runtimeProfile),
+        memoriesUsed: 2,
+        memoriesTotal: 9
+      }
+    ]);
+    expect(contextEvents().at(-1)).toEqual({
+      type: "context_usage",
+      contextTokens: 512,
+      compactionLimit: 8192,
+      memoriesUsed: 2,
+      memoriesTotal: 9
+    });
+  });
+
+  it("broadcasts context usage after a stopped turn", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+    const { manager, conv, eventTypes, contextEvents } = await setupSubscribedConversation();
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "Partial" };
+      await gate;
+      return { answer: "Partial answer", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const run = startChatTurn(manager, conv.id, "Hi", []);
+    await vi.advanceTimersByTimeAsync(120);
+    requestStop(conv.id);
+    release();
+    await expect(run).resolves.toMatchObject({ status: "stopped" });
+    vi.useRealTimers();
+
+    expect(eventTypes().lastIndexOf("context_usage")).toBeGreaterThan(eventTypes().indexOf("done"));
+    expect(contextEvents().at(-1)).toMatchObject({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("broadcasts context usage after a failed turn", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { manager, conv, eventTypes, contextEvents } = await setupSubscribedConversation();
+
+    vi.mocked(streamProviderResponse).mockImplementationOnce(() => {
+      throw new Error("API key invalid");
+    });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conv.id, "Hi", [])).resolves.toMatchObject({ status: "failed" });
+
+    expect(eventTypes().lastIndexOf("context_usage")).toBeGreaterThan(eventTypes().indexOf("error"));
+    expect(contextEvents().at(-1)).toMatchObject({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  async function runTurnWithContextUsage(usage: { contextTokens: number; compactionLimit: number }) {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+
+    const manager = createConversationManager();
+    const sent: Array<{ type: string; event?: { type: string } }> = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+    manager.subscribe(conv.id, mockWs);
+
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+    vi.mocked(getConversationContextUsage).mockReturnValue(usage);
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+    return { sent, conversationId: conv.id };
+  }
+
+  it("does not start background compaction when the turn ends under the compaction limit", async () => {
+    const { startBackgroundCompaction } = await import("@/lib/compaction");
+    vi.mocked(startBackgroundCompaction).mockClear();
+
+    await runTurnWithContextUsage({ contextTokens: 512, compactionLimit: 8192 });
+
+    expect(startBackgroundCompaction).not.toHaveBeenCalled();
+  });
+
+  it("compacts in the background after the turn ends above the compaction limit", async () => {
+    const { startBackgroundCompaction, getConversationContextUsage } = await import("@/lib/compaction");
+    vi.mocked(startBackgroundCompaction).mockClear();
+    vi.mocked(startBackgroundCompaction).mockImplementationOnce(async (_id, _settings, hooks) => {
+      hooks?.onCompactionStart?.();
+      hooks?.onCompactionEnd?.();
+      return { promptMessages: [], promptTokens: 0, didCompact: true };
+    });
+
+    const { sent, conversationId } = await runTurnWithContextUsage({ contextTokens: 9000, compactionLimit: 8192 });
+    await vi.waitFor(() => {
+      expect(
+        sent.filter((message) => message.event?.type === "context_usage")
+      ).toHaveLength(3);
+    });
+
+    expect(startBackgroundCompaction).toHaveBeenCalledWith(
+      conversationId,
+      expect.anything(),
+      expect.any(Object),
+      undefined,
+      expect.any(Boolean),
+      expect.anything(),
+      undefined,
+      undefined,
+      undefined
+    );
+    const eventTypes = sent.map((message) => message.event?.type);
+    expect(eventTypes).toContain("compaction_start");
+    expect(eventTypes).toContain("compaction_end");
+    vi.mocked(getConversationContextUsage).mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("logs a background compaction failure without failing the turn", async () => {
+    const { startBackgroundCompaction } = await import("@/lib/compaction");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(startBackgroundCompaction).mockRejectedValueOnce(new Error("compaction broke"));
+
+    await runTurnWithContextUsage({ contextTokens: 9000, compactionLimit: 8192 });
+
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith("Background compaction failed", expect.any(Error));
+    });
+    consoleError.mockRestore();
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+    vi.mocked(getConversationContextUsage).mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("releases the turn before computing the post-turn context usage", async () => {
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+    const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
+    let claimableDuringUsage: boolean | null = null;
+    vi.mocked(getConversationContextUsage).mockImplementation((conversationId: string) => {
+      const claim = claimChatTurnStart(conversationId);
+      claimableDuringUsage = claim.ok;
+      if (claim.ok) releaseChatTurnStart(conversationId, claim.control);
+      return { contextTokens: 512, compactionLimit: 8192 };
+    });
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(createConversationManager(), conv.id, "Hi", []);
+
+    expect(claimableDuringUsage).toBe(true);
+    vi.mocked(getConversationContextUsage).mockReset().mockReturnValue({ contextTokens: 512, compactionLimit: 8192 });
+  });
+
+  it("skips the post-turn context_usage when usage is unavailable", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
@@ -2553,12 +2989,13 @@ describe("chat-turn", () => {
     const { startChatTurn } = await import("@/lib/chat-turn");
     await startChatTurn(manager, conv.id, "Hi", []);
 
-    const contextEvent = (sent.filter(
+    const contextEvents = (sent.filter(
       (s: unknown) => (s as { type: string }).type === "delta"
-    ) as Array<{ event: { type: string } }>)
+    ) as Array<{ event: { type: string; contextTokens?: number } }>)
       .map((m) => m.event)
-      .find((e) => e?.type === "context_usage");
-    expect(contextEvent).toBeUndefined();
+      .filter((e) => e?.type === "context_usage");
+    expect(contextEvents).toHaveLength(1);
+    expect(contextEvents[0].contextTokens).toBe(300);
   });
 
   it("broadcasts context_usage with zero when contextTokens is null", async () => {
@@ -2601,7 +3038,8 @@ describe("chat-turn", () => {
       (s: unknown) => (s as { type: string }).type === "delta"
     ) as Array<{ event: { type: string; contextTokens?: number; compactionLimit?: number } }>)
       .map((m) => m.event)
-      .find((e) => e?.type === "context_usage");
+      .filter((e) => e?.type === "context_usage")
+      .at(-1);
     expect(contextEvent!.contextTokens).toBe(0);
     expect(contextEvent!.compactionLimit).toBe(8192);
   });

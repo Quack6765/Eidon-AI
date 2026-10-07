@@ -354,6 +354,28 @@ describe("db", () => {
     expect(globalDefault.tool_call_display).toBe("pills");
   });
 
+  it("adds the follow-up behavior column to preference tables defaulting to queue", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const globalColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const userColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(globalColumns).toEqual(expect.arrayContaining(["follow_up_behavior"]));
+    expect(userColumns).toEqual(expect.arrayContaining(["follow_up_behavior"]));
+
+    // Queue is the default, which is how every already-onboarded user reads it
+    // without a backfill.
+    const globalDefault = db
+      .prepare("SELECT follow_up_behavior FROM global_preferences WHERE id = 1")
+      .get() as { follow_up_behavior: string };
+    expect(globalDefault.follow_up_behavior).toBe("queue");
+  });
+
   it("adds the onboarding completion column to user preferences only", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
@@ -1187,6 +1209,102 @@ describe("db", () => {
     conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
     migrate(db);
     expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBe(profile.id);
+  });
+
+  it("moves saved logins into the vault once, keeping their encrypted values", async () => {
+    const dbModule = await import("@/lib/db");
+    const users = await import("@/lib/users");
+    const vault = await import("@/lib/vault");
+    const { encryptValue } = await import("@/lib/crypto");
+    const { migrate } = await import("@/lib/db-migrations");
+
+    const owner = await users.createLocalUser({ username: "logins-owner", password: "password-123", role: "user" });
+    const other = await users.createLocalUser({ username: "logins-other", password: "password-123", role: "user" });
+    vault.createVaultEntry(owner.id, { name: "intranet.test:8080 PIN", secret: "existing-pin" });
+
+    const db = dbModule.getDb();
+    db.exec(`
+      CREATE TABLE saved_logins (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        label TEXT NOT NULL COLLATE NOCASE,
+        secret_encrypted TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT,
+        UNIQUE (user_id, origin, label),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    const insertLogin = db.prepare(
+      `INSERT INTO saved_logins (id, user_id, origin, label, secret_encrypted, created_at, updated_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const logins = [
+      ["login_https", owner.id, "https://example.com", "password", "https-secret", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z", "2026-01-03T00:00:00.000Z"],
+      ["login_http", owner.id, "http://example.com", "Password", "http-secret", "2026-01-04T00:00:00.000Z", "2026-01-04T00:00:00.000Z", null],
+      ["login_pin", owner.id, "http://intranet.test:8080", "pin", "pin-secret", "2026-01-05T00:00:00.000Z", "2026-01-05T00:00:00.000Z", null],
+      ["login_other", other.id, "https://example.com", "password", "other-secret", "2026-01-06T00:00:00.000Z", "2026-01-06T00:00:00.000Z", null],
+      ["login_raw", other.id, "legacy-origin", "token", "raw-secret", "2026-01-07T00:00:00.000Z", "2026-01-07T00:00:00.000Z", null]
+    ] as const;
+    const encrypted = new Map<string, string>();
+    for (const [id, userId, origin, label, secret, createdAt, updatedAt, lastUsedAt] of logins) {
+      encrypted.set(id, encryptValue(secret));
+      insertLogin.run(id, userId, origin, label, encrypted.get(id), createdAt, updatedAt, lastUsedAt);
+    }
+
+    migrate(db);
+
+    const tableNames = () =>
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name);
+    expect(tableNames()).not.toContain("saved_logins");
+    expect(tableNames()).toContain("vault_entries");
+
+    const rows = () =>
+      db
+        .prepare(
+          "SELECT id, user_id, name, origin, username, notes, secret_encrypted, created_at, updated_at, last_used_at FROM vault_entries WHERE id LIKE 'login_%' ORDER BY id"
+        )
+        .all();
+    const migrated = rows();
+    expect(migrated).toEqual([
+      {
+        id: "login_http",
+        user_id: owner.id,
+        name: "example.com Password (2)",
+        origin: "http://example.com",
+        username: "",
+        notes: "",
+        secret_encrypted: encrypted.get("login_http"),
+        created_at: "2026-01-04T00:00:00.000Z",
+        updated_at: "2026-01-04T00:00:00.000Z",
+        last_used_at: null
+      },
+      {
+        id: "login_https",
+        user_id: owner.id,
+        name: "example.com password",
+        origin: "https://example.com",
+        username: "",
+        notes: "",
+        secret_encrypted: encrypted.get("login_https"),
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-02T00:00:00.000Z",
+        last_used_at: "2026-01-03T00:00:00.000Z"
+      },
+      expect.objectContaining({ id: "login_other", user_id: other.id, name: "example.com password", origin: "https://example.com" }),
+      expect.objectContaining({ id: "login_pin", user_id: owner.id, name: "intranet.test:8080 pin (2)", origin: "http://intranet.test:8080" }),
+      expect.objectContaining({ id: "login_raw", user_id: other.id, name: "legacy-origin token", origin: "legacy-origin" })
+    ]);
+    expect(vault.revealVaultSecret(owner.id, "login_https")).toBe("https-secret");
+    expect(vault.revealVaultSecret(owner.id, "login_http")).toBe("http-secret");
+    expect(vault.revealVaultSecret(other.id, "login_other")).toBe("other-secret");
+    expect(vault.findVaultEntry(owner.id, "intranet.test:8080 PIN")?.id).not.toBe("login_pin");
+
+    migrate(db);
+    expect(rows()).toEqual(migrated);
+    expect(vault.listVaultEntries(owner.id)).toHaveLength(4);
   });
 
   it("recovers exact partial compaction copies but rejects conflicting duplicate ids", async () => {

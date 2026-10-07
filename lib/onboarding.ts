@@ -12,12 +12,15 @@ import {
   type ProviderPresetId
 } from "@/lib/provider-catalog";
 import type { ProviderProfileSummary } from "@/lib/provider-profile";
-import type { UserRole } from "@/lib/types";
+import type { DefaultView, UserRole } from "@/lib/types";
+
+export const ONBOARDING_DEFAULT_VIEW: DefaultView = "agents";
 
 export const ONBOARDING_STEPS = [
   "welcome",
   "default-view",
   "tool-display",
+  "follow-up",
   "provider",
   "mcp-server",
   "done"

@@ -43,7 +43,7 @@ export function ComputerHandoffCard({
 
       <div className="mt-2 space-y-2 text-[12px] leading-5 text-white/70">
         <div className="rounded-md border border-white/6 bg-black/20 px-3 py-2">
-          <p className="text-[10px] font-medium tracking-[0.12em] text-white/45 uppercase">The bot needs you to</p>
+          <p className="text-[10px] font-medium tracking-[0.12em] text-white/45 uppercase">Eidon needs you to</p>
           <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-white/84">{payload.reason}</p>
         </div>
         {payload.note ? (
@@ -51,7 +51,7 @@ export function ComputerHandoffCard({
         ) : null}
         {canTakeOver ? (
           <p className="text-[11px] leading-5 text-white/48">
-            The bot waits up to 30 minutes. Messages you send now reach it after you return control.
+            Eidon waits up to 30 minutes. Messages you send now reach it after you return control.
           </p>
         ) : null}
       </div>
@@ -61,7 +61,7 @@ export function ComputerHandoffCard({
           <button
             type="button"
             onClick={() => setStageOpen(true)}
-            className="inline-flex h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-3 text-[12px] font-medium text-white transition hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent)] px-3 text-[12px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
           >
             Take over
           </button>

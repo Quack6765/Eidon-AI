@@ -1,7 +1,7 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
 import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
-import { getSkillResolvedName } from "./skill-runtime";
+import { DEFAULT_SHELL_TIMEOUT_MS, MAX_OUTPUT_CHARS, MAX_SHELL_TIMEOUT_MS, resolveShellPath } from "@/lib/local-shell";
 import type { BotRosterEntry } from "@/lib/bots";
 import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
 import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
@@ -28,6 +28,34 @@ export function buildArgumentsSummary(args: Record<string, unknown> | null | und
   return json.length > 120 ? `${json.slice(0, 117)}...` : json;
 }
 
+const HOST_OS_NAMES: Partial<Record<NodeJS.Platform, string>> = { linux: "Linux", darwin: "macOS", win32: "Windows" };
+
+function describeHostOs() {
+  return HOST_OS_NAMES[process.platform] ?? process.platform;
+}
+
+const LONG_OUTPUT_NOTE = `Output longer than ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters is trimmed to its start and end, and the full output is saved to a file whose path is included in the result.`;
+
+const TIMEOUT_PARAMETER = {
+  type: "number",
+  description: `Timeout in milliseconds (default ${DEFAULT_SHELL_TIMEOUT_MS}, max ${MAX_SHELL_TIMEOUT_MS})`
+};
+
+function buildSecretsParameter(usage: string) {
+  return {
+    type: "array",
+    description: `Secrets from the user's vault to pass to this command as environment variables. ${usage}; you never see the values and they are hidden from the output. Never print them`,
+    items: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The vault entry's name, as listed by list_secrets" },
+        variable: { type: "string", description: "The environment variable to set, e.g. API_TOKEN" }
+      },
+      required: ["name", "variable"]
+    }
+  };
+}
+
 export function buildShellDetail(command: string) {
   return command.length > 140 ? `${command.slice(0, 137)}...` : command;
 }
@@ -44,7 +72,6 @@ export function buildToolDefinitions(input: {
   webSearchEnabled?: boolean;
   webSearchPipelineMode?: WebSearchPipelineMode;
   imageGenerationProviderId?: string | null;
-  imageGenerationToolEnabled?: boolean;
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
   botTeam?: {
@@ -52,10 +79,8 @@ export function buildToolDefinitions(input: {
     roster: BotRosterEntry[];
   };
   semanticRecallAvailable?: boolean;
-  computerHandoffEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
-    input.imageGenerationToolEnabled !== false &&
     input.imageGenerationProviderId &&
     input.imageGenerationProviderId !== "disabled"
       ? {
@@ -164,7 +189,7 @@ export function buildToolDefinitions(input: {
       type: "function",
       function: {
         name: "load_skill",
-        description: `Load the full content and instructions of a skill. Available: ${input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`,
+        description: "Load the full content and instructions of a skill. The available skill names are listed under \"Available skills\" in the conversation.",
         parameters: {
           type: "object",
           properties: {
@@ -278,14 +303,39 @@ export function buildToolDefinitions(input: {
     type: "function",
     function: {
       name: "execute_shell_command",
-      description: "Execute a local shell command on the host environment.",
+      description: `Run a shell command on the ${describeHostOs()} host with \`${resolveShellPath()} -lc\`. Each call starts a fresh non-interactive shell in your persistent working directory: files you create there stay available to later calls, but cd and exported variables do not carry over, and stdin is empty. ${LONG_OUTPUT_NOTE} Use it for files, processes, and command-line tools; for calculations or for parsing and transforming data, use run_python instead.`,
       parameters: {
         type: "object",
         properties: {
           command: { type: "string", description: "The command to execute" },
-          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" }
+          timeout_ms: TIMEOUT_PARAMETER,
+          secrets: buildSecretsParameter("Refer to them as $VARIABLE in the command")
         },
         required: ["command"]
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "run_python",
+      description: `Run a Python 3 program and return what it prints. Use it whenever an answer depends on exact results — arithmetic, counting, dates and times, statistics, or parsing and transforming text, JSON, CSV, or other files — and run the code instead of working the result out mentally. Each call is a fresh python3 process in the same persistent working directory as execute_shell_command: files persist between calls, variables do not. Print everything you need to see. ${LONG_OUTPUT_NOTE} Only the standard library is available unless you list packages.`,
+      parameters: {
+        type: "object",
+        properties: {
+          code: { type: "string", description: "The Python source to run" },
+          packages: {
+            type: "array",
+            description:
+              "PyPI packages the code needs, such as pandas or openpyxl, installed for this run with uv. Leave it out when the standard library is enough",
+            items: { type: "string" },
+            maxItems: 10
+          },
+          timeout_ms: TIMEOUT_PARAMETER,
+          secrets: buildSecretsParameter("Read them with os.environ[\"VARIABLE\"]")
+        },
+        required: ["code"]
       }
     }
   });
@@ -343,60 +393,98 @@ export function buildToolDefinitions(input: {
     }
   });
 
-  if (input.botTeam || input.computerHandoffEnabled) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "request_takeover",
-        description:
-          "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
-        parameters: {
-          type: "object",
-          properties: {
-            reason: {
-              type: "string",
-              description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
-            }
-          },
-          required: ["reason"]
-        }
+  tools.push({
+    type: "function",
+    function: {
+      name: "request_takeover",
+      description:
+        "Hand your browser to the user for a step you must not or cannot do yourself: typing a password, a two-factor or one-time code, solving a CAPTCHA, or confirming a payment or identity check. You pause here while the user watches your browser live, takes control, completes the step and returns control; this call then tells you what happened and you continue from the page as they left it. Call it with the page already open on the step. Never ask for passwords or codes in the chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "What the user needs to do, in one short sentence, e.g. 'Sign in to your bank — it is asking for a one-time code'"
+          }
+        },
+        required: ["reason"]
       }
-    });
-    tools.push({
+    }
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "request_secret",
+      description:
+        "Type a password, one-time code or other secret into a field of the page open in your browser without ever seeing it. If the user's vault has an entry with this name for the page's site, Eidon fills it straight away; otherwise the user enters it on a card and can save it to the vault under this name. Call list_secrets first to reuse an existing entry's exact name. Open the page first. Never ask for secrets in the chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description:
+              "The vault entry to fill, e.g. 'Email password', or what the user should enter, e.g. 'one-time code'. Shown to the user"
+          },
+          origin: {
+            type: "string",
+            description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+          },
+          target: {
+            type: "string",
+            description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
+          },
+          save: {
+            type: "boolean",
+            description:
+              "Offer to save what the user enters to the vault under this name so it is filled without asking next time. Use for passwords, not one-time codes"
+          },
+          replace_saved: {
+            type: "boolean",
+            description: "Set when the vault's value turned out to be wrong: ask the user for a new one and save it over the old one"
+          }
+        },
+        required: ["name", "origin", "target"]
+      }
+    }
+  });
+
+  tools.push(
+    {
       type: "function",
       function: {
-        name: "request_secret",
+        name: "list_secrets",
         description:
-          "Ask the user for a password, one-time code or other secret and have Eidon type it straight into a field of the page open in your browser. You never see the value, and it is hidden from your later tool results. Open the page first. If the user saved this secret for the site before, Eidon fills it without asking. Never ask for secrets in the chat.",
+          "List the secrets in the user's vault: each entry's name, the site it belongs to, its username and notes. Values are never shown. Check it before signing in somewhere or calling an API that needs a key.",
+        parameters: { type: "object", properties: {} }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "save_secret",
+        description:
+          "Save a password, API key, token or other credential to the user's vault, or update one already there, so you can use it later without the user repeating it. Use it when the user gives you a credential to keep. You can't change which site an existing entry belongs to and you can't delete entries; the user does that in Settings → Vault. Never repeat the value in your reply.",
         parameters: {
           type: "object",
           properties: {
-            label: {
+            name: {
               type: "string",
-              description: "What the secret is, in a few words, e.g. 'password' or 'one-time code'"
+              description: "A short, unique name, e.g. 'Email password' or 'Weather API key'. Reusing a name updates that entry"
             },
+            secret: { type: "string", description: "The value itself. Leave it out to update only the username or notes" },
             origin: {
               type: "string",
-              description: "The origin of the page with the field, e.g. https://example.com. Eidon only types it on this origin"
+              description:
+                "The website it belongs to, e.g. https://example.com. Set it for website logins so Eidon can type it into that site; leave it out for API keys"
             },
-            target: {
-              type: "string",
-              description: "The field to fill: a ref from your latest snapshot such as @e5, or a CSS selector"
-            },
-            save: {
-              type: "boolean",
-              description: "Offer to save it for this site so it is filled without asking next time. Use for passwords, not one-time codes"
-            },
-            replace_saved: {
-              type: "boolean",
-              description: "Set when a saved value turned out to be wrong: ask the user for a new one and save it over the old one"
-            }
+            username: { type: "string", description: "The username or email that goes with it, if any" },
+            notes: { type: "string", description: "Anything else worth knowing, such as what it is for. Never put secret values here" }
           },
-          required: ["label", "origin", "target"]
+          required: ["name"]
         }
       }
-    });
-  }
+    }
+  );
 
   if (input.botTeam) {
     const rosterSummary = input.botTeam.roster.length
@@ -533,7 +621,7 @@ export function buildToolDefinitions(input: {
       function: {
         name: "web_search",
         description: parallelSearch
-          ? "Search the web using the configured provider. Pass multiple distinct queries in `queries` when the question has several facets or complementary phrasings — they run in parallel and their results are merged. A single complex query is automatically decomposed into parallel sub-queries. Provide every facet query needed to answer in this single call — one comprehensive call is much faster for the user than multiple sequential search rounds. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently."
+          ? "Search the web using the configured provider. Pass multiple distinct queries in `queries` when the question has several facets or complementary phrasings — they run in parallel and their results are merged. Provide every facet query needed to answer in this single call — one comprehensive call is much faster for the user than multiple sequential search rounds. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently."
           : "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
         parameters: parallelSearch
           ? {

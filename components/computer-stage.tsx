@@ -118,15 +118,15 @@ export function ComputerStage({
           You&apos;re in control
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-white/45">
-          {url ? `${url} · the bot can't use the browser until you return control` : "The bot can't use the browser until you return control"}
+          {url ? `${url} · Eidon can't use the browser until you return control` : "Eidon can't use the browser until you return control"}
         </span>
         {askForNote ? (
           <input
             value={note}
             onChange={(event) => setNote(event.target.value)}
             maxLength={1000}
-            placeholder="Note for the bot (optional)"
-            aria-label="Note for the bot"
+            placeholder="Note for Eidon (optional)"
+            aria-label="Note for Eidon"
             className="h-9 w-full rounded-md border border-white/8 bg-white/[0.03] px-3 text-[16px] text-white placeholder:text-white/30 focus:border-white/20 focus:outline-none md:w-64 md:text-[12px]"
           />
         ) : null}
@@ -134,7 +134,7 @@ export function ComputerStage({
           type="button"
           onClick={() => void handleReturn()}
           disabled={isReturning}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[12px] font-medium text-white transition hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 text-[12px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
         >
           {isReturning ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
           Return control

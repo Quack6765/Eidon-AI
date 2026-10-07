@@ -29,6 +29,7 @@ import {
   toAnthropicTools
 } from "@/lib/anthropic";
 import { estimatePromptTokens } from "@/lib/tokenization";
+import { withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import type { ChatStreamEvent, RuntimeProviderProfile, PromptMessage, ToolDefinition } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
@@ -120,6 +121,40 @@ describe("toAnthropicMessages", () => {
     });
   });
 
+  it("places tool result images after the tool_result blocks in the same user turn", () => {
+    const messages: PromptMessage[] = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "t1", name: "execute_shell_command", arguments: "{}" },
+          { id: "t2", name: "execute_shell_command", arguments: "{}" }
+        ]
+      },
+      {
+        role: "tool",
+        toolCallId: "t1",
+        content: [
+          { type: "text", text: "saved" },
+          { type: "image", attachmentId: "a1", filename: "page.png", mimeType: "image/png", relativePath: "c/a1_page.png" }
+        ]
+      },
+      { role: "tool", toolCallId: "t2", content: "clicked" }
+    ];
+    const result = toAnthropicMessages(withToolResultImagesAsUserMessages(messages));
+    expect(result[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "t1", content: "saved" },
+        { type: "tool_result", tool_use_id: "t2", content: "clicked" },
+        { type: "text", text: "Images returned by the tool calls above:" },
+        { type: "text", text: "Attached image: page.png" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "IMGDATA" } }
+      ]
+    });
+  });
+
   it("emits a signed thinking block before tool_use when signature present", () => {
     const messages: PromptMessage[] = [
       { role: "user", content: "go" },
@@ -188,7 +223,8 @@ describe("buildAnthropicRequest", () => {
       ]
     });
     expect(params.thinking).toEqual({ type: "adaptive" });
-    expect(params.effort).toBe("high");
+    expect(params.output_config).toEqual({ effort: "high" });
+    expect(params.effort).toBeUndefined();
     expect(params.temperature).toBeUndefined();
     expect(params.model).toBe("claude-opus-4-8");
   });
@@ -199,7 +235,7 @@ describe("buildAnthropicRequest", () => {
       messages: [{ role: "user", content: "hi" }]
     });
     expect(params.thinking).toBeUndefined();
-    expect(params.effort).toBeUndefined();
+    expect(params.output_config).toBeUndefined();
     expect(params.temperature).toBe(0.7);
   });
 
@@ -209,7 +245,7 @@ describe("buildAnthropicRequest", () => {
       messages: [{ role: "user", content: "hi" }]
     });
     expect(params.thinking).toBeUndefined();
-    expect(params.effort).toBeUndefined();
+    expect(params.output_config).toBeUndefined();
   });
 
   it("marks the system prompt with cache_control", () => {
@@ -452,26 +488,45 @@ describe("anthropic conversion branch coverage", () => {
     expect((last.content as unknown[]).length).toBe(2);
   });
 
-  it("applies cache_control to the last block of the second-to-last message", () => {
+  it("applies cache_control to the last block before the volatile tail", () => {
     const params = buildAnthropicRequest({
       settings: baseSettings({ reasoningEffort: "none" }),
       messages: [
         { role: "system", content: "sys" },
         { role: "user", content: "first" },
         { role: "assistant", content: "answer" },
-        { role: "user", content: "second" }
+        { role: "user", content: "second" },
+        { role: "user", content: "guidance", volatile: true },
+        { role: "user", content: "date", volatile: true }
       ]
     });
 
-    const messages = params.messages as Array<{ role: string; content: unknown }>;
-    const secondToLast = messages[messages.length - 2];
-    const blocks = secondToLast.content as Array<{ cache_control?: { type: string } }>;
+    const messages = params.messages as Array<{ role: string; content: Array<{ text: string; cache_control?: unknown }> }>;
+    const last = messages[messages.length - 1];
 
-    expect(Array.isArray(blocks)).toBe(true);
-    expect(blocks[blocks.length - 1].cache_control).toEqual({ type: "ephemeral" });
+    expect(messages).toHaveLength(3);
+    expect(last.content.map((block) => block.text)).toEqual(["second", "guidance", "date"]);
+    expect(last.content.map((block) => block.cache_control)).toEqual([{ type: "ephemeral" }, undefined, undefined]);
+    expect(JSON.stringify(messages.slice(0, -1))).not.toContain("cache_control");
   });
 
-  it("keeps non-final blocks unmarked when caching a multi-block message", () => {
+  it("marks the last block when nothing is volatile and skips marking when everything is", () => {
+    const marked = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [{ role: "user", content: "only" }]
+    });
+    expect(marked.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "only", cache_control: { type: "ephemeral" } }] }
+    ]);
+
+    const unmarked = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [{ role: "user", content: "only", volatile: true }]
+    });
+    expect(JSON.stringify(unmarked.messages)).not.toContain("cache_control");
+  });
+
+  it("marks the tool result block ahead of volatile guidance in a multi-block message", () => {
     const params = buildAnthropicRequest({
       settings: baseSettings({ reasoningEffort: "none" }),
       messages: [
@@ -481,17 +536,36 @@ describe("anthropic conversion branch coverage", () => {
           content: "thinking out loud",
           toolCalls: [{ id: "t1", name: "a", arguments: "{}" }]
         },
-        { role: "tool", toolCallId: "t1", content: "res" }
+        { role: "tool", toolCallId: "t1", content: "res" },
+        { role: "user", content: "guidance", volatile: true }
       ]
     });
 
     const messages = params.messages as Array<{ role: string; content: unknown }>;
-    const cached = messages[messages.length - 2];
-    const blocks = cached.content as Array<{ type: string; cache_control?: unknown }>;
+    const last = messages[messages.length - 1].content as Array<{ type: string; cache_control?: unknown }>;
 
-    expect(blocks.length).toBe(2);
-    expect(blocks[0].cache_control).toBeUndefined();
-    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(last.map((block) => block.type)).toEqual(["tool_result", "text"]);
+    expect(last[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(last[1].cache_control).toBeUndefined();
+  });
+
+  it("uses the 1 hour cache lifetime when configured", () => {
+    vi.stubEnv("EIDON_ANTHROPIC_CACHE_TTL", "1h");
+    try {
+      const params = buildAnthropicRequest({
+        settings: baseSettings({ reasoningEffort: "none" }),
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "hi" }
+        ]
+      });
+      expect(params.system).toEqual([
+        { type: "text", text: "sys", cache_control: { type: "ephemeral", ttl: "1h" } }
+      ]);
+      expect(JSON.stringify(params.messages)).toContain('"cache_control":{"type":"ephemeral","ttl":"1h"}');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("merges consecutive user text messages, normalizing prior string content", () => {

@@ -27,6 +27,9 @@ export function lastOpenedUrl(actions: ActionItem[]) {
   return null;
 }
 
+const PRIMARY_BUTTON =
+  "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-[var(--accent)] px-2.5 text-[11px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
+
 const SECONDARY_BUTTON =
   "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/8 px-2.5 text-[11px] font-medium text-white/72 transition hover:border-white/14 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -173,7 +176,7 @@ export function ComputerSessionCard({
                     type="button"
                     onClick={() => void changeControl("return")}
                     disabled={pendingControl !== null}
-                    className={SECONDARY_BUTTON}
+                    className={PRIMARY_BUTTON}
                   >
                     {pendingControl === "return" ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
                     Return control
@@ -185,7 +188,7 @@ export function ComputerSessionCard({
                 type="button"
                 onClick={() => void changeControl("take")}
                 disabled={pendingControl !== null || !view.live}
-                className={SECONDARY_BUTTON}
+                className={PRIMARY_BUTTON}
               >
                 {pendingControl === "take" ? <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
                 Take control

@@ -13,17 +13,24 @@ vi.mock("@/lib/auth", () => ({
   verifySessionToken: vi.fn()
 }));
 
-vi.mock("@/lib/conversations", () => ({
-  getConversationSnapshot: vi.fn(),
-  getMessage: vi.fn(),
-  listActiveConversations: vi.fn(),
-  createQueuedMessage: vi.fn(),
-  listQueuedMessages: vi.fn(),
-  updateQueuedMessage: vi.fn(),
-  deleteQueuedMessage: vi.fn(),
-  moveQueuedMessageToFront: vi.fn(),
-  reorderQueuedMessages: vi.fn()
-}));
+vi.mock("@/lib/conversations", () => {
+  const getConversationSnapshot = vi.fn();
+  return {
+    getConversationSnapshot,
+    getConversation: vi.fn((...args: unknown[]) =>
+      getConversationSnapshot(...args) ? { id: args[0] } : null
+    ),
+    getConversationOwnerId: vi.fn(() => null),
+    getMessage: vi.fn(),
+    listActiveConversations: vi.fn(),
+    createQueuedMessage: vi.fn(),
+    listQueuedMessages: vi.fn(),
+    updateQueuedMessage: vi.fn(),
+    deleteQueuedMessage: vi.fn(),
+    moveQueuedMessageToFront: vi.fn(),
+    reorderQueuedMessages: vi.fn()
+  };
+});
 
 vi.mock("@/lib/chat-turn", () => ({
   startChatTurn: vi.fn()

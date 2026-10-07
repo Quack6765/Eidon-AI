@@ -19,6 +19,7 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 | `EIDON_DATA_DIR` | Directory holding the SQLite database and all runtime data. | `./.data` (the Docker image sets `/app/data`) | No |
 | `EIDON_BASE_URL` | Externally reachable base URL of the instance (for example `https://eidon.example.com`). Used for share links, notification deep links, MCP OAuth registration, and the default GitHub Copilot callback. Required in production; startup fails without it. | unset | Yes in production |
 | `EIDON_BROWSER_MEMORY_BUDGET_MB` | Memory the bots' browsers may use, in MB. Each signed-in user's browser counts about 500 MB and each extra bot tab about 120 MB; when the budget is full, a bot waits up to a minute for a slot and is then told the browser is busy. | The smaller of the container's cgroup memory limit and the host's total memory, minus 1200 MB, and at least 500 | No |
+| `EIDON_ANTHROPIC_CACHE_TTL` | How long Anthropic providers keep a conversation's cached prompt prefix: `5m` or `1h`. The 1-hour cache costs more to write but keeps long conversations cheap when you pause between messages. | `5m` | No |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the GitHub Copilot provider. | unset | No |
 | `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | `${EIDON_BASE_URL}/api/providers/github/callback` | No |
@@ -115,7 +116,7 @@ MCP OAuth dynamic client registration sends Eidon's application name, avatar URL
 
 **Share links.** A conversation can be given a public share token. The share route serves a read-only transcript view and read-only access to that conversation's attachments — no authentication required, since the token is the credential. Anyone holding the URL can read it, so treat share links as public. Sharing is per-conversation and can be turned off again, which invalidates the link.
 
-**Shell execution.** The `execute_shell_command` tool runs commands as the container user with the container's full filesystem access. Skill front-matter does not sandbox it — see [MCP and skills](./mcp-and-skills.md#shell_command_prefixes-is-not-a-sandbox) for exactly what that field does and does not do.
+**Shell and Python execution.** The `execute_shell_command` and `run_python` tools run commands and Python programs as the container user with the container's full filesystem access. Skill front-matter does not sandbox it — see [MCP and skills](./mcp-and-skills.md#shell_command_prefixes-is-not-a-sandbox) for exactly what that field does and does not do.
 
 ## Backup and restore
 

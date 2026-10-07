@@ -206,7 +206,7 @@ describe("memory injection scoping", () => {
     createMemory("User B secret fact", "personal", userB.id);
 
     for (const result of [buildPromptMessages(promptInput(null)), buildPromptMessages(promptInput())]) {
-      const systemContent = result[0].content as string;
+      const systemContent = JSON.stringify(result);
       expect(systemContent).not.toContain("<memory>");
       expect(systemContent).not.toContain("User A secret fact");
       expect(systemContent).not.toContain("User B secret fact");
@@ -230,7 +230,9 @@ describe("memory injection scoping", () => {
 
     const result = buildPromptMessages(promptInput(userA.id));
 
-    const systemContent = result[0].content as string;
+    const systemContent = result.at(-1)?.content as string;
+    expect(result.at(-1)?.role).toBe("system");
+    expect(result[0].content).not.toContain("<memory>");
     expect(systemContent).toContain("<memory>");
     expect(systemContent).toContain("Owner memory");
     expect(systemContent).not.toContain("Other user memory");

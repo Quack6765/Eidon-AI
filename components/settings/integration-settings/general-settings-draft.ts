@@ -1,6 +1,6 @@
 import type { CredentialAction } from "@/lib/integration-types";
 import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
-import type { AppSettings, ConversationRetention, MemoryRigor } from "@/lib/types";
+import type { AppSettings, ConversationRetention, FollowUpBehavior, MemoryRigor } from "@/lib/types";
 
 export type IntegrationDraft<Selection extends {
   providerId: string;
@@ -24,6 +24,7 @@ export type GeneralSettingsDraft = {
     memoriesMaxCount: number;
     memoriesRigor: MemoryRigor;
     defaultView: AppSettings["defaultView"];
+    followUpBehavior: FollowUpBehavior;
   };
   webSearch: IntegrationDraft<AppSettings["webSearch"]>;
   imageGeneration: IntegrationDraft<AppSettings["imageGeneration"]>;
@@ -70,7 +71,8 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       memoriesEnabled: settings.memoriesEnabled,
       memoriesMaxCount: settings.memoriesMaxCount,
       memoriesRigor: settings.memoriesRigor,
-      defaultView: settings.defaultView
+      defaultView: settings.defaultView,
+      followUpBehavior: settings.followUpBehavior
     },
     webSearch: createIntegrationDraft(settings.webSearch),
     imageGeneration: createIntegrationDraft(settings.imageGeneration),

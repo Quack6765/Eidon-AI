@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { buildFileAttachmentPart, buildUserPromptContent } from "@/lib/compaction-prompt-building";
+import { buildFileAttachmentPart, buildTextAttachmentPart, buildUserPromptContent } from "@/lib/compaction-prompt-building";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { Message, MessageAttachment } from "@/lib/types";
 
@@ -51,7 +51,7 @@ describe("buildFileAttachmentPart", () => {
 
       expect(text).toContain("Attached file: archive.zip (application/zip, 2048 bytes)");
       expect(text).toContain(`stored at: ${attachmentAbsolutePath(attachment)}`);
-      expect(text).toContain("execute_shell_command");
+      expect(text).toContain("inspect or process it with run_python or execute_shell_command");
     } finally {
       fs.rmSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments"), {
         recursive: true,
@@ -66,6 +66,34 @@ describe("buildFileAttachmentPart", () => {
     expect(text).toContain("Attached file: archive.zip (application/zip, 2048 bytes)");
     expect(text).not.toContain("stored at:");
     expect(text).toContain("execute_shell_command");
+  });
+});
+
+describe("buildTextAttachmentPart", () => {
+  const textAttachment = createFileAttachment({
+    id: "att_csv",
+    filename: "fruit.csv",
+    mimeType: "text/csv",
+    relativePath: "conv_1/att_csv_fruit.csv",
+    kind: "text",
+    extractedText: "name,qty\napple,3"
+  });
+
+  it("names the stored path so code can read the whole file", () => {
+    fs.mkdirSync(path.dirname(attachmentAbsolutePath(textAttachment)), { recursive: true });
+    fs.writeFileSync(attachmentAbsolutePath(textAttachment), "name,qty\napple,3");
+
+    try {
+      const text = textOf(buildTextAttachmentPart(textAttachment, { value: 1_000 }));
+
+      expect(text).toBe(`Attached file: fruit.csv (stored at: ${attachmentAbsolutePath(textAttachment)})\nname,qty\napple,3`);
+    } finally {
+      fs.rmSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments"), { recursive: true, force: true });
+    }
+  });
+
+  it("keeps only the filename when the stored file is missing", () => {
+    expect(textOf(buildTextAttachmentPart(textAttachment, { value: 1_000 }))).toBe("Attached file: fruit.csv\nname,qty\napple,3");
   });
 });
 

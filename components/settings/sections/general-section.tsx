@@ -16,7 +16,6 @@ import { ImageGenerationSettings } from "@/components/settings/integration-setti
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
 import { BotIsolationStatus } from "@/components/settings/bot-isolation-status";
-import { SavedLoginsSettings } from "@/components/settings/integration-settings/saved-logins-settings";
 import type { IsolationStatus } from "@/lib/shell-isolation";
 import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
@@ -33,7 +32,7 @@ import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
-import type { AppSettings, ConversationRetention, DefaultView, ToolCallDisplayMode } from "@/lib/types";
+import type { AppSettings, ConversationRetention, DefaultView, FollowUpBehavior, ToolCallDisplayMode } from "@/lib/types";
 import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
@@ -51,8 +50,8 @@ const GENERAL_SECTIONS = [
   {
     id: "conversation",
     label: "Conversation",
-    description: "Retention and links",
-    detail: "Choose how long Eidon keeps conversations and how links open.",
+    description: "Retention and follow-ups",
+    detail: "Choose how long Eidon keeps conversations, how links open, and how follow-ups behave while the agent is working.",
     icon: Archive
   },
   {
@@ -107,8 +106,8 @@ const GENERAL_SECTIONS = [
   {
     id: "bots",
     label: "Bots",
-    description: "Base prompt, sandbox and logins",
-    detail: "Set the base system prompt shared by every bot on the team, check the sandbox bots run in, and manage the logins they may fill.",
+    description: "Base prompt and sandbox",
+    detail: "Set the base system prompt shared by every bot on the team and check the sandbox bots run in.",
     icon: Bot
   }
 ] as const;
@@ -357,6 +356,23 @@ export function GeneralSection({
             <option value="7d">7 days</option>
           </select>
         </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="follow-up-behavior" className={fieldLabel}>Follow-ups while it&apos;s running</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Steer adds your message to the run at its next step, so the agent can change course without stopping. Queue sends it as its own turn once the run finishes.</p>
+          <select
+            id="follow-up-behavior"
+            value={draft.preferences.followUpBehavior}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              followUpBehavior: event.target.value as FollowUpBehavior
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="steer">Steer</option>
+            <option value="queue">Queue</option>
+          </select>
+        </div>
         <label htmlFor="confirm-external-links" className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer sm:max-w-md">
           <input
             id="confirm-external-links"
@@ -552,7 +568,6 @@ export function GeneralSection({
           ) : null}
         </div>
         {botIsolation ? <BotIsolationStatus status={botIsolation} /> : null}
-        <SavedLoginsSettings active={activeSection === "bots"} />
       </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;

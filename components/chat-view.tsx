@@ -134,7 +134,7 @@ export function ChatView({
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
   const [sendNowIds, setSendNowIds] = useState<ReadonlySet<string>>(() => new Set());
-  const redirectsWhileBusy = payload.conversation.conversationOrigin === "bot";
+  const redirectsWhileBusy = payload.settings.followUpBehavior === "steer";
   const redirectingIds = useMemo(
     () =>
       new Set(
@@ -278,7 +278,6 @@ export function ChatView({
     setStreamMessageIdState(messageId);
   }, []);
   const renderKeyByMessageIdRef = useRef(new Map<string, string>());
-  const wsConnectedRef = useRef(false);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const isSendingRef = useRef(false);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
@@ -1163,8 +1162,8 @@ export function ChatView({
           setError("");
           setIsConversationActive(false);
           setIsSending(false);
-          setUsedTokens(0);
-          setTokenUsage(payload.conversation.id, 0);
+          setUsedTokens(null);
+          setTokenUsage(payload.conversation.id, null);
           dispatchConversationActivityUpdated({
             conversationId: payload.conversation.id,
             isActive: false
@@ -1230,10 +1229,6 @@ export function ChatView({
   });
 
   useEffect(() => () => streamBuffer.reset(), [streamBuffer]);
-
-  useEffect(() => {
-    wsConnectedRef.current = wsConnected;
-  }, [wsConnected]);
 
   useEffect(() => {
     wsSubscribe(payload.conversation.id);
@@ -1428,7 +1423,7 @@ export function ChatView({
   }, [titleGenerationStatus]);
 
   useEffect(() => {
-    if (!needsMessageSync) {
+    if (!needsMessageSync || wsConnected) {
       stopMessageSyncPolling();
       return;
     }
@@ -1489,7 +1484,7 @@ export function ChatView({
         if (shouldIgnoreInactiveResult) {
           messageSyncTimeoutRef.current = window.setTimeout(() => {
             void syncConversation();
-          }, wsConnectedRef.current ? 5000 : 1000);
+          }, 1000);
           return;
         }
 
@@ -1523,7 +1518,7 @@ export function ChatView({
 
       messageSyncTimeoutRef.current = window.setTimeout(() => {
         void syncConversation();
-      }, wsConnectedRef.current ? 5000 : 1000);
+      }, 1000);
     };
 
     void syncConversation();
@@ -1532,7 +1527,7 @@ export function ChatView({
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
+  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline, wsConnected]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -1545,6 +1540,33 @@ export function ChatView({
     selectedProfile &&
     selectedProfile.visionMode === "none";
 
+  function beginTurnRestart() {
+    resetStreamingState();
+    setIsSending(true);
+    return new Set(messagesRef.current.map((message) => message.id));
+  }
+
+  function applyTurnRestart(
+    result: { conversation?: Conversation; messages?: Message[] },
+    messageIdsBeforeRestart: Set<string>
+  ) {
+    if (result.messages) {
+      const snapshot = sanitizeMessages(result.messages);
+      const snapshotIds = new Set(snapshot.map((message) => message.id));
+      setMessages((current) => [
+        ...snapshot,
+        ...current.filter(
+          (message) => !messageIdsBeforeRestart.has(message.id) && !snapshotIds.has(message.id)
+        )
+      ]);
+    }
+
+    if (result.conversation) {
+      setConversationTitle(result.conversation.title);
+      setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+    }
+  }
+
   async function updateUserMessage(messageId: string, content: string) {
     const previousMessage = messages.find((message) => message.id === messageId);
 
@@ -1556,6 +1578,7 @@ export function ChatView({
 
     setError("");
     setUpdatingMessageId(messageId);
+    const messageIdsBeforeRestart = beginTurnRestart();
 
     try {
       const response = await fetch(`/api/messages/${messageId}/edit-restart`, {
@@ -1577,29 +1600,9 @@ export function ChatView({
         throw new Error(message);
       }
 
-      const result = (await response.json()) as {
-        conversation?: Conversation;
-        messages?: Message[];
-      };
-
-      resetStreamingState();
-
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
-
-      if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-        dispatchConversationActivityUpdated({
-          conversationId: result.conversation.id,
-          isActive: true
-        });
-      }
-
-      setIsSending(true);
-      setIsConversationActive(true);
+      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
     } catch (caughtError) {
+      setIsSending(false);
       setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
       throw caughtError;
     } finally {
@@ -1673,6 +1676,7 @@ export function ChatView({
 
     setError("");
     setRetryingMessageId(messageId);
+    const messageIdsBeforeRestart = beginTurnRestart();
 
     try {
       const response = await fetch(`/api/messages/${messageId}/retry`, {
@@ -1690,29 +1694,9 @@ export function ChatView({
         throw new Error(message);
       }
 
-      const result = (await response.json()) as {
-        conversation?: Conversation;
-        messages?: Message[];
-      };
-
-      resetStreamingState();
-
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
-
-      if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-        dispatchConversationActivityUpdated({
-          conversationId: result.conversation.id,
-          isActive: true
-        });
-      }
-
-      setIsSending(true);
-      setIsConversationActive(true);
+      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
     } catch (caughtError) {
+      setIsSending(false);
       setError(
         caughtError instanceof Error ? caughtError.message : "Message retry failed"
       );
@@ -1733,6 +1717,7 @@ export function ChatView({
 
     setError("");
     setRegeneratingMessageId(messageId);
+    const messageIdsBeforeRestart = new Set(messagesRef.current.map((message) => message.id));
 
     try {
       const response = await fetch(`/api/messages/${messageId}/regenerate`, {
@@ -1755,13 +1740,9 @@ export function ChatView({
         messages?: Message[];
       };
 
-      if (result.messages) {
-        setMessages(sanitizeMessages(result.messages));
-      }
+      applyTurnRestart(result, messageIdsBeforeRestart);
 
       if (result.conversation) {
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
         dispatchConversationActivityUpdated({
           conversationId: result.conversation.id,
           isActive: true

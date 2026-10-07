@@ -5,7 +5,8 @@ import {
   estimateContextUsage,
   getConversationContextUsage,
   getConversationDebugStats,
-  MAX_TOOL_RESULT_CHARS
+  MAX_TOOL_RESULT_CHARS,
+  startBackgroundCompaction
 } from "@/lib/compaction";
 import {
   buildOpenAIChatCompletionMessages,
@@ -16,10 +17,18 @@ import { getDb } from "@/lib/db";
 import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { MAX_PROMPT_IMAGES } from "@/lib/constants";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
-import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/settings";
+import { getDefaultRuntimeProviderProfile, getSettingsForUser, updateProviderCatalog } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import { createLocalUser } from "@/lib/users";
+import { buildBotSystemPrompt, createBot } from "@/lib/bots";
 import type { Message, MessageAction, MessageAttachment, PromptMessage } from "@/lib/types";
+
+function allSystemText(messages: PromptMessage[]) {
+  return messages
+    .filter((message) => message.role === "system")
+    .map((message) => String(message.content))
+    .join("\n");
+}
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 vi.mock("@/lib/provider", async () => {
@@ -713,6 +722,49 @@ describe("lossless compaction", () => {
     expect(assistantMessages).toHaveLength(1);
     expect(getPromptText(assistantMessages[0]!)).toBe("Proceed with the rollout.");
     expect(getPromptText(assistantMessages[0]!)).not.toContain("Internal reasoning");
+  });
+
+  it("compacts in the background and lets the next turn reuse the result", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4352,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+    for (let index = 0; index < 45; index += 1) {
+      const message = createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(220)}`
+      });
+      getDb()
+        .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+        .run(new Date(Date.UTC(2026, 3, 10, 19, 0, index)).toISOString(), message.id);
+    }
+
+    const settings = getDefaultRuntimeProviderProfile()!;
+    const hooks = { onCompactionStart: vi.fn(), onCompactionEnd: vi.fn() };
+    const background = startBackgroundCompaction(conversation.id, settings, hooks);
+    expect(startBackgroundCompaction(conversation.id, settings)).toBe(background);
+
+    const nextTurn = ensureCompactedContext(conversation.id, settings);
+    const [backgroundResult, nextTurnResult] = await Promise.all([background, nextTurn]);
+
+    expect(backgroundResult.didCompact).toBe(true);
+    expect(nextTurnResult.didCompact).toBe(false);
+    expect(hooks.onCompactionStart).toHaveBeenCalledTimes(1);
+    expect(hooks.onCompactionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the next turn proceed when background compaction fails", async () => {
+    const conversation = createConversation();
+    const failing = startBackgroundCompaction(conversation.id, {} as never);
+    await expect(failing).rejects.toBeTruthy();
+    await expect(ensureCompactedContext(conversation.id, {} as never)).rejects.toBeTruthy();
   });
 
   it("does not compact an unmatched trailing user message out of visible history", async () => {
@@ -1627,11 +1679,13 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput(userA.id));
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).toContain("<memory>");
     expect(systemContent).toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
     expect(systemContent).toContain("create_memory");
+    expect(result[0].content).not.toContain("<memory>");
+    expect(result.at(-1)).toEqual({ role: "system", content: expect.stringContaining("<memory>") });
   });
 
   it("injects zero memories when memoryUserId is null and multiple users have memories", async () => {
@@ -1639,7 +1693,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput(null));
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1650,7 +1704,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = buildPromptMessages(memoryPromptInput());
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1688,7 +1742,7 @@ describe("buildPromptMessages with memories", () => {
       true
     );
 
-    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    const systemContent = allSystemText(result.promptMessages);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).not.toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1714,7 +1768,7 @@ describe("buildPromptMessages with memories", () => {
       true
     );
 
-    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    const systemContent = allSystemText(result.promptMessages);
     expect(systemContent).toContain("<memory>");
     expect(systemContent).toContain("User A lives in Montreal");
     expect(systemContent).not.toContain("User B prefers TypeScript");
@@ -1743,7 +1797,7 @@ describe("buildPromptMessages with memories", () => {
         memoriesEnabled: false
       });
 
-      const systemContent = result[0].content as string;
+      const systemContent = allSystemText(result);
       expect(systemContent).not.toContain("<memory>");
       expect(systemContent).not.toContain("create_memory");
     } finally {
@@ -1772,7 +1826,7 @@ describe("buildPromptMessages with memories", () => {
       memoriesEnabled: true
     });
 
-    const systemContent = result[0].content as string;
+    const systemContent = allSystemText(result);
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).toContain("create_memory");
     expect(systemContent).toContain("Proactively capture");
@@ -1945,6 +1999,33 @@ describe("estimateContextUsage", () => {
     expect(estimate.contextTokens).toBe(compacted.promptTokens);
     expect(estimate.compactionLimit).toBe(12000);
   });
+
+  it("getConversationContextUsage counts an agent's instructions and memories like its turn does", async () => {
+    seedProfile();
+    const owner = await createLocalUser({ username: "context-agent-owner", password: "Password123!", role: "user" });
+    const bot = createBot({ name: "Scout", systemPrompt: "Track every launch checklist item. ".repeat(40) }, owner.id);
+    createMemory("Scout reports to the launch channel", "preference", owner.id, { botId: bot.id });
+    createMessage({ conversationId: bot.homeConversationId, role: "user", content: "What is left?" });
+    createMessage({ conversationId: bot.homeConversationId, role: "assistant", content: "Two checklist items." });
+
+    const settings = getDefaultRuntimeProviderProfile()!;
+    const appSettings = getSettingsForUser(owner.id);
+    const compacted = await ensureCompactedContext(
+      bot.homeConversationId,
+      settings,
+      {},
+      undefined,
+      appSettings.memoriesEnabled,
+      appSettings.memoriesRigor,
+      undefined,
+      buildBotSystemPrompt(bot, appSettings.botSystemPrompt),
+      bot.id
+    );
+
+    const usage = getConversationContextUsage(bot.homeConversationId);
+    expect(usage!.contextTokens).toBe(compacted.promptTokens);
+    expect(usage!.contextTokens).toBeGreaterThan(estimateContextUsage(bot.homeConversationId, settings).contextTokens);
+  });
 });
 
 describe("buildPromptMessages tool-call replay", () => {
@@ -2034,6 +2115,26 @@ describe("buildPromptMessages tool-call replay", () => {
 
     const toolMessages = prompt.filter((m) => m.role === "tool");
     expect(toolMessages.map((m) => m.toolCallId)).toEqual(["act_1", "act_2"]);
+  });
+
+  it("replays run_python steps under their own tool name with the code, and plain shell steps as execute_shell_command", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Computed.",
+          actions: [
+            action({ id: "act_py", kind: "shell_command", toolName: "run_python", arguments: { code: "print(6)" }, resultSummary: "6", sortOrder: 0 }),
+            action({ id: "act_sh", kind: "shell_command", toolName: null, arguments: { command: "ls" }, resultSummary: "file-a", sortOrder: 1 })
+          ]
+        })
+      ]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.toolCalls!.map((tc) => tc.name)).toEqual(["run_python", "execute_shell_command"]);
+    expect(JSON.parse(assistant.toolCalls![0]!.arguments)).toEqual({ code: "print(6)" });
   });
 
   it("replays image_generation actions as generate_image tool calls and omits other non-replayable kinds", () => {

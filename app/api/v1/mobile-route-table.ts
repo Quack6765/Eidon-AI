@@ -43,8 +43,6 @@ import * as memoriesRoute from "@/app/api/memories/route";
 import * as messageActionApproveRoute from "@/app/api/message-actions/[actionId]/approve/route";
 import * as messageActionDismissRoute from "@/app/api/message-actions/[actionId]/dismiss/route";
 import * as messageActionSecretRoute from "@/app/api/message-actions/[actionId]/secret/route";
-import * as savedLoginRoute from "@/app/api/saved-logins/[loginId]/route";
-import * as savedLoginsRoute from "@/app/api/saved-logins/route";
 import * as messageRoute from "@/app/api/messages/[messageId]/route";
 import * as messageEditRestartRoute from "@/app/api/messages/[messageId]/edit-restart/route";
 import * as messageForkRoute from "@/app/api/messages/[messageId]/fork/route";
@@ -82,6 +80,9 @@ import * as toolApprovalRoute from "@/app/api/tool-approvals/[ruleId]/route";
 import * as toolApprovalsRoute from "@/app/api/tool-approvals/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
+import * as vaultEntryRoute from "@/app/api/vault/[entryId]/route";
+import * as vaultSecretRoute from "@/app/api/vault/[entryId]/secret/route";
+import * as vaultRoute from "@/app/api/vault/route";
 import * as whatsNewRoute from "@/app/api/whats-new/route";
 
 export type RouteContext = { params: Promise<Record<string, string>> };
@@ -151,8 +152,9 @@ export const mobileGatewayRoutes: Array<{ pattern: string[]; module: RouteModule
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
   { pattern: ["tool-approvals"], module: toolApprovalsRoute },
   { pattern: ["tool-approvals", ":ruleId"], module: toolApprovalRoute },
-  { pattern: ["saved-logins"], module: savedLoginsRoute },
-  { pattern: ["saved-logins", ":loginId"], module: savedLoginRoute },
+  { pattern: ["vault"], module: vaultRoute },
+  { pattern: ["vault", ":entryId"], module: vaultEntryRoute },
+  { pattern: ["vault", ":entryId", "secret"], module: vaultSecretRoute },
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },
   { pattern: ["mcp-servers"], module: mcpServersRoute },
   { pattern: ["mcp-servers", ":serverId"], module: mcpServerRoute },
