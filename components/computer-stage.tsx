@@ -134,7 +134,7 @@ export function ComputerStage({
           type="button"
           onClick={() => void handleReturn()}
           disabled={isReturning}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[12px] font-medium text-white transition hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 text-[12px] font-medium text-white shadow-[0_0_20px_var(--accent-glow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
         >
           {isReturning ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
           Return control
