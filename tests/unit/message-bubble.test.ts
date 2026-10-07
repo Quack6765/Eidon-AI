@@ -2699,6 +2699,214 @@ describe("message bubble", () => {
     ).toBeTruthy();
   });
 
+  it("gives each run of tool calls its own status line between intermediate messages", () => {
+    const createdAt = new Date().toISOString();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Looking it up.Now the page.Done.",
+          timeline: [
+            { id: "txt_1", timelineKind: "text", sortOrder: 0, createdAt, content: "Looking it up." },
+            {
+              ...createToolAction({
+                id: "act_search",
+                messageId: "msg_assistant",
+                toolName: "web_search",
+                label: "Web search",
+                detail: "",
+                arguments: { query: "Eidon docs" },
+                resultSummary: "Found results"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_2", timelineKind: "text", sortOrder: 2, createdAt, content: "Now the page." },
+            {
+              ...createToolAction({
+                id: "act_page",
+                messageId: "msg_assistant",
+                toolName: "read_page",
+                label: "Read page",
+                detail: "https://example.com/report",
+                resultSummary: "Report (1,024 chars)"
+              }),
+              timelineKind: "action"
+            },
+            {
+              ...createToolAction({
+                id: "act_docs",
+                messageId: "msg_assistant",
+                label: "Search docs",
+                detail: "query=Eidon",
+                resultSummary: "Found docs"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_3", timelineKind: "text", sortOrder: 5, createdAt, content: "Done." }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const statusLines = screen.getAllByTestId("assistant-status-line");
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
+    const ordered = [textBlocks[0], statusLines[0], textBlocks[1], statusLines[1], textBlocks[2]];
+
+    expect(statusLines).toHaveLength(2);
+    expect(textBlocks).toHaveLength(3);
+    expect(statusLines[0]).toHaveTextContent("1 web search");
+    expect(statusLines[1]).toHaveTextContent("1 tool, 1 page read");
+    ordered.slice(1).forEach((node, index) => {
+      expect(
+        ordered[index].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+  });
+
+  it("keeps earlier status lines on their summary while the latest run is live", () => {
+    const createdAt = new Date().toISOString();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Looking it up.Now the page.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          { id: "txt_1", timelineKind: "text", sortOrder: 0, createdAt, content: "Looking it up." },
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "Found results"
+            }),
+            timelineKind: "action"
+          },
+          { id: "txt_2", timelineKind: "text", sortOrder: 2, createdAt, content: "Now the page." },
+          {
+            ...createToolAction({
+              id: "act_page",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/report",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const [earlier, latest] = screen.getAllByTestId("assistant-status-line");
+
+    expect(earlier).toHaveTextContent("1 web search");
+    expect(earlier).toHaveClass("status-line--static");
+    expect(latest).toHaveTextContent("Read page");
+    expect(latest).toHaveClass("status-line--live");
+  });
+
+  it("opens each status line's record on its own", () => {
+    const createdAt = new Date().toISOString();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Looking it up.Done.",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_search",
+                messageId: "msg_assistant",
+                toolName: "web_search",
+                label: "Web search",
+                detail: "",
+                arguments: { query: "Eidon docs" },
+                resultSummary: "Found results"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_1", timelineKind: "text", sortOrder: 1, createdAt, content: "Looking it up." },
+            {
+              ...createToolAction({
+                id: "act_page",
+                messageId: "msg_assistant",
+                toolName: "read_page",
+                label: "Read page",
+                detail: "https://example.com/report",
+                resultSummary: "Report (1,024 chars)"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_2", timelineKind: "text", sortOrder: 3, createdAt, content: "Done." }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const [firstToggle, secondToggle] = screen.getAllByTestId("assistant-status-line-toggle");
+
+    fireEvent.click(secondToggle);
+
+    expect(firstToggle).toHaveAttribute("aria-expanded", "false");
+    expect(secondToggle).toHaveAttribute("aria-expanded", "true");
+    const rows = screen.getAllByTestId("assistant-status-line-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Read page: https://example.com/report");
+  });
+
+  it("keeps one status line across text that renders nothing", () => {
+    const createdAt = new Date().toISOString();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "\n\nDone.",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_one",
+                messageId: "msg_assistant",
+                label: "Search docs",
+                detail: "query=one",
+                resultSummary: "Found"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_gap", timelineKind: "text", sortOrder: 1, createdAt, content: "\n\n" },
+            {
+              ...createToolAction({
+                id: "act_two",
+                messageId: "msg_assistant",
+                label: "Search docs",
+                detail: "query=two",
+                resultSummary: "Found"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_done", timelineKind: "text", sortOrder: 3, createdAt, content: "Done." }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const statusLines = screen.getAllByTestId("assistant-status-line");
+
+    expect(statusLines).toHaveLength(1);
+    expect(statusLines[0]).toHaveTextContent("2 tools");
+  });
+
   it("renders running action pills in the default pills mode", () => {
     render(
       React.createElement(MessageBubble, {
