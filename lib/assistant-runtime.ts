@@ -263,17 +263,6 @@ function splitLateSystemMessages(promptMessages: PromptMessage[]) {
   };
 }
 
-function logPromptCache(conversationId: string | undefined, step: number, usage: Usage) {
-  if (usage.cacheReadTokens === undefined && usage.cacheCreationTokens === undefined) return;
-  console.info("[prompt-cache]", {
-    conversationId,
-    step,
-    inputTokens: usage.inputTokens,
-    cacheReadTokens: usage.cacheReadTokens ?? 0,
-    cacheCreationTokens: usage.cacheCreationTokens ?? 0
-  });
-}
-
 function getEffectiveVisionMode(
   settings: RuntimeProviderProfile,
   hasVisionServers: boolean
@@ -335,7 +324,6 @@ async function forceDirectAnswerAfterToolLoop(input: {
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
   guidance: string[];
-  step: number;
   directive?: string;
 }) {
   const prepared = prepareProviderPromptMessages({
@@ -386,8 +374,6 @@ async function forceDirectAnswerAfterToolLoop(input: {
 
     await input.onEvent?.(next.value);
   }
-
-  logPromptCache(input.conversationId, input.step, usage);
 
   if (!answer.trim()) {
     throw new Error("Assistant exceeded the maximum number of tool steps");
@@ -726,7 +712,6 @@ export async function resolveAssistantTurn(input: {
     }
 
     assertRunning();
-    logPromptCache(input.conversationId, step, usage);
 
     if (!toolCalls.length) {
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
@@ -796,7 +781,6 @@ export async function resolveAssistantTurn(input: {
         onEvent: input.onEvent,
         onAnswerSegment: input.onAnswerSegment,
         guidance: [buildDynamicSkillsSegment(turnSkills, input.skillManageEnabled), ...turnGuidance],
-        step,
         directive: input.research ? RESEARCH_FINAL_ANSWER_DIRECTIVE : undefined
       });
 

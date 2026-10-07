@@ -5,7 +5,7 @@ import React, { createContext, useContext, useMemo } from "react";
 type ContextTokensMap = Record<string, number>;
 type ContextTokensContextValue = {
   getTokenUsage: (conversationId: string) => number | null;
-  setTokenUsage: (conversationId: string, tokens: number) => void;
+  setTokenUsage: (conversationId: string, tokens: number | null) => void;
 };
 
 const ContextTokensContext = createContext<ContextTokensContextValue | null>(null);
@@ -18,7 +18,8 @@ export function ContextTokensProvider({ children }: { children: React.ReactNode 
     () => ({
       getTokenUsage: (conversationId) => globalTokensStore[conversationId] ?? null,
       setTokenUsage: (conversationId, tokens) => {
-        globalTokensStore[conversationId] = tokens;
+        if (tokens === null) delete globalTokensStore[conversationId];
+        else globalTokensStore[conversationId] = tokens;
       }
     }),
     []

@@ -1516,36 +1516,6 @@ Run browser commands.`
     expect(trailingGuidanceOfCall(0)).toContain("mem_1: [work] Likes tea");
   });
 
-  it("logs cache usage for every provider step", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "Hi" }], {
-        answer: "Hi",
-        thinking: "",
-        usage: { inputTokens: 100, outputTokens: 1, cacheReadTokens: 80, cacheCreationTokens: 5 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "hello" }],
-      skills: [],
-      mcpToolSets: [],
-      conversationId: "conv_cache"
-    });
-
-    expect(info).toHaveBeenCalledWith("[prompt-cache]", {
-      conversationId: "conv_cache",
-      step: 0,
-      inputTokens: 100,
-      cacheReadTokens: 80,
-      cacheCreationTokens: 5
-    });
-    info.mockRestore();
-  });
-
   it("executes unrestricted shell commands via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
