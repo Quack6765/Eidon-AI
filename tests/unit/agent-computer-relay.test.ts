@@ -60,10 +60,9 @@ function target(name: string): BrowserSessionTarget {
   return botBrowserTarget({ id: `bot-${name}`, userId: "user_relay" });
 }
 
-function writeStreamPort(session: BrowserSessionTarget, port: number, targetId = "OWN") {
+function writeStreamPort(session: BrowserSessionTarget, port: number) {
   mkdirSync(session.socketDir, { recursive: true });
   writeFileSync(join(session.socketDir, "tab.stream"), String(port));
-  writeFileSync(join(session.socketDir, "tab.target"), JSON.stringify({ targetId }));
 }
 
 function emitUpstream(index: number, message: unknown) {
@@ -93,7 +92,7 @@ describe("agent computer relay", () => {
     expect(conversationBrowserTarget(undefined)).toEqual(userBrowserTarget(null));
   });
 
-  it("relays frames as binary JPEG and forwards only the tab's own state", () => {
+  it("relays frames as binary JPEG and forwards only the active tab's state", () => {
     const session = target("a");
     writeStreamPort(session, 45_001);
     const viewer = new FakeViewer();
@@ -102,7 +101,14 @@ describe("agent computer relay", () => {
     expect(upstreams[0].url).toBe("ws://127.0.0.1:45001/?maxFps=15");
     expect(viewer.json()[0]).toEqual({ type: "computer_state", live: false, controlOwner: "bot", url: null, caption: null, viewport: null });
 
-    emitUpstream(0, { type: "tabs", tabs: [{ targetId: "OTHER", url: "https://other-bot.example" }, { targetId: "OWN", url: "https://example.com/" }] });
+    emitUpstream(0, {
+      type: "tabs",
+      tabs: [
+        { targetId: "OTHER", url: "https://other-bot.example", active: false },
+        { targetId: "OWN", url: "https://example.com/", active: true }
+      ]
+    });
+    expect(viewer.json().at(-1).url).toBe("https://example.com/");
     emitUpstream(0, { type: "command", action: "fill", params: { value: "hunter2" } });
     emitUpstream(0, frame());
     emitUpstream(0, { type: "url", url: "https://example.org/" });
@@ -147,16 +153,49 @@ describe("agent computer relay", () => {
     }
   });
 
-  it("drops frames for a viewer whose connection is backed up", () => {
-    const session = target("c");
-    writeStreamPort(session, 45_003);
-    const slow = new FakeViewer();
-    slow.bufferedAmount = 512 * 1024;
-    attachComputerViewer(slow as never, session, { mobile: false });
+  it("follows the agent to a tab it switched to", () => {
+    const session = target("e");
+    writeStreamPort(session, 45_005);
+    const viewer = new FakeViewer();
+    attachComputerViewer(viewer as never, session, { mobile: false });
 
-    emitUpstream(0, frame());
+    emitUpstream(0, { type: "tabs", tabs: [{ targetId: "OWN", url: "https://hotel.example/", active: true }] });
+    emitUpstream(0, {
+      type: "tabs",
+      tabs: [
+        { targetId: "OWN", url: "https://hotel.example/", active: false },
+        { targetId: "NEW", url: "https://bookings.example/search", active: true }
+      ]
+    });
 
-    expect(slow.frames()).toHaveLength(0);
+    expect(viewer.json().at(-1).url).toBe("https://bookings.example/search");
+  });
+
+  it("holds frames for a backed-up viewer and sends the newest once it drains", () => {
+    vi.useFakeTimers();
+    try {
+      const session = target("c");
+      writeStreamPort(session, 45_003);
+      const slow = new FakeViewer();
+      slow.bufferedAmount = 512 * 1024;
+      attachComputerViewer(slow as never, session, { mobile: false });
+
+      emitUpstream(0, frame());
+      const newest = Buffer.from([0xff, 0xd8, 0x02, 0xff, 0xd9]);
+      emitUpstream(0, { type: "frame", data: newest.toString("base64"), metadata: { deviceWidth: 1280, deviceHeight: 720 } });
+      vi.advanceTimersByTime(200);
+      expect(slow.frames()).toHaveLength(0);
+
+      slow.bufferedAmount = 0;
+      vi.advanceTimersByTime(70);
+      expect(slow.frames()).toEqual([newest]);
+
+      vi.advanceTimersByTime(500);
+      expect(slow.frames()).toEqual([newest]);
+      slow.emit("close");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the running browser command as the caption, with or without viewers", () => {
