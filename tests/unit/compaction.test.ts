@@ -2089,6 +2089,26 @@ describe("buildPromptMessages tool-call replay", () => {
     expect(toolMessages.map((m) => m.toolCallId)).toEqual(["act_1", "act_2"]);
   });
 
+  it("replays run_python steps under their own tool name with the code, and plain shell steps as execute_shell_command", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Computed.",
+          actions: [
+            action({ id: "act_py", kind: "shell_command", toolName: "run_python", arguments: { code: "print(6)" }, resultSummary: "6", sortOrder: 0 }),
+            action({ id: "act_sh", kind: "shell_command", toolName: null, arguments: { command: "ls" }, resultSummary: "file-a", sortOrder: 1 })
+          ]
+        })
+      ]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.toolCalls!.map((tc) => tc.name)).toEqual(["run_python", "execute_shell_command"]);
+    expect(JSON.parse(assistant.toolCalls![0]!.arguments)).toEqual({ code: "print(6)" });
+  });
+
   it("replays image_generation actions as generate_image tool calls and omits other non-replayable kinds", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Sys.",

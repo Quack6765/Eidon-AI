@@ -65,7 +65,8 @@ export function buildTextAttachmentPart(
   attachment: MessageAttachment,
   remainingAttachmentTextTokens: { value: number }
 ): PromptContentPart {
-  const header = `Attached file: ${attachment.filename}\n`;
+  const absolutePath = resolveStoredAttachmentPath(attachment);
+  const header = `Attached file: ${attachment.filename}${absolutePath ? ` (stored at: ${absolutePath})` : ""}\n`;
   const truncationMarker = "\n[truncated]";
   const availableTokens = Math.max(
     remainingAttachmentTextTokens.value -
@@ -90,20 +91,21 @@ export function buildTextAttachmentPart(
   };
 }
 
+function resolveStoredAttachmentPath(attachment: MessageAttachment) {
+  try {
+    return resolveAttachmentPath({ relativePath: attachment.relativePath });
+  } catch {
+    return null;
+  }
+}
+
 export function buildFileAttachmentPart(attachment: MessageAttachment): PromptContentPart {
   const description = `${attachment.mimeType}, ${attachment.byteSize} bytes`;
-
-  let absolutePath: string | null = null;
-  try {
-    absolutePath = resolveAttachmentPath({ relativePath: attachment.relativePath });
-  } catch {
-    absolutePath = null;
-  }
-
+  const absolutePath = resolveStoredAttachmentPath(attachment);
   const storedAt = absolutePath ? ` stored at: ${absolutePath}` : "";
   return {
     type: "text",
-    text: `Attached file: ${attachment.filename} (${description})${storedAt} — binary content is not inlined; inspect or process it with execute_shell_command or other tools when useful.`
+    text: `Attached file: ${attachment.filename} (${description})${storedAt} — binary content is not inlined; inspect or process it with run_python or execute_shell_command when useful.`
   };
 }
 

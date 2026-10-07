@@ -98,7 +98,7 @@ If `description` is absent, Eidon derives one from the first non-heading line of
 This field controls **skill visibility**, not command execution. Getting this wrong is a security mistake, so be precise about what it does:
 
 - A skill that declares `shell_command_prefixes` is **withheld from the model's skill list** unless the latest user message names the skill, contains something URL-like, or matches Eidon's browser/shell intent patterns (words like *browser*, *website*, *click*, *navigate*, *screenshot*, *form*, *login*, *dom*). On those triggers only skills that look like browser skills — their name or description mentions *browser* — are offered. A skill with no prefixes is always offered.
-- It does **not** restrict what `execute_shell_command` may run. That tool is always available to the model and passes the command to a shell as the container user, with the container's full filesystem access. There is no per-command allowlist anywhere in the execution path.
+- It does **not** restrict what `execute_shell_command` or `run_python` may run. Both tools are always available to the model and run as the container user, with the container's full filesystem access. There is no per-command allowlist anywhere in the execution path.
 
 Treat the prefixes as documentation plus a relevance filter. If you need to constrain what the assistant can do to a machine, constrain the container — not the skill front matter. See [Security and storage notes](./configuration.md#security-and-storage-notes).
 

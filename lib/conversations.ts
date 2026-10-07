@@ -17,6 +17,7 @@ import {
 import { copyCompactionStateForConversationFork } from "@/lib/compaction-fork";
 import { getHistoryCutIndex } from "@/lib/conversation-rewind";
 import { getDb } from "@/lib/db";
+import { removeToolOutputDir } from "@/lib/local-shell";
 import { createId } from "@/lib/ids";
 import {
   getSettings
@@ -600,6 +601,7 @@ export function deleteConversation(conversationId: string, userId?: string) {
 
   const result = transaction(conversationId);
   deleteAttachmentFiles(result.relativePaths);
+  if (result.deleted) removeToolOutputDir(conversationId);
   return result.deleted;
 }
 
@@ -659,6 +661,7 @@ export function clearConversationContent(conversationId: string) {
 
   const deletedAttachments = transaction(conversationId);
   deleteAttachmentFiles(relativePaths);
+  removeToolOutputDir(conversationId);
   return { deletedAttachments };
 }
 

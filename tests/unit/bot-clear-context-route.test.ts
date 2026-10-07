@@ -115,8 +115,13 @@ describe("clearConversationContent", () => {
     expect(fs.existsSync(boundPath)).toBe(true);
     expect(fs.existsSync(unboundPath)).toBe(true);
 
+    const { resolveToolOutputDir } = await import("@/lib/local-shell");
+    const outputDir = resolveToolOutputDir(conversation.id, true)!;
+    fs.writeFileSync(path.join(outputDir, "1700000000000-00000000.txt"), "long output");
+
     const result = clearConversationContent(conversation.id);
 
+    expect(fs.existsSync(outputDir)).toBe(false);
     expect(result.deletedAttachments).toBe(2);
     expect(getConversation(conversation.id)).not.toBeNull();
     expect(getConversation(conversation.id)?.isActive).toBe(false);

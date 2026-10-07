@@ -1,6 +1,7 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
 import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
+import { DEFAULT_SHELL_TIMEOUT_MS, MAX_OUTPUT_CHARS, MAX_SHELL_TIMEOUT_MS, resolveShellPath } from "@/lib/local-shell";
 import type { BotRosterEntry } from "@/lib/bots";
 import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
 import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
@@ -25,6 +26,34 @@ export function buildArgumentsSummary(args: Record<string, unknown> | null | und
   if (firstScalar) return `${firstScalar[0]}=${String(firstScalar[1])}`;
   const json = JSON.stringify(args);
   return json.length > 120 ? `${json.slice(0, 117)}...` : json;
+}
+
+const HOST_OS_NAMES: Partial<Record<NodeJS.Platform, string>> = { linux: "Linux", darwin: "macOS", win32: "Windows" };
+
+function describeHostOs() {
+  return HOST_OS_NAMES[process.platform] ?? process.platform;
+}
+
+const LONG_OUTPUT_NOTE = `Output longer than ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters is trimmed to its start and end, and the full output is saved to a file whose path is included in the result.`;
+
+const TIMEOUT_PARAMETER = {
+  type: "number",
+  description: `Timeout in milliseconds (default ${DEFAULT_SHELL_TIMEOUT_MS}, max ${MAX_SHELL_TIMEOUT_MS})`
+};
+
+function buildSecretsParameter(usage: string) {
+  return {
+    type: "array",
+    description: `Secrets from the user's vault to pass to this command as environment variables. ${usage}; you never see the values and they are hidden from the output. Never print them`,
+    items: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The vault entry's name, as listed by list_secrets" },
+        variable: { type: "string", description: "The environment variable to set, e.g. API_TOKEN" }
+      },
+      required: ["name", "variable"]
+    }
+  };
 }
 
 export function buildShellDetail(command: string) {
@@ -274,27 +303,39 @@ export function buildToolDefinitions(input: {
     type: "function",
     function: {
       name: "execute_shell_command",
-      description: "Execute a local shell command on the host environment.",
+      description: `Run a shell command on the ${describeHostOs()} host with \`${resolveShellPath()} -lc\`. Each call starts a fresh non-interactive shell in your persistent working directory: files you create there stay available to later calls, but cd and exported variables do not carry over, and stdin is empty. ${LONG_OUTPUT_NOTE} Use it for files, processes, and command-line tools; for calculations or for parsing and transforming data, use run_python instead.`,
       parameters: {
         type: "object",
         properties: {
           command: { type: "string", description: "The command to execute" },
-          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000, max 600000)" },
-          secrets: {
-            type: "array",
-            description:
-              "Secrets from the user's vault to pass to this command as environment variables. Refer to them as $VARIABLE in the command; you never see the values and they are hidden from the output. Never print them",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string", description: "The vault entry's name, as listed by list_secrets" },
-                variable: { type: "string", description: "The environment variable to set, e.g. API_TOKEN" }
-              },
-              required: ["name", "variable"]
-            }
-          }
+          timeout_ms: TIMEOUT_PARAMETER,
+          secrets: buildSecretsParameter("Refer to them as $VARIABLE in the command")
         },
         required: ["command"]
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "run_python",
+      description: `Run a Python 3 program and return what it prints. Use it whenever an answer depends on exact results — arithmetic, counting, dates and times, statistics, or parsing and transforming text, JSON, CSV, or other files — and run the code instead of working the result out mentally. Each call is a fresh python3 process in the same persistent working directory as execute_shell_command: files persist between calls, variables do not. Print everything you need to see. ${LONG_OUTPUT_NOTE} Only the standard library is available unless you list packages.`,
+      parameters: {
+        type: "object",
+        properties: {
+          code: { type: "string", description: "The Python source to run" },
+          packages: {
+            type: "array",
+            description:
+              "PyPI packages the code needs, such as pandas or openpyxl, installed for this run with uv. Leave it out when the standard library is enough",
+            items: { type: "string" },
+            maxItems: 10
+          },
+          timeout_ms: TIMEOUT_PARAMETER,
+          secrets: buildSecretsParameter("Read them with os.environ[\"VARIABLE\"]")
+        },
+        required: ["code"]
       }
     }
   });

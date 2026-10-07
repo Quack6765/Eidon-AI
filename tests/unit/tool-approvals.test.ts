@@ -351,6 +351,34 @@ describe("tool approval gate", () => {
     );
   });
 
+  it("matches standing rules against the invocation instead of the displayed source", async () => {
+    const payload: ToolApprovalProposalPayload = {
+      operation: "tool_approval",
+      scope: "shell",
+      families: ["python3"],
+      classified: true,
+      command: "import os\nprint(os.listdir())"
+    };
+    const request = (onActionStart: (action: RuntimeAction) => Promise<string | void> | string | void) =>
+      requestToolExecutionApproval({
+        payload,
+        label: 'Allow "python3" commands?',
+        detail: "import os",
+        userId,
+        unattended: true,
+        onActionStart,
+        invocation: "python3"
+      });
+
+    const denied = await request(makeActionStarter(messageId).onActionStart);
+    expect(denied.approved).toBe(false);
+
+    createToolApprovalRules(userId, "shell", ["python3"]);
+    const { onActionStart } = makeActionStarter(messageId);
+    await expect(request(onActionStart)).resolves.toEqual({ approved: true });
+    expect(onActionStart).not.toHaveBeenCalled();
+  });
+
   it("refuses unattended runs without a standing rule and never prompts", async () => {
     const { onActionStart } = makeActionStarter(messageId);
     const outcome = await gateRequest({

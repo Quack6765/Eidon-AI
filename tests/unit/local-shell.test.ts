@@ -6,9 +6,14 @@ vi.mock("node:child_process", () => ({
   spawn: spawnMock
 }));
 
+class MockStream extends EventEmitter {
+  setEncoding = vi.fn();
+}
+
 class MockChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
+  stdin = Object.assign(new EventEmitter(), { end: vi.fn() });
+  stdout = new MockStream();
+  stderr = new MockStream();
   kill = vi.fn();
 }
 
@@ -65,7 +70,7 @@ describe("local shell", () => {
     await resultPromise;
   });
 
-  it("runs unrestricted commands and truncates long output", async () => {
+  it("runs unrestricted commands and keeps long output for the caller to bound", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();
     spawnMock.mockReturnValue(child);
@@ -93,9 +98,45 @@ describe("local shell", () => {
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBe(false);
     expect(result.isError).toBe(false);
-    expect(result.stdout.endsWith("...[truncated]")).toBe(true);
+    expect(result.stdout).toBe("x".repeat(8_050));
+    expect(result.captureTruncated).toBe(false);
     expect(result.stderr).toBe("warning");
     expect(summarizeShellResult(result)).toContain("warning");
+  });
+
+  it("caps the captured output of each stream and flags the cut", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({ command: "yes", cwd: "/tmp/eidon" });
+    child.stdout.emit("data", "y".repeat(600_000));
+    child.stdout.emit("data", "y".repeat(600_000));
+    child.emit("close", 0);
+
+    const result = await resultPromise;
+    expect(result.stdout).toHaveLength(1_000_000);
+    expect(result.captureTruncated).toBe(true);
+    expect(child.stdout.setEncoding).toHaveBeenCalledWith("utf8");
+    expect(child.stderr.setEncoding).toHaveBeenCalledWith("utf8");
+  });
+
+  it("closes stdin, writing the given input first", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const plain = new MockChild();
+    spawnMock.mockReturnValueOnce(plain);
+    const plainPromise = executeLocalShellCommand({ command: "cat", cwd: "/tmp/eidon" });
+    expect(plain.stdin.end).toHaveBeenCalledWith("");
+    plain.emit("close", 0);
+    await plainPromise;
+
+    const piped = new MockChild();
+    spawnMock.mockReturnValueOnce(piped);
+    const pipedPromise = executeLocalShellCommand({ command: "python3 -u -", cwd: "/tmp/eidon", stdin: "print(1)" });
+    expect(piped.stdin.end).toHaveBeenCalledWith("print(1)");
+    piped.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    piped.emit("close", 1);
+    await expect(pipedPromise).resolves.toMatchObject({ exitCode: 1, isError: true });
   });
 
   it("allows shell redirection and compound commands", async () => {
@@ -404,20 +445,21 @@ describe("local shell", () => {
     child.emit("close", null);
   });
 
-  it("gives agent-browser commands a longer default timeout", async () => {
+  it("gives every command a two-minute default timeout", async () => {
     vi.useFakeTimers();
-    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { executeLocalShellCommand, DEFAULT_SHELL_TIMEOUT_MS } = await import("@/lib/local-shell");
     const child = new MockChild();
     spawnMock.mockReturnValue(child);
 
     const resultPromise = executeLocalShellCommand({
-      command: "agent-browser screenshot /tmp/example.png --full"
+      command: "npm test"
     });
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(120_000);
+    await vi.advanceTimersByTimeAsync(DEFAULT_SHELL_TIMEOUT_MS - 1);
     expect(child.kill).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(90_000);
+    await vi.advanceTimersByTimeAsync(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 
     child.emit("close", null);

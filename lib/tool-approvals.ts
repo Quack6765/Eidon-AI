@@ -591,8 +591,10 @@ export async function requestToolExecutionApproval(params: {
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   timeoutMs?: number;
   onWaitChange?: (waiting: boolean) => Promise<void> | void;
+  invocation?: string;
 }): Promise<ToolApprovalGateOutcome> {
   const { payload, userId } = params;
+  const invocation = params.invocation ?? payload.command ?? "";
 
   if (getUserAllowAllTools(userId)) {
     return { approved: true };
@@ -603,7 +605,7 @@ export async function requestToolExecutionApproval(params: {
     payload.families.length &&
     (payload.scope === "mcp"
       ? payload.families.every((family) => isToolFamilyApproved(userId, "mcp", family))
-      : Boolean(payload.command) && isShellInvocationAllowed(userId, payload.command ?? ""))
+      : Boolean(invocation) && isShellInvocationAllowed(userId, invocation))
   ) {
     return { approved: true };
   }

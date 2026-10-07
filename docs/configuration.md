@@ -116,7 +116,7 @@ MCP OAuth dynamic client registration sends Eidon's application name, avatar URL
 
 **Share links.** A conversation can be given a public share token. The share route serves a read-only transcript view and read-only access to that conversation's attachments — no authentication required, since the token is the credential. Anyone holding the URL can read it, so treat share links as public. Sharing is per-conversation and can be turned off again, which invalidates the link.
 
-**Shell execution.** The `execute_shell_command` tool runs commands as the container user with the container's full filesystem access. Skill front-matter does not sandbox it — see [MCP and skills](./mcp-and-skills.md#shell_command_prefixes-is-not-a-sandbox) for exactly what that field does and does not do.
+**Shell and Python execution.** The `execute_shell_command` and `run_python` tools run commands and Python programs as the container user with the container's full filesystem access. Skill front-matter does not sandbox it — see [MCP and skills](./mcp-and-skills.md#shell_command_prefixes-is-not-a-sandbox) for exactly what that field does and does not do.
 
 ## Backup and restore
 
