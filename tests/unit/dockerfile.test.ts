@@ -115,27 +115,35 @@ function runEntrypointNonRoot(baseDir: string, extraEnv: Record<string, string>,
   return dataDir;
 }
 
-describe("docker-entrypoint non-root path", () => {
+describe.skipIf(process.getuid?.() === 0)("docker-entrypoint non-root path", () => {
   it("creates the runtime folders and executes the command as the current user", () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-entrypoint-"));
     const markerPath = path.join(baseDir, "uid.txt");
 
-    const dataDir = runEntrypointNonRoot(baseDir, {}, markerPath);
+    try {
+      const dataDir = runEntrypointNonRoot(baseDir, {}, markerPath);
 
-    for (const dir of ["", "home", "tmp", "runtime", "runtime/agent-browser"]) {
-      expect(fs.statSync(path.join(dataDir, dir)).isDirectory()).toBe(true);
+      for (const dir of ["", "home", "tmp", "runtime", "runtime/agent-browser"]) {
+        expect(fs.statSync(path.join(dataDir, dir)).isDirectory()).toBe(true);
+      }
+      expect(fs.statSync(`${dataDir}-workspaces`).isDirectory()).toBe(true);
+      expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
+    } finally {
+      fs.rmSync(baseDir, { recursive: true, force: true });
     }
-    expect(fs.statSync(`${dataDir}-workspaces`).isDirectory()).toBe(true);
-    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
   });
 
   it("ignores PUID/PGID with a warning and still runs the command", () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-entrypoint-"));
     const markerPath = path.join(baseDir, "uid.txt");
 
-    const dataDir = runEntrypointNonRoot(baseDir, { PUID: "99", PGID: "100" }, markerPath);
+    try {
+      const dataDir = runEntrypointNonRoot(baseDir, { PUID: "99", PGID: "100" }, markerPath);
 
-    expect(fs.statSync(dataDir).isDirectory()).toBe(true);
-    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
+      expect(fs.statSync(dataDir).isDirectory()).toBe(true);
+      expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
+    } finally {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    }
   });
 });

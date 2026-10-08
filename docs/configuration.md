@@ -102,7 +102,7 @@ If your platform gives you an ephemeral filesystem with a separate volume, or yo
 
 **Container user.** The image creates a system `eidon` user and group. The container starts as root only so the entrypoint can prepare the data folder, then drops privileges and the app always runs as `eidon` — never as root. With `PUID`/`PGID` set, the entrypoint remaps `eidon` to that uid/gid and re-owns the data folder, so no manual `chown` is needed. If the container itself is started non-root (`--user`, Kubernetes `runAsUser`), every root-only step is skipped and `PUID`/`PGID` are ignored. Because the image no longer pins a `USER`, `docker exec` defaults to root; use `docker exec -u eidon` to run a command as the app user.
 
-Hosts such as Unraid that manage appdata folders as `nobody:users` should set `PUID=99` and `PGID=100`, matching the linuxserver.io convention, so the files Eidon writes stay editable over SMB.
+Hosts such as Unraid that manage appdata folders as `nobody:users` should set `PUID=99` and `PGID=100`, matching the linuxserver.io convention, so the files have the same owner as every other Unraid app.
 
 **Credentials at rest.** Secrets are encrypted with AES-256-GCM before being written to SQLite, using a SHA-256 digest of `EIDON_ENCRYPTION_SECRET` as the key and a fresh random IV per value. The database itself is not encrypted, so treat the volume as sensitive: conversation content, memories, and attachments are stored in the clear.
 
