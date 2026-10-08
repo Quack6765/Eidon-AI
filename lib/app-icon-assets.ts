@@ -3,7 +3,7 @@ import path from "node:path";
 
 import sharp from "sharp";
 
-export type WarriorIconAssetInput = {
+export type AppIconAssetInput = {
   sourcePath: string;
   outputDir: string;
 };
@@ -15,13 +15,13 @@ const ASSET_SPECS = [
   { filename: "apple-touch-icon.png", size: 180 }
 ] as const;
 
-export async function generateWarriorIconAssets(input: WarriorIconAssetInput) {
+const SVG_RENDER_DENSITY = 384;
+
+export async function generateAppIconAssets(input: AppIconAssetInput) {
   await fs.mkdir(input.outputDir, { recursive: true });
 
-  const sourceBuffer = await sharp(input.sourcePath).png().toBuffer();
-
   for (const asset of ASSET_SPECS) {
-    await sharp(sourceBuffer)
+    await sharp(input.sourcePath, { density: SVG_RENDER_DENSITY })
       .resize(asset.size, asset.size, { fit: "fill" })
       .png()
       .toFile(path.join(input.outputDir, asset.filename));
