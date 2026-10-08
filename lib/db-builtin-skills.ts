@@ -30,7 +30,7 @@ A fast headless browser automation CLI for AI agents. Use it for any web browsin
 - \`agent-browser hover <sel>\` — Hover element
 - \`agent-browser select <sel> <val>\` — Select dropdown option
 - \`agent-browser get text <sel>\` — Get text content of element
-- \`agent-browser close\` — Close browser
+- \`agent-browser get attr <sel> <name>\` — Get an attribute, such as a link's href
 
 ## When to Use
 
@@ -48,6 +48,7 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 ## Important
 
 - The browser stays open between tasks and keeps its sign-ins, so you do not need to close it
+- Stay in one tab: a link that opens a new tab leaves you on the current page, so read its href with \`get attr\` and \`open\` that address instead
 - Never ask the user to paste a password or one-time code into the chat
 - Before signing in, call \`list_secrets\` to see what the user's vault holds for the site, and type a stored username yourself
 - When a page needs a password or a one-time code, call \`request_secret\` with the vault entry's name, the page's origin and the field (a snapshot ref or selector): Eidon fills a stored value by itself, or types the user's answer without showing it to you
