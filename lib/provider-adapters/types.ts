@@ -61,6 +61,19 @@ export type ProviderStreamInput = {
   runtimeToolContext?: RuntimeToolContext;
 };
 
+export type ProviderUsageWindow = {
+  label: string;
+  usedPercent: number;
+  windowSeconds: number | null;
+  resetsAt: string | null;
+};
+
+export type ProviderUsageLimits = {
+  planLabel: string | null;
+  windows: ProviderUsageWindow[];
+  fetchedAt: string;
+};
+
 export type ProviderAdapter = {
   getReadinessError(profile: RuntimeProviderProfile): string | null;
   supportsStreamRetry: boolean;
@@ -80,6 +93,8 @@ export type ProviderAdapter = {
       input?: { client?: "native" | "browser" }
     ): Promise<unknown>;
     get(flowId: string, userId: string): { profileId: string } | null;
+    poll?(flowId: string, userId: string): Promise<void>;
     cancel(flowId: string, userId: string): boolean;
   };
+  getUsageLimits?(profile: RuntimeProviderProfile): Promise<ProviderUsageLimits>;
 };

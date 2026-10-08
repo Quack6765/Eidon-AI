@@ -706,13 +706,13 @@ export function getConversationContextUsage(
   const conversation = getConversation(conversationId, userId);
   if (!conversation) return null;
 
+  const conversationOwnerId = getConversationOwnerId(conversationId);
   const settings =
     (conversation.providerProfileId
       ? getRuntimeProviderProfile(conversation.providerProfileId)
-      : null) ?? getDefaultRuntimeProviderProfile();
+      : null) ?? getDefaultRuntimeProviderProfile(conversationOwnerId);
   if (!settings) return null;
 
-  const conversationOwnerId = getConversationOwnerId(conversationId);
   const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 
   const messages = listMessages(conversationId);

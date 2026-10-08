@@ -1,7 +1,8 @@
 import { runLocalTitleInference } from "@/lib/local-title-model";
-import { getConversation } from "@/lib/conversations";
+import { getConversation, getConversationOwnerId } from "@/lib/conversations";
 import { callProviderText } from "@/lib/provider";
-import { getSettings, listRuntimeProviderProfiles } from "@/lib/settings";
+import { canUseProviderProfile } from "@/lib/provider-profile";
+import { getDefaultRuntimeProviderProfile, getSettings, listRuntimeProviderProfiles } from "@/lib/settings";
 
 export const DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE = "Files";
 export const DEFAULT_CONVERSATION_TITLE = "Conversation";
@@ -55,14 +56,20 @@ export async function generateConversationTitle(input: {
       rawTitle = await runLocalTitleInference(input.firstMessage);
     } else {
       const profiles = listRuntimeProviderProfiles();
+      const ownerId = getConversationOwnerId(input.conversationId);
       let profile: typeof profiles[0] | undefined;
 
       if (mode === "same") {
         const conversation = getConversation(input.conversationId);
-        const profileId = conversation?.providerProfileId ?? settings.defaultProviderProfileId;
-        profile = profiles.find((p) => p.id === profileId);
+        profile = conversation?.providerProfileId
+          ? profiles.find((p) => p.id === conversation.providerProfileId)
+          : getDefaultRuntimeProviderProfile(ownerId) ?? undefined;
       } else if (mode === "specific" && settings.titleGenerationProfileId) {
         profile = profiles.find((p) => p.id === settings.titleGenerationProfileId);
+      }
+
+      if (profile && !canUseProviderProfile(profile, ownerId)) {
+        profile = undefined;
       }
 
       if (!profile) {

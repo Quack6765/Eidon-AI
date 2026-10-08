@@ -9,11 +9,13 @@ import {
 import { createMobileSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  cancelGithubProviderConnectionFlow,
   createGithubProviderConnectionFlow,
-  getGithubProviderConnectionFlow,
   handleGithubProviderConnectionCallback
 } from "@/lib/provider-adapters/github-provider-connection";
+import {
+  cancelProviderConnectionFlow,
+  getProviderConnectionFlow
+} from "@/lib/provider-connection-flows";
 import {
   claimProviderConnectionAttempt,
   getRuntimeProviderProfile
@@ -92,7 +94,7 @@ describe("mobile GitHub OAuth", () => {
 
     expect(flow.flowId).toMatch(/^provider_connection_flow_/);
     expect(new Date(flow.expiresAt).getTime() - Date.now()).toBeGreaterThan(9 * 60 * 1000);
-    expect(getGithubProviderConnectionFlow(flow.flowId, admin.id)).toMatchObject({
+    expect(getProviderConnectionFlow(flow.flowId, admin.id)).toMatchObject({
       id: flow.flowId,
       status: "pending",
       profileId: "profile_copilot"
@@ -114,7 +116,7 @@ describe("mobile GitHub OAuth", () => {
     const profile = getRuntimeProviderProfile("profile_copilot")!;
     expect(profile.credentials.accessToken).toBe("ghu_mobile_access");
     expect(profile.credentials.refreshToken).toBe("ghr_mobile_refresh");
-    expect(getGithubProviderConnectionFlow(flow.flowId, admin.id)?.status).toBe("succeeded");
+    expect(getProviderConnectionFlow(flow.flowId, admin.id)?.status).toBe("succeeded");
 
     const replay = await handleGithubProviderConnectionCallback(callbackRequest(state));
     expect(new URL(replay!.headers.get("location")!).searchParams.get("status")).toBe("failure");
@@ -158,10 +160,10 @@ describe("mobile GitHub OAuth", () => {
       ...localAdmin,
       passwordManagedBy: "local"
     }, "profile_copilot");
-    expect(getGithubProviderConnectionFlow(canceled.flowId, other.id)).toBeNull();
-    expect(cancelGithubProviderConnectionFlow(canceled.flowId, other.id)).toBe(false);
-    expect(cancelGithubProviderConnectionFlow(canceled.flowId, localAdmin.id)).toBe(true);
-    expect(cancelGithubProviderConnectionFlow(canceled.flowId, localAdmin.id)).toBe(false);
+    expect(getProviderConnectionFlow(canceled.flowId, other.id)).toBeNull();
+    expect(cancelProviderConnectionFlow(canceled.flowId, other.id)).toBe(false);
+    expect(cancelProviderConnectionFlow(canceled.flowId, localAdmin.id)).toBe(true);
+    expect(cancelProviderConnectionFlow(canceled.flowId, localAdmin.id)).toBe(false);
     expect(new URL((await handleGithubProviderConnectionCallback(
       callbackRequest(getState(canceled.authorizationUrl))
     ))!.headers.get("location")!).searchParams.get("status")).toBe("failure");
@@ -184,7 +186,7 @@ describe("mobile GitHub OAuth", () => {
       callbackRequest(getState(denied.authorizationUrl), "error=access_denied")
     );
     expect(new URL(deniedResponse!.headers.get("location")!).searchParams.get("status")).toBe("failure");
-    expect(getGithubProviderConnectionFlow(denied.flowId, admin.id)?.status).toBe("canceled");
+    expect(getProviderConnectionFlow(denied.flowId, admin.id)?.status).toBe("canceled");
 
     const malformedState = await new SignJWT({ tokenUse: "github_mobile_oauth_state" })
       .setProtectedHeader({ alg: "HS256" })

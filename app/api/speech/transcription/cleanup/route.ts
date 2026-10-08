@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   try {
     const result = await cleanSpeechTranscript({
       transcript: body.data.transcript,
+      userId: user.id,
       signal: request.signal
     });
     return ok(result);

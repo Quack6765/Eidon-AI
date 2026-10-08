@@ -24,7 +24,7 @@ export function createRuntimeProviderProfile(
 ): RuntimeProviderProfile {
   const providerKind = overrides.providerKind ?? "openai_compatible";
   const draft = createProviderProfileDraft({ providerKind });
-  const providerConfig = providerKind === "github_copilot"
+  const providerConfig = providerKind === "github_copilot" || providerKind === "chatgpt_subscription"
     ? {}
     : providerKind === "anthropic"
       ? {
@@ -48,8 +48,8 @@ export function createRuntimeProviderProfile(
     providerKind,
     providerConfig,
     credentials: overrides.credentials ?? (
-      providerKind === "github_copilot"
-        ? { accessToken: "github-test-token", refreshToken: "github-test-refresh" }
+      providerKind === "github_copilot" || providerKind === "chatgpt_subscription"
+        ? { accessToken: "oauth-test-token", refreshToken: "oauth-test-refresh" }
         : { apiKey: "sk-test" }
     ),
     connectionMetadata: overrides.connectionMetadata ?? {},

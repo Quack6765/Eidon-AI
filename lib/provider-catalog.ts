@@ -1,6 +1,7 @@
 import { getDefaultVisionMode } from "@/lib/model-capabilities";
 
 export type ProviderConnectionMode = "api_key" | "oauth";
+export type ProviderAccess = "shared" | "owner";
 export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
 export type ProcessingMode = "standard" | "fast";
@@ -42,6 +43,8 @@ export const PROVIDER_CATALOG = {
   openai_compatible: {
     label: "OpenAI compatible",
     connectionMode: "api_key",
+    access: "shared",
+    usageLimits: false,
     apiModes: ["responses", "chat_completions"],
     defaultPresetId: "openai_official",
     supportedConfiguration: ["apiBaseUrl", "apiMode", "reasoningParameterMode"],
@@ -55,6 +58,8 @@ export const PROVIDER_CATALOG = {
   github_copilot: {
     label: "GitHub Copilot",
     connectionMode: "oauth",
+    access: "shared",
+    usageLimits: false,
     apiModes: ["chat_completions"],
     defaultPresetId: null,
     supportedConfiguration: [],
@@ -68,6 +73,8 @@ export const PROVIDER_CATALOG = {
   anthropic: {
     label: "Anthropic compatible",
     connectionMode: "api_key",
+    access: "shared",
+    usageLimits: false,
     apiModes: ["chat_completions"],
     defaultPresetId: "anthropic_official",
     supportedConfiguration: ["apiBaseUrl"],
@@ -77,12 +84,29 @@ export const PROVIDER_CATALOG = {
       tokenization: true,
       modelInput: "manual"
     }
+  },
+  chatgpt_subscription: {
+    label: "ChatGPT subscription",
+    connectionMode: "oauth",
+    access: "owner",
+    usageLimits: true,
+    apiModes: ["responses"],
+    defaultPresetId: null,
+    supportedConfiguration: [],
+    editor: {
+      sampling: false,
+      apiMode: false,
+      tokenization: true,
+      modelInput: "discovered"
+    }
   }
 } as const satisfies Record<
   string,
   {
     label: string;
     connectionMode: ProviderConnectionMode;
+    access: ProviderAccess;
+    usageLimits: boolean;
     apiModes: readonly ApiMode[];
     defaultPresetId: string | null;
     supportedConfiguration: readonly (

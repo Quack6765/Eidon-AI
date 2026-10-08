@@ -17,13 +17,13 @@ export async function POST(request: Request) {
     };
     const settings =
       (body.providerProfileId ? getRuntimeProviderProfile(body.providerProfileId) : null) ??
-      getDefaultRuntimeProviderProfile();
+      getDefaultRuntimeProviderProfile(admin.id);
 
     if (!settings) {
       return badRequest("Provider profile not found");
     }
 
-    const readinessError = getProviderReadinessError(settings);
+    const readinessError = getProviderReadinessError(settings, admin.id);
     if (readinessError) return badRequest(readinessError);
 
     const text = await callProviderText({

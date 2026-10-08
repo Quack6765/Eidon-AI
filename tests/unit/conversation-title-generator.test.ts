@@ -14,11 +14,13 @@ vi.mock("@/lib/settings", () => ({
     defaultProviderProfileId: null,
     titleGenerationProfileId: null
   })),
-  listRuntimeProviderProfiles: vi.fn(() => [])
+  listRuntimeProviderProfiles: vi.fn(() => []),
+  getDefaultRuntimeProviderProfile: vi.fn(() => null)
 }));
 
 vi.mock("@/lib/conversations", () => ({
-  getConversation: vi.fn()
+  getConversation: vi.fn(),
+  getConversationOwnerId: vi.fn(() => "user_1")
 }));
 
 describe("conversation title generator", () => {
@@ -104,5 +106,34 @@ describe("conversation title generator", () => {
     });
 
     expect(title).toBe("Explaining Gravity");
+  });
+
+  it("falls back to a plain title when the conversation owner cannot use the profile", async () => {
+    const { getSettings, listRuntimeProviderProfiles } = await import("@/lib/settings");
+    (getSettings as ReturnType<typeof vi.fn>).mockReturnValue({
+      titleGenerationMode: "specific",
+      defaultProviderProfileId: "profile-private",
+      titleGenerationProfileId: "profile-private"
+    });
+    (listRuntimeProviderProfiles as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        id: "profile-private",
+        model: "gpt-5.6-luna",
+        name: "ChatGPT",
+        providerKind: "chatgpt_subscription",
+        connectionMetadata: { ownerUserId: "user_admin" }
+      }
+    ]);
+    const { callProviderText } = await import("@/lib/provider");
+    (callProviderText as ReturnType<typeof vi.fn>).mockClear();
+
+    const { generateConversationTitle } = await import("@/lib/conversation-title-generator");
+    const title = await generateConversationTitle({
+      firstMessage: "plan a trip to Lisbon",
+      conversationId: "conv-2"
+    });
+
+    expect(title).toBe("plan a trip to Lisbon");
+    expect(callProviderText).not.toHaveBeenCalled();
   });
 });

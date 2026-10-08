@@ -4,7 +4,7 @@ import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
 import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
-import type { PromptMessage, ProviderProfile } from "@/lib/types";
+import type { PromptMessage, ProviderProfile, ToolDefinition } from "@/lib/types";
 
 export function createOpenAIClient(settings: ProviderProfile, apiKey: string, conversationId?: string) {
   return new OpenAI({
@@ -117,6 +117,16 @@ export function buildOpenAIResponsesInput(messages: PromptMessage[]): any[] {
   }
 
   return input;
+}
+
+export function buildOpenAIResponsesTools(tools: ToolDefinition[]) {
+  return tools.map((tool) => ({
+    type: "function",
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters ?? {},
+    strict: false
+  }));
 }
 
 function usesThinkingReplay(settings: ProviderProfile) {

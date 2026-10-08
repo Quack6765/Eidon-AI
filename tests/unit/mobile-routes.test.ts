@@ -1909,6 +1909,13 @@ describe("Mobile API v1 REST adapter", () => {
       ["providers", "profile_absent", "models"],
       "GET"
     );
+    const usage = await callRoute(
+      session.token,
+      "/providers/{profileId}/usage",
+      ["providers", "profile_mobile_routes", "usage"],
+      "GET"
+    );
+    expect(usage.status).toBe(404);
     await callRoute(
       session.token,
       "/providers/{profileId}/connection",

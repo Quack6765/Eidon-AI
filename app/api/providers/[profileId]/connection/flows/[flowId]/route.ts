@@ -29,7 +29,10 @@ export async function GET(
   context: { params: Promise<{ profileId: string; flowId: string }> }
 ) {
   const result = await getAuthorizedFlow(context);
-  return result instanceof Response ? result : ok({ flow: result.flow });
+  if (result instanceof Response) return result;
+  if (!result.connectionFlows.poll) return ok({ flow: result.flow });
+  await result.connectionFlows.poll(result.params.flowId, result.admin.id);
+  return ok({ flow: result.connectionFlows.get(result.params.flowId, result.admin.id) });
 }
 
 export async function DELETE(

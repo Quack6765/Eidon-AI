@@ -457,7 +457,7 @@ export async function resolveAssistantTurn(input: {
         "Vision provider profile is not available. Select a vision provider profile in Settings, or switch this profile's vision mode."
       );
     }
-    const visionReadinessError = getProviderReadinessError(input.visionProfile);
+    const visionReadinessError = getProviderReadinessError(input.visionProfile, input.memoryUserId ?? null);
     if (visionReadinessError) {
       throw new Error(visionReadinessError);
     }
@@ -630,7 +630,7 @@ export async function resolveAssistantTurn(input: {
       visionToolEnabled:
         effectiveVisionMode === "provider" &&
         input.visionProfile !== undefined &&
-        !getProviderReadinessError(input.visionProfile),
+        !getProviderReadinessError(input.visionProfile, input.memoryUserId ?? null),
       botTeam: input.botTeam,
       botWorkspaceSkillsEnabled: input.botWorkspaceSkillsEnabled,
       skillManageEnabled: input.skillManageEnabled,

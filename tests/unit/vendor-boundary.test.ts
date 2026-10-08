@@ -12,6 +12,7 @@ const allowedVendorPaths = new Set([
   "components/settings/integration-settings/web-search-settings.tsx",
   "components/settings/provider-connection-fields.tsx",
   "lib/anthropic.ts",
+  "lib/chatgpt-subscription.ts",
   "lib/copilot-tools.ts",
   "lib/db-migrations.ts",
   "lib/env.ts",

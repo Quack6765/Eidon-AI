@@ -72,7 +72,7 @@ export type ProviderProfile = ProviderProfileCore & (
       providerConfig: AnthropicProviderConfig;
     }
   | {
-      providerKind: "github_copilot";
+      providerKind: "github_copilot" | "chatgpt_subscription";
       providerConfig: Record<string, never>;
     }
 );
@@ -87,6 +87,7 @@ export type ProviderConnectionMetadata = {
   expiresAt?: string | null;
   refreshExpiresAt?: string | null;
   accountLabel?: string | null;
+  ownerUserId?: string | null;
 };
 
 export type RuntimeProviderProfile = ProviderProfile & {
@@ -113,7 +114,7 @@ export function getProviderApiMode(profile: {
   providerConfig: { apiBaseUrl?: string; apiMode?: ApiMode };
 }): ApiMode {
   if (profile.providerKind !== "openai_compatible") {
-    return "chat_completions";
+    return PROVIDER_CATALOG[profile.providerKind].apiModes[0];
   }
   return resolveProviderRequestApiMode({
     providerKind: profile.providerKind,
@@ -134,9 +135,9 @@ export function profileSupportsImageInput(profile: {
 }
 
 export function getProviderApiBaseUrl(profile: ProviderProfile) {
-  return profile.providerKind === "github_copilot"
-    ? ""
-    : profile.providerConfig.apiBaseUrl;
+  return "apiBaseUrl" in profile.providerConfig
+    ? profile.providerConfig.apiBaseUrl
+    : "";
 }
 
 export function getOpenCodeSessionHeaders(
@@ -214,10 +215,9 @@ export function getProviderConnectionSummary(
     ? Boolean(profile.credentials.apiKey)
     : Boolean(profile.credentials.accessToken);
   const expiresAt = profile.connectionMetadata.expiresAt ?? null;
-  const expiry = expiresAt ? Date.parse(expiresAt) : Number.NaN;
   const status: ProviderConnectionStatus = !hasCredential
     ? "disconnected"
-    : Number.isFinite(expiry) && expiry <= Date.now()
+    : isConnectionExpired(profile)
       ? "expired"
       : "connected";
 
@@ -227,6 +227,26 @@ export function getProviderConnectionSummary(
     accountLabel: profile.connectionMetadata.accountLabel ?? null,
     expiresAt
   };
+}
+
+function hasPassed(timestamp: string | null | undefined) {
+  const time = timestamp ? Date.parse(timestamp) : Number.NaN;
+  return Number.isFinite(time) && time <= Date.now();
+}
+
+function isConnectionExpired(profile: RuntimeProviderProfile) {
+  if (profile.credentials.refreshToken) {
+    return hasPassed(profile.connectionMetadata.refreshExpiresAt);
+  }
+  return hasPassed(profile.connectionMetadata.expiresAt);
+}
+
+export function canUseProviderProfile(
+  profile: Pick<RuntimeProviderProfile, "providerKind" | "connectionMetadata">,
+  userId: string | null
+) {
+  if (PROVIDER_CATALOG[profile.providerKind].access === "shared") return true;
+  return Boolean(userId) && profile.connectionMetadata.ownerUserId === userId;
 }
 
 export function toProviderProfileSummary(

@@ -19,7 +19,7 @@ import {
 import { getConversationDebugStats } from "@/lib/compaction";
 import { getFolder } from "@/lib/folders";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
@@ -137,7 +137,7 @@ export async function PATCH(
   }
 
   if (body.data.providerProfileId !== undefined) {
-    const providerProfile = getProviderProfile(body.data.providerProfileId);
+    const providerProfile = getSelectableProviderProfile(body.data.providerProfileId, user.id);
 
     if (!providerProfile) {
       return badRequest("Provider profile not found", 404);

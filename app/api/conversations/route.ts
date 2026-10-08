@@ -9,7 +9,7 @@ import {
 } from "@/lib/conversations";
 import { getFolder } from "@/lib/folders";
 import { badRequest, ok } from "@/lib/http";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 
 const listSchema = z.object({
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   const folderId = body.success ? body.data.folderId : undefined;
   const providerProfileId = body.success ? body.data.providerProfileId : undefined;
 
-  if (providerProfileId !== undefined && !getProviderProfile(providerProfileId)) {
+  if (providerProfileId !== undefined && !getSelectableProviderProfile(providerProfileId, user.id)) {
     return badRequest("Provider profile not found", 404);
   }
 

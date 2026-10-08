@@ -7,7 +7,7 @@ import { createAutomation, listAutomations } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
 import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
 
 const createSchema = z.object({
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     return badRequest("Invalid automation data");
   }
 
-  if (!getProviderProfile(body.data.providerProfileId)) {
+  if (!getSelectableProviderProfile(body.data.providerProfileId, user.id)) {
     return badRequest("Provider profile not found", 404);
   }
 

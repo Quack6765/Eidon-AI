@@ -9,6 +9,7 @@ import {
   MAX_RESEARCH_PLAN_STEP_CHARS
 } from "@/lib/constants";
 import { badRequest, ok, payloadTooLarge } from "@/lib/http";
+import { getProviderReadinessError } from "@/lib/provider-adapters";
 import { generateResearchPlan } from "@/lib/research-plan";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile } from "@/lib/settings";
 
@@ -46,8 +47,10 @@ export async function POST(request: Request) {
 
   const settings =
     (payload.data.providerProfileId ? getRuntimeProviderProfile(payload.data.providerProfileId) : null) ??
-    getDefaultRuntimeProviderProfile();
+    getDefaultRuntimeProviderProfile(user.id);
   if (!settings) return badRequest("No provider profile configured");
+  const readinessError = getProviderReadinessError(settings, user.id);
+  if (readinessError) return badRequest(readinessError);
 
   try {
     const plan = await generateResearchPlan({

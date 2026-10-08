@@ -746,7 +746,7 @@ describe("lossless compaction", () => {
         .run(new Date(Date.UTC(2026, 3, 10, 19, 0, index)).toISOString(), message.id);
     }
 
-    const settings = getDefaultRuntimeProviderProfile()!;
+    const settings = getDefaultRuntimeProviderProfile(null)!;
     const hooks = { onCompactionStart: vi.fn(), onCompactionEnd: vi.fn() };
     const background = startBackgroundCompaction(conversation.id, settings, hooks);
     expect(startBackgroundCompaction(conversation.id, settings)).toBe(background);
@@ -798,7 +798,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const messages = listMessages(conversation.id);
     const trailingEligibleUser = messages.find((message) => message.content.startsWith("Message 44"));
@@ -847,7 +847,7 @@ describe("lossless compaction", () => {
     const controller = new AbortController();
     const operation = ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!,
+      getDefaultRuntimeProviderProfile(null)!,
       {},
       undefined,
       false,
@@ -891,7 +891,7 @@ describe("lossless compaction", () => {
     });
 
     await expect(
-      ensureCompactedContext(conversation.id, getDefaultRuntimeProviderProfile()!)
+      ensureCompactedContext(conversation.id, getDefaultRuntimeProviderProfile(null)!)
     ).rejects.toThrow("Provider returned an empty response");
 
     expect(
@@ -939,7 +939,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
 
@@ -984,7 +984,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const messages = listMessages(conversation.id);
 
@@ -1016,7 +1016,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const stats = getConversationDebugStats(conversation.id);
 
@@ -1142,7 +1142,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const messages = listMessages(conversation.id);
     const systemMessage = result.promptMessages.find((message) => message.role === "system");
@@ -1218,7 +1218,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const memoryNode = getDb()
       .prepare(
@@ -1297,7 +1297,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
 
@@ -1402,7 +1402,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const systemMessage = result.promptMessages.find((message) => message.role === "system");
 
@@ -1456,7 +1456,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
     const messages = listMessages(conversation.id);
 
@@ -1484,7 +1484,7 @@ describe("lossless compaction", () => {
     const lifecycle: string[] = [];
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!,
+      getDefaultRuntimeProviderProfile(null)!,
       {
         onCompactionStart() {
           lifecycle.push("start");
@@ -1518,12 +1518,12 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
 
     expect(result.didCompact).toBe(false);
     await expect(
-      ensureCompactedContext("missing", getDefaultRuntimeProviderProfile()!)
+      ensureCompactedContext("missing", getDefaultRuntimeProviderProfile(null)!)
     ).rejects.toThrow("Conversation not found");
   });
 
@@ -1545,7 +1545,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!
+      getDefaultRuntimeProviderProfile(null)!
     );
 
     expect(result.promptMessages.some(m => m.role === "system")).toBe(true);
@@ -1569,7 +1569,7 @@ describe("lossless compaction", () => {
     await expect(
       ensureCompactedContext(
         conversation.id,
-        getDefaultRuntimeProviderProfile()!
+        getDefaultRuntimeProviderProfile(null)!
       )
     ).rejects.toThrow("Conversation exceeds the configured context limit. No fallback available.");
   });
@@ -1736,7 +1736,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!,
+      getDefaultRuntimeProviderProfile(null)!,
       {},
       undefined,
       true
@@ -1762,7 +1762,7 @@ describe("buildPromptMessages with memories", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultRuntimeProviderProfile()!,
+      getDefaultRuntimeProviderProfile(null)!,
       {},
       undefined,
       true
@@ -1920,7 +1920,7 @@ describe("estimateContextUsage", () => {
     createMessage({ conversationId: conversation.id, role: "user", content: userContent });
     createMessage({ conversationId: conversation.id, role: "assistant", content: assistantContent });
 
-    const settings = getDefaultRuntimeProviderProfile()!;
+    const settings = getDefaultRuntimeProviderProfile(null)!;
     const { contextTokens, compactionLimit } = estimateContextUsage(conversation.id, settings);
 
     expect(compactionLimit).toBe(12000);
@@ -1930,7 +1930,7 @@ describe("estimateContextUsage", () => {
 
   it("includes capped tool results in the context estimate", () => {
     seedProfile();
-    const settings = getDefaultRuntimeProviderProfile()!;
+    const settings = getDefaultRuntimeProviderProfile(null)!;
 
     const withoutAction = createConversation();
     createMessage({ conversationId: withoutAction.id, role: "user", content: "Run a search" });
@@ -1992,7 +1992,7 @@ describe("estimateContextUsage", () => {
     createMessage({ conversationId: conversation.id, role: "user", content: "Hello there, how are you today?" });
     createMessage({ conversationId: conversation.id, role: "assistant", content: "I am well, thanks for asking." });
 
-    const settings = getDefaultRuntimeProviderProfile()!;
+    const settings = getDefaultRuntimeProviderProfile(null)!;
     const estimate = estimateContextUsage(conversation.id, settings);
     const compacted = await ensureCompactedContext(conversation.id, settings, {});
 
@@ -2008,7 +2008,7 @@ describe("estimateContextUsage", () => {
     createMessage({ conversationId: bot.homeConversationId, role: "user", content: "What is left?" });
     createMessage({ conversationId: bot.homeConversationId, role: "assistant", content: "Two checklist items." });
 
-    const settings = getDefaultRuntimeProviderProfile()!;
+    const settings = getDefaultRuntimeProviderProfile(null)!;
     const appSettings = getSettingsForUser(owner.id);
     const compacted = await ensureCompactedContext(
       bot.homeConversationId,

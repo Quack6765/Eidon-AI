@@ -1,4 +1,5 @@
 import { callProviderText } from "@/lib/provider";
+import { canUseProviderProfile } from "@/lib/provider-profile";
 import { getRuntimeProviderProfile } from "@/lib/provider-profiles";
 import { getSettings } from "@/lib/settings";
 import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
@@ -20,6 +21,7 @@ export function buildSpeechCleanupPrompt(systemPrompt: string, transcript: strin
 
 export async function cleanSpeechTranscript(input: {
   transcript: string;
+  userId: string;
   signal?: AbortSignal;
 }) {
   const settings = getSettings();
@@ -32,6 +34,11 @@ export async function cleanSpeechTranscript(input: {
   if (!profile) {
     throw new SpeechCleanupUnavailableError(
       "AI post-cleanup provider profile is unavailable. Select a provider profile in settings."
+    );
+  }
+  if (!canUseProviderProfile(profile, input.userId)) {
+    throw new SpeechCleanupUnavailableError(
+      "AI post-cleanup uses a provider that is private to another account. Ask an administrator to choose a shared provider."
     );
   }
   const systemPrompt = settings.speechCleanupPrompt.trim() || DEFAULT_SPEECH_CLEANUP_PROMPT;
