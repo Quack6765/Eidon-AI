@@ -25,6 +25,8 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 | `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for the GitHub Copilot flow. Must be an absolute URL. | `${EIDON_BASE_URL}/api/providers/github/callback` | No |
 | `EIDON_EMBEDDING_MODEL` | Hugging Face model id used for local embeddings powering semantic recall. | `Xenova/paraphrase-multilingual-MiniLM-L12-v2` | No |
 | `EIDON_EMBEDDING_DISABLED` | Set to `1` to skip loading the embedding model entirely. Semantic recall and the `search_workspace` tool become unavailable. | unset | No |
+| `PUID` | Read by the container entrypoint, not the app: remaps the `eidon` user to this uid so the data folder ends up owned by it (see [Container user](#container-user)). Must be a positive integer and set together with `PGID`. | unset (stays `997`) | No |
+| `PGID` | Read by the container entrypoint, not the app: remaps the `eidon` group to this gid. Must be a positive integer and set together with `PUID`. | unset (stays `997`) | No |
 
 All three GitHub App variables must be set together. If any is missing, the GitHub Copilot provider type still appears in settings but **Connect GitHub** will not complete.
 
@@ -98,7 +100,9 @@ If your platform gives you an ephemeral filesystem with a separate volume, or yo
 
 ## Security and storage notes
 
-**Container user.** The image creates a system `eidon` user and group and runs as that user. The data directories are created with mode `700` and owned by `eidon`.
+**Container user.** The image creates a system `eidon` user and group. The container starts as root only so the entrypoint can prepare the data folder, then drops privileges and the app always runs as `eidon` — never as root. With `PUID`/`PGID` set, the entrypoint remaps `eidon` to that uid/gid and re-owns the data folder, so no manual `chown` is needed. If the container itself is started non-root (`--user`, Kubernetes `runAsUser`), every root-only step is skipped and `PUID`/`PGID` are ignored. Because the image no longer pins a `USER`, `docker exec` defaults to root; use `docker exec -u eidon` to run a command as the app user.
+
+Hosts such as Unraid that manage appdata folders as `nobody:users` should set `PUID=99` and `PGID=100`, matching the linuxserver.io convention, so the files have the same owner as every other Unraid app.
 
 **Credentials at rest.** Secrets are encrypted with AES-256-GCM before being written to SQLite, using a SHA-256 digest of `EIDON_ENCRYPTION_SECRET` as the key and a fresh random IV per value. The database itself is not encrypted, so treat the volume as sensitive: conversation content, memories, and attachments are stored in the clear.
 

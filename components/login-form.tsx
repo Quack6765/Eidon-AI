@@ -42,10 +42,14 @@ export function LoginForm() {
       onSubmit={(event) => void handleSubmit(event)}
       className="relative z-10 mx-auto flex w-full max-w-[420px] flex-col gap-7 overflow-hidden rounded-2xl border border-white/6 bg-white/[0.03] backdrop-blur-xl shadow-[var(--shadow)] animate-slide-up pt-10"
     >
-      <Wordmark className="block px-8 text-center text-[48px]" />
-      <p className="px-8 text-sm leading-relaxed text-[var(--muted)] italic text-center text-balance">
-        The seeker enters in uncertainty and departs in knowing.
-      </p>
+      <div className="flex flex-col items-center gap-3">
+        <div aria-hidden="true" className="flex items-center justify-center gap-3">
+          <img src="/bots/bot-teal.svg" alt="" width={64} height={64} />
+          <img src="/bots/bot-violet.svg" alt="" width={64} height={64} />
+          <img src="/bots/bot-pink.svg" alt="" width={64} height={64} />
+        </div>
+        <Wordmark className="block px-8 text-center text-[48px]" />
+      </div>
 
       <div className="space-y-3 px-8">
         <Input name="username" placeholder="Username" autoComplete="username" required />

@@ -5,15 +5,15 @@ import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
-import { generateWarriorIconAssets } from "@/lib/warrior-icon-assets";
+import { generateAppIconAssets } from "@/lib/app-icon-assets";
 
-describe("generateWarriorIconAssets", () => {
-  it("creates only the live icon assets from the warrior source", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "warrior-icons-"));
-    const sourcePath = path.resolve(process.cwd(), "public/eidon-warrior.png");
+describe("generateAppIconAssets", () => {
+  it("creates only the live icon assets from the violet bot source", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "app-icons-"));
+    const sourcePath = path.resolve(process.cwd(), "public/bots/bot-violet.svg");
 
     try {
-      await generateWarriorIconAssets({
+      await generateAppIconAssets({
         sourcePath,
         outputDir: tempDir
       });
@@ -43,7 +43,7 @@ describe("generateWarriorIconAssets", () => {
         height: 180
       });
 
-      const expectedAgentIcon = await sharp(sourcePath)
+      const expectedAgentIcon = await sharp(sourcePath, { density: 384 })
         .resize(128, 128, { fit: "fill" })
         .png()
         .raw()

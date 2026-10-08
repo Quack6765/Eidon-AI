@@ -34,7 +34,13 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/v1" ||
     pathname.startsWith("/api/v1/") ||
     pathname.startsWith("/logo") ||
-    pathname === "/sw.js"
+    pathname === "/sw.js" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/agent-icon.png" ||
+    pathname === "/icon-192.png" ||
+    pathname === "/icon-512.png" ||
+    pathname === "/apple-touch-icon.png" ||
+    pathname.startsWith("/bots/")
   ) {
     return NextResponse.next();
   }
