@@ -120,7 +120,7 @@ describe("docker-entrypoint non-root path", () => {
       expect(fs.statSync(path.join(dataDir, dir)).isDirectory()).toBe(true);
     }
     expect(fs.statSync(`${dataDir}-workspaces`).isDirectory()).toBe(true);
-    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid()));
+    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
   });
 
   it("ignores PUID/PGID with a warning and still runs the command", () => {
@@ -130,6 +130,6 @@ describe("docker-entrypoint non-root path", () => {
     const dataDir = runEntrypointNonRoot(baseDir, { PUID: "99", PGID: "100" }, markerPath);
 
     expect(fs.statSync(dataDir).isDirectory()).toBe(true);
-    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid()));
+    expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
   });
 });
