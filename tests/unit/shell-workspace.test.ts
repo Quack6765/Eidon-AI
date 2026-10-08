@@ -140,7 +140,7 @@ describe("shell workspace containment", () => {
     const result = await executeLocalShellCommand({
       command: "echo before-timeout; sh -c 'echo $$ > sleeper.pid; exec sleep 30' | cat",
       cwd: workspaceDir,
-      timeoutMs: 300
+      timeoutMs: 1_500
     });
 
     expect(Date.now() - startedAt).toBeLessThan(5_000);
@@ -158,7 +158,7 @@ describe("shell workspace containment", () => {
     const result = await executeLocalShellCommand({
       command: "sh -c \"trap '' TERM; echo \\$\\$ > stubborn.pid; exec sleep 30\" >/dev/null 2>&1 & sleep 30",
       cwd: workspaceDir,
-      timeoutMs: 300
+      timeoutMs: 1_500
     });
     expect(result.timedOut).toBe(true);
 
