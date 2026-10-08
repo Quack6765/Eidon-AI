@@ -22,6 +22,11 @@ die() {
   exit 1
 }
 
+fix_owner() {
+  find "$1" -xdev \( ! -user eidon -o ! -group eidon \) -exec chown -h eidon:eidon {} + 2>/dev/null ||
+    warn "could not fix ownership under $1 (NFS or SMB mount?); continuing"
+}
+
 if [ "$(id -u)" -eq 0 ]; then
   if [ -n "${PUID:-}" ] || [ -n "${PGID:-}" ]; then
     if [ -z "${PUID:-}" ] || [ -z "${PGID:-}" ]; then
@@ -46,27 +51,13 @@ if [ "$(id -u)" -eq 0 ]; then
     fi
   fi
 
-  for dir in "$DATA_DIR" "$HOME_DIR" "$TMP_DIR" "$RUNTIME_DIR" "$SOCKET_DIR" "$WORKSPACES_DIR" "$NEXT_CACHE_DIR"; do
-    mkdir -p -m 700 "$dir"
-  done
+  mkdir -p -m 700 "$DATA_DIR" "$WORKSPACES_DIR"
+  fix_owner "$DATA_DIR"
+  [ "$DATA_DIR" = /app/data ] || fix_owner /app/data
+  fix_owner "$WORKSPACES_DIR"
+  fix_owner "$NEXT_CACHE_DIR"
 
-  fix_dirs=""
-  add_fix_dir() {
-    case " $fix_dirs " in
-      *" $1 "*) ;;
-      *) fix_dirs="$fix_dirs $1" ;;
-    esac
-  }
-  add_fix_dir "$DATA_DIR"
-  [ "$DATA_DIR" = /app/data ] || add_fix_dir /app/data
-  add_fix_dir "$WORKSPACES_DIR"
-  add_fix_dir "$NEXT_CACHE_DIR"
-  for dir in $fix_dirs; do
-    find "$dir" -xdev \( ! -user eidon -o ! -group eidon \) -exec chown -h eidon:eidon {} + 2>/dev/null ||
-      warn "could not fix ownership under $dir (NFS or SMB mount?); continuing"
-  done
-
-  exec setpriv --reuid=eidon --regid=eidon --init-groups "$@"
+  exec setpriv --reuid=eidon --regid=eidon --init-groups env -u PUID -u PGID "$0" "$@"
 fi
 
 if [ -n "${PUID:-}" ] || [ -n "${PGID:-}" ]; then

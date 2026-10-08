@@ -22,9 +22,15 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("ENV XDG_RUNTIME_DIR=/app/data/runtime");
     expect(dockerfile).toContain("ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser");
     expect(dockerfile).toContain(
-      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces"
+      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces /app/.next/cache"
     );
     expect(dockerfile).toContain("--chown=eidon:eidon");
+  });
+
+  it("pins the eidon user and group to 997 so --user and runAsUser keep working", () => {
+    expect(dockerfile).toContain(
+      "groupadd --system --gid 997 eidon && useradd --system --uid 997 --gid eidon eidon"
+    );
   });
 
   it("keeps the downloaded models and the data directory inside the one declared volume", () => {
