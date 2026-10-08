@@ -45,7 +45,7 @@ export function ProviderDeviceCode({
   }, [copied]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-4">
+    <div className="@container space-y-4 rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-4">
       <div>
         <p className="text-sm text-[var(--text)]">Finish connecting {providerLabel}</p>
         <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
@@ -53,7 +53,7 @@ export function ProviderDeviceCode({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <div
           role="group"
           aria-label={`Sign-in code ${flow.userCode}`}
@@ -66,7 +66,7 @@ export function ProviderDeviceCode({
               <span
                 key={index}
                 aria-hidden="true"
-                className="flex h-10 w-7 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] font-mono text-base font-semibold text-[var(--text)] sm:w-8"
+                className="flex h-10 w-6 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] font-mono text-base font-semibold text-[var(--text)] @xs:w-7 @sm:w-8"
               >
                 {character}
               </span>
@@ -93,7 +93,7 @@ export function ProviderDeviceCode({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button asChild size="lg" className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10">
+        <Button asChild size="lg" className="h-auto min-h-11 max-w-full gap-1.5 px-4 py-2 text-sm whitespace-normal md:min-h-10">
           <a href={flow.authorizationUrl} target="_blank" rel="noopener noreferrer">
             Open sign-in page
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />

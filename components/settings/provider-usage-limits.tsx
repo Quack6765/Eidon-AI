@@ -37,7 +37,7 @@ function formatReset(resetsAt: string | null, now: number) {
 function UsageRow({ window, now }: { window: ProviderUsageWindow; now: number }) {
   const percent = Math.round(window.usedPercent);
   return (
-    <div className="grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center sm:gap-6">
+    <div className="grid grid-cols-1 gap-2 px-4 py-3 @md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] @md:items-center @md:gap-6">
       <div className="min-w-0">
         <p className="text-sm text-[var(--text)]">{window.label}</p>
         <p className="text-xs text-[var(--muted)]">{formatReset(window.resetsAt, now)}</p>
@@ -101,8 +101,8 @@ export function ProviderUsageLimits({ profileId }: { profileId: string }) {
   const now = Date.now();
 
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between gap-3">
+    <div className="@container">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3">
         <p className={cn(fieldLabel, "mb-0")}>Usage limits</p>
         <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
           {usage ? <span>Updated {formatRelativeTime(usage.fetchedAt)}</span> : null}

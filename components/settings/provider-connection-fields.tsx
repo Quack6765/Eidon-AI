@@ -157,7 +157,7 @@ function OAuthConnectionFields({
         <>
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3">
             <p
-              className={`text-sm ${
+              className={`text-sm [overflow-wrap:anywhere] ${
                 profile.connection.status === "connected"
                   ? "text-[var(--text)]"
                   : profile.connection.status === "expired"
@@ -181,7 +181,7 @@ function OAuthConnectionFields({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              className="px-3 py-1.5 text-xs"
+              className="h-auto min-h-11 max-w-full px-3 py-1.5 text-left text-xs whitespace-normal md:min-h-8"
               disabled={starting}
               onClick={() => void startConnection()}
             >
@@ -194,7 +194,7 @@ function OAuthConnectionFields({
             <Button
               type="button"
               variant="ghost"
-              className="px-2.5 py-1.5 text-xs"
+              className="min-h-11 px-2.5 py-1.5 text-xs md:min-h-8"
               onClick={async () => {
                 try {
                   const response = await fetch(`/api/providers/${profile.id}/connection`, {
