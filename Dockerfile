@@ -40,7 +40,7 @@ RUN install -d /app/data/tmp \
     && find "$(npm root -g)/agent-browser/bin" -name 'agent-browser-*' ! -name "agent-browser-linux-$(node -p process.arch)" -delete \
     && npm cache clean --force
 
-RUN groupadd --system eidon && useradd --system --gid eidon eidon
+RUN groupadd --system --gid 997 eidon && useradd --system --uid 997 --gid eidon eidon
 COPY --from=builder --chown=eidon:eidon /app/.next/standalone ./
 COPY --from=builder --chown=eidon:eidon /app/.next/static ./.next/static
 COPY --from=builder --chown=eidon:eidon /app/public ./public
@@ -48,11 +48,11 @@ COPY --from=builder --chown=eidon:eidon /app/server.cjs ./server.cjs
 COPY --from=builder --chown=eidon:eidon /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
 COPY --from=builder --chown=eidon:eidon /app/seed-native-test.cjs ./seed-native-test.cjs
 COPY --from=builder /app/scripts/landlock-exec.py ./scripts/landlock-exec.py
+COPY --from=builder /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY --from=prod-deps --chown=eidon:eidon /app/node_modules ./node_modules
 RUN rm -rf ./node_modules/onnxruntime-web/dist \
-    && install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces
-USER eidon
+    && install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces /app/.next/cache
 EXPOSE 3000
 VOLUME ["/app/data"]
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "server.cjs"]

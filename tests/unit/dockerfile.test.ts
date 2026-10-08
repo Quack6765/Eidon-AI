@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -20,9 +22,15 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("ENV XDG_RUNTIME_DIR=/app/data/runtime");
     expect(dockerfile).toContain("ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser");
     expect(dockerfile).toContain(
-      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces"
+      "install -d -m 700 -o eidon -g eidon /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser /app/data/model-cache /app/data-workspaces /app/.next/cache"
     );
     expect(dockerfile).toContain("--chown=eidon:eidon");
+  });
+
+  it("pins the eidon user and group to 997 so --user and runAsUser keep working", () => {
+    expect(dockerfile).toContain(
+      "groupadd --system --gid 997 eidon && useradd --system --uid 997 --gid eidon eidon"
+    );
   });
 
   it("keeps the downloaded models and the data directory inside the one declared volume", () => {
@@ -43,8 +51,15 @@ describe("Dockerfile", () => {
   });
 
   it("runs the server under tini so exited browser and daemon processes are reaped", () => {
-    expect(dockerfile).toContain('ENTRYPOINT ["/usr/bin/tini", "--"]');
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/bin/tini", "--", "/app/scripts/docker-entrypoint.sh"]');
     expect(dockerfile).toContain('CMD ["node", "server.cjs"]');
+  });
+
+  it("starts as root only to prepare the data folder and never fixes the app to a build-time user", () => {
+    expect(dockerfile).not.toMatch(/^USER /m);
+    expect(dockerfile).toContain(
+      "COPY --from=builder /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh"
+    );
   });
 
   it("ships the sandbox launcher owned by root so the app user cannot rewrite it", () => {
@@ -79,5 +94,56 @@ describe("Dockerfile", () => {
     expect(nativeCompose).toContain("tests/native/Caddyfile");
     expect(nativeCompose).toContain('"8443:443"');
     expect(nativeCompose).toContain("native-test-data:/app/data");
+  });
+});
+
+const entrypointPath = path.join(process.cwd(), "scripts", "docker-entrypoint.sh");
+
+function runEntrypointNonRoot(baseDir: string, extraEnv: Record<string, string>, markerPath: string) {
+  const dataDir = path.join(baseDir, "data");
+  execFileSync("/bin/sh", [entrypointPath, "sh", "-c", `id -u > ${JSON.stringify(markerPath)}`], {
+    env: {
+      ...process.env,
+      EIDON_DATA_DIR: dataDir,
+      HOME: path.join(dataDir, "home"),
+      TMPDIR: path.join(dataDir, "tmp"),
+      XDG_RUNTIME_DIR: path.join(dataDir, "runtime"),
+      AGENT_BROWSER_SOCKET_DIR: path.join(dataDir, "runtime", "agent-browser"),
+      ...extraEnv,
+    },
+  });
+  return dataDir;
+}
+
+describe.skipIf(process.getuid?.() === 0)("docker-entrypoint non-root path", () => {
+  it("creates the runtime folders and executes the command as the current user", () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-entrypoint-"));
+    const markerPath = path.join(baseDir, "uid.txt");
+
+    try {
+      const dataDir = runEntrypointNonRoot(baseDir, {}, markerPath);
+
+      for (const dir of ["", "home", "tmp", "runtime", "runtime/agent-browser"]) {
+        expect(fs.statSync(path.join(dataDir, dir)).isDirectory()).toBe(true);
+      }
+      expect(fs.statSync(`${dataDir}-workspaces`).isDirectory()).toBe(true);
+      expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
+    } finally {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores PUID/PGID with a warning and still runs the command", () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-entrypoint-"));
+    const markerPath = path.join(baseDir, "uid.txt");
+
+    try {
+      const dataDir = runEntrypointNonRoot(baseDir, { PUID: "99", PGID: "100" }, markerPath);
+
+      expect(fs.statSync(dataDir).isDirectory()).toBe(true);
+      expect(fs.readFileSync(markerPath, "utf8").trim()).toBe(String(process.getuid!()));
+    } finally {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    }
   });
 });
