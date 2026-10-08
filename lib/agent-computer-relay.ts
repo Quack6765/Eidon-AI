@@ -147,25 +147,23 @@ export function setComputerCaption(target: BrowserSessionTarget, caption: string
 }
 
 function sendFrame(viewer: Viewer, frame: Buffer) {
-  if (viewer.socket.readyState !== WebSocket.OPEN) return;
-  if (viewer.socket.bufferedAmount > MAX_BUFFERED_BYTES) return;
+  if (viewer.socket.readyState !== WebSocket.OPEN) return true;
+  if (viewer.socket.bufferedAmount > MAX_BUFFERED_BYTES) return false;
   viewer.lastSentAt = Date.now();
   try {
     viewer.socket.send(frame, { binary: true });
   } catch {}
+  return true;
 }
 
 function deliverFrame(channel: Channel, viewer: Viewer) {
   if (!channel.frame || viewer.timer) return;
   const wait = viewer.lastSentAt + viewer.minIntervalMs - Date.now();
-  if (wait <= 0) {
-    sendFrame(viewer, channel.frame);
-    return;
-  }
+  if (wait <= 0 && sendFrame(viewer, channel.frame)) return;
   viewer.timer = setTimeout(() => {
     viewer.timer = null;
-    if (channel.frame) sendFrame(viewer, channel.frame);
-  }, wait);
+    deliverFrame(channel, viewer);
+  }, wait > 0 ? wait : viewer.minIntervalMs);
 }
 
 function readStreamPort(target: BrowserSessionTarget) {
@@ -179,17 +177,6 @@ function readStreamPort(target: BrowserSessionTarget) {
 
 export function hasComputerStream(target: BrowserSessionTarget) {
   return readStreamPort(target) !== null;
-}
-
-function readBoundTargetId(target: BrowserSessionTarget) {
-  try {
-    const bound = JSON.parse(readFileSync(join(target.socketDir, `${target.sessionName}.target`), "utf8")) as {
-      targetId?: unknown;
-    };
-    return typeof bound.targetId === "string" ? bound.targetId : null;
-  } catch {
-    return null;
-  }
 }
 
 function scheduleReconnect(channel: Channel) {
@@ -219,7 +206,7 @@ type UpstreamMessage = {
   url?: string;
   connected?: boolean;
   metadata?: { deviceWidth?: number; deviceHeight?: number };
-  tabs?: Array<{ targetId?: string; url?: string }>;
+  tabs?: Array<{ url?: string; active?: boolean }>;
 };
 
 function handleUpstreamMessage(channel: Channel, raw: WebSocket.RawData) {
@@ -241,9 +228,8 @@ function handleUpstreamMessage(channel: Channel, raw: WebSocket.RawData) {
   } else if (message.type === "url" && typeof message.url === "string") {
     updateState(channel, { url: message.url });
   } else if (message.type === "tabs" && Array.isArray(message.tabs)) {
-    const targetId = readBoundTargetId(channel.target);
-    const own = message.tabs.find((tab) => tab.targetId === targetId);
-    if (own?.url) updateState(channel, { url: own.url });
+    const active = message.tabs.find((tab) => tab.active === true);
+    if (active?.url) updateState(channel, { url: active.url });
   } else if (message.type === "status" && message.connected === false) {
     updateState(channel, { live: false });
   }
@@ -429,7 +415,7 @@ export function attachComputerViewer(socket: WebSocket, target: BrowserSessionTa
   };
   active.viewers.add(viewer);
   sendJson(socket, active.state);
-  if (active.frame) sendFrame(viewer, active.frame);
+  deliverFrame(active, viewer);
   touchBrowserSession(target);
   active.touch ??= setInterval(() => touchBrowserSession(target), TOUCH_INTERVAL_MS);
   active.touch.unref?.();

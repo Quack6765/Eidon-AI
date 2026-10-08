@@ -1933,6 +1933,11 @@ describe("Mobile API v1 REST adapter", () => {
       "POST"
     );
 
+    const { getDb } = await import("@/lib/db");
+    const { AVATAR_ART } = await import("@/lib/bot-avatar");
+    getDb()
+      .prepare("INSERT OR REPLACE INTO bot_avatars (seed, style, variant, svg, created_at) VALUES (?, ?, 'static', ?, ?)")
+      .run("coverage_seed", AVATAR_ART, "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", new Date().toISOString());
     const avatarPath = ["avatars", "coverage_seed"];
     const avatar = await mobileGet(request(avatarPath, session.token), context(avatarPath));
     expect(avatar.status).toBe(200);
