@@ -2,9 +2,9 @@
 
 <div align="center">
   <p>
-    <img src="./.github/readme/bot-teal.svg" alt="" width="64" />
-    <img src="./.github/readme/bot-violet.svg" alt="" width="64" />
-    <img src="./.github/readme/bot-pink.svg" alt="" width="64" />
+    <img src="./public/bots/bot-teal.svg" alt="" width="64" />
+    <img src="./public/bots/bot-violet.svg" alt="" width="64" />
+    <img src="./public/bots/bot-pink.svg" alt="" width="64" />
   </p>
 
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />

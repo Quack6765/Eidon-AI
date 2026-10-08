@@ -1,4 +1,4 @@
-const CACHE_NAME = "eidon-static-v1";
+const CACHE_NAME = "eidon-static-v2";
 const STATIC_ASSET_PATTERNS = [
   /^\/_next\/static\//,
   /^\/icon-\d+\.png$/,
