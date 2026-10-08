@@ -730,6 +730,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     : []),
                   ...(profile.connection.status === "disconnected" && profile.connection.mode === "oauth"
                     ? [{ variant: "no-key" as const, label: "NOT CONNECTED" }]
+                    : []),
+                  ...(PROVIDER_CATALOG[profile.providerKind].access === "owner"
+                    ? [{ variant: "violet" as const, label: "PRIVATE" }]
                     : [])
                 ]}
               />
