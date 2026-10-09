@@ -117,7 +117,7 @@ Landlock needs no configuration and works under the default Docker seccomp profi
 | `docker run` | `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` |
 | Docker Compose | `security_opt: ["seccomp=unconfined", "systempaths=unconfined"]` in the service |
 
-After a restart the Bots card shows **Files only**. If it still says **Unavailable**, the server log gives bubblewrap's reason: `No permissions to create new namespace` means the seccomp option is missing, and `Can't mount proc` or a `max_user_namespaces` error means the systempaths option is missing.
+After a restart the Bots card shows **Files only**. If it still says **Unavailable**, the server log gives bubblewrap's reason: `No permissions to create new namespace` means the seccomp option is missing, and `Can't mount proc` or a `max_user_namespaces` error means the systempaths option is missing. On a host that uses AppArmor, which Unraid does not, `Failed to make / slave: Permission denied` means you also need `--security-opt apparmor=unconfined`.
 
 Know what these options cost before you add them. They turn off Docker's system-call filter and its masking of sensitive `/proc` files for the whole container, not only for bots. Eidon never runs as root, but a process you start as root with `docker exec` gets more reach into the host than usual, so use `docker exec -u eidon`. On a host that has Landlock, leave both options out: Landlock is used first and needs neither.
 
