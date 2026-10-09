@@ -7,6 +7,7 @@ import { MessageBubble, parseDelegationWakeMessage } from "@/components/message-
 import { ingestBotsPayload, resetDelegationStatusForTests } from "@/hooks/use-delegation-status";
 import { buildBotAvatarUrl } from "@/lib/bot-avatar";
 import type { Message } from "@/lib/types";
+import { expectRuleDeclaration, globalsCss } from "@/tests/fixtures/globals-css";
 
 function createAssistantMessage(): Message {
   return {
@@ -1099,5 +1100,127 @@ describe("message bubble drafts", () => {
     );
 
     expect(screen.queryByTestId("message-draft-card")).not.toBeInTheDocument();
+  });
+});
+
+describe("message bubble timeline spacing", () => {
+  function createTextItem(id: string, sortOrder: number, content: string) {
+    return {
+      id,
+      timelineKind: "text" as const,
+      sortOrder,
+      createdAt: new Date().toISOString(),
+      content
+    };
+  }
+
+  function createActionItem(id: string, sortOrder: number, label: string) {
+    return {
+      id,
+      messageId: "msg_assistant",
+      timelineKind: "action" as const,
+      kind: "mcp_tool_call" as const,
+      status: "completed" as const,
+      serverId: null,
+      skillId: null,
+      toolName: "lookup",
+      label,
+      detail: "",
+      arguments: null,
+      resultSummary: "",
+      sortOrder,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
+    };
+  }
+
+  function createMultiStepMessage(status: Message["status"] = "completed"): Message {
+    return {
+      ...createAssistantMessage(),
+      content: "Let me check that.Found the record, now checking its owner.Here is the answer.",
+      status,
+      timeline: [
+        createTextItem("text_intro", 0, "Let me check that."),
+        createActionItem("action_record", 1, "Looked up the record"),
+        createTextItem("text_progress", 2, "Found the record, now checking its owner."),
+        createActionItem("action_owner", 3, "Looked up the owner"),
+        createTextItem("text_answer", 4, "Here is the answer.")
+      ]
+    };
+  }
+
+  it("puts each message's tool pill directly under it, intermediate messages included", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: createMultiStepMessage()
+      })
+    );
+
+    const textBlocks = container.querySelectorAll('[data-testid="assistant-message-content"]');
+    expect(textBlocks).toHaveLength(3);
+    const timeline = textBlocks[0].parentElement;
+    expect(timeline).toHaveClass("assistant-timeline");
+    expect(timeline).not.toHaveClass("gap-3");
+    textBlocks.forEach((block) => expect(block).toHaveAttribute("data-timeline-item", "text"));
+
+    const shells = container.querySelectorAll('[data-testid="assistant-actions-shell"]');
+    expect(shells).toHaveLength(2);
+    shells.forEach((shell, index) => {
+      expect(shell).not.toHaveAttribute("data-timeline-item");
+      expect(shell.parentElement).toBe(timeline);
+      expect(shell.previousElementSibling).toBe(textBlocks[index]);
+      expect(shell.nextElementSibling).toBe(textBlocks[index + 1]);
+    });
+  });
+
+  it("puts each message's status line directly under it, intermediate messages included", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: createMultiStepMessage(),
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const textBlocks = container.querySelectorAll('[data-testid="assistant-message-content"]');
+    expect(textBlocks).toHaveLength(3);
+    const timeline = textBlocks[0].parentElement;
+    expect(timeline).toHaveClass("assistant-timeline");
+
+    const statusLines = container.querySelectorAll('[data-testid="assistant-status-line"]');
+    expect(statusLines).toHaveLength(2);
+    statusLines.forEach((statusLine, index) => {
+      const anchor = statusLine.parentElement;
+      expect(anchor).not.toHaveAttribute("data-timeline-item");
+      expect(anchor?.parentElement).toBe(timeline);
+      expect(anchor?.previousElementSibling).toBe(textBlocks[index]);
+      expect(anchor?.nextElementSibling).toBe(textBlocks[index + 1]);
+    });
+  });
+
+  it("applies the same timeline layout to an errored turn", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: { ...createMultiStepMessage("error"), content: "The tool failed." }
+      })
+    );
+
+    const timeline = container.querySelector(".assistant-timeline");
+    expect(timeline).not.toBeNull();
+    expect(timeline).not.toHaveClass("gap-3");
+
+    const textBlocks = timeline!.querySelectorAll('[data-testid="assistant-message-content"]');
+    expect(textBlocks).toHaveLength(3);
+    textBlocks.forEach((block) => expect(block).toHaveAttribute("data-timeline-item", "text"));
+    const shells = timeline!.querySelectorAll('[data-testid="assistant-actions-shell"]');
+    shells.forEach((shell, index) => expect(shell.previousElementSibling).toBe(textBlocks[index]));
+  });
+
+  it("spaces tool activity tight under its message and separates each new message", () => {
+    expectRuleDeclaration(".assistant-timeline > * + *", "margin-top: 4px;");
+    expectRuleDeclaration('.assistant-timeline > * + [data-timeline-item="text"]', "margin-top: 16px;");
+    expect(globalsCss).not.toContain('[data-timeline-item="text"] + *');
   });
 });
