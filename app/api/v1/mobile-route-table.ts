@@ -60,6 +60,7 @@ import * as providerConnectionRoute from "@/app/api/providers/[profileId]/connec
 import * as providerConnectionFlowsRoute from "@/app/api/providers/[profileId]/connection/flows/route";
 import * as providerConnectionFlowRoute from "@/app/api/providers/[profileId]/connection/flows/[flowId]/route";
 import * as providerModelsRoute from "@/app/api/providers/[profileId]/models/route";
+import * as providerUsageRoute from "@/app/api/providers/[profileId]/usage/route";
 import * as generalSettingsRoute from "@/app/api/settings/general/route";
 import * as providerDuplicateRoute from "@/app/api/settings/providers/duplicate/route";
 import * as providerSettingsRoute from "@/app/api/settings/providers/route";
@@ -172,6 +173,7 @@ export const mobileGatewayRoutes: Array<{ pattern: string[]; module: RouteModule
   { pattern: ["providers", ":profileId", "connection", "flows"], module: providerConnectionFlowsRoute },
   { pattern: ["providers", ":profileId", "connection", "flows", ":flowId"], module: providerConnectionFlowRoute },
   { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
+  { pattern: ["providers", ":profileId", "usage"], module: providerUsageRoute },
   { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
   { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute },
   { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute },

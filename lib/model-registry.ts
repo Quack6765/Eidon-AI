@@ -17,6 +17,12 @@ export type ModelRequestQuirk = {
 
 export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
   {
+    prefix: "gpt-6",
+    reasoning: { apiModes: ["responses"] },
+    vision: true,
+    supportsTemperature: false
+  },
+  {
     prefix: "gpt-5",
     reasoning: { apiModes: ["responses"] },
     vision: true,
@@ -51,6 +57,7 @@ export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
 ];
 
 export const MODEL_REQUEST_QUIRKS: ModelRequestQuirk[] = [
+  { prefix: "gpt-6", extraBody: "thinking" },
   { prefix: "gpt-5", extraBody: "thinking" },
   { prefix: "o1", extraBody: "thinking" },
   { prefix: "o3", extraBody: "thinking" },

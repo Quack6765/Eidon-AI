@@ -19,9 +19,7 @@ import { getHistoryCutIndex } from "@/lib/conversation-rewind";
 import { getDb } from "@/lib/db";
 import { removeToolOutputDir } from "@/lib/local-shell";
 import { createId } from "@/lib/ids";
-import {
-  getSettings
-} from "@/lib/settings";
+import { getDefaultRuntimeProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
@@ -501,7 +499,6 @@ export function createConversation(
   userId?: string
 ) {
   const timestamp = nowIso();
-  const settings = getSettings();
   const trimmedTitle = title?.trim() ?? "";
 
   const maxOrder = (userId
@@ -518,7 +515,9 @@ export function createConversation(
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId:
-      options?.providerProfileId !== undefined ? options.providerProfileId : settings.defaultProviderProfileId,
+      options?.providerProfileId !== undefined
+        ? options.providerProfileId
+        : getDefaultRuntimeProviderProfile(userId ?? null)?.id ?? null,
     reasoningEffort: options?.reasoningEffort ?? null,
     automationId: options?.automationId ?? null,
     automationRunId: options?.automationRunId ?? null,

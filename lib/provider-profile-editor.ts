@@ -45,11 +45,11 @@ export function createProviderProfileEditorDraft(input?: {
     ...core
   } = flat;
   const timestamp = new Date().toISOString();
-  const providerConfig = flat.providerKind === "github_copilot"
-    ? {}
+  const providerConfig = flat.providerKind === "openai_compatible"
+    ? { apiBaseUrl, apiMode, processingMode, reasoningParameterMode }
     : flat.providerKind === "anthropic"
       ? { apiBaseUrl }
-      : { apiBaseUrl, apiMode, processingMode, reasoningParameterMode };
+      : {};
   const profile = {
     ...core,
     providerConfig,
@@ -144,7 +144,7 @@ export function applyPresetToProviderProfile(
 }
 
 export function getMatchingEditorPresetId(profile: ProviderProfileEditorDraft) {
-  if (profile.providerKind === "github_copilot") return null;
+  if (profile.providerKind !== "openai_compatible" && profile.providerKind !== "anthropic") return null;
   return getMatchingProviderPresetId({
     ...profile,
     apiBaseUrl: profile.providerConfig.apiBaseUrl,

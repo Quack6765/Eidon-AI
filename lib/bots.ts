@@ -13,7 +13,7 @@ import {
   updateConversationProviderProfile
 } from "@/lib/conversations";
 import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { formatMarkdownFileLink } from "@/lib/assistant-local-attachments";
@@ -371,7 +371,7 @@ export function updateBot(
   if (!current) return null;
 
   if (patch.providerProfileId !== undefined) {
-    if (patch.providerProfileId !== null && !getProviderProfile(patch.providerProfileId)) {
+    if (patch.providerProfileId !== null && !getSelectableProviderProfile(patch.providerProfileId, userId ?? null)) {
       throw new Error("Provider profile not found");
     }
     updateConversationProviderProfile(current.homeConversationId, patch.providerProfileId, userId);

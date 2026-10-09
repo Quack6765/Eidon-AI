@@ -1,18 +1,19 @@
 # Providers
 
-Eidon ships no API key. You add provider profiles, and every chat routes through the profile you pick. This covers the built-in presets, the settings on each profile, the GitHub Copilot OAuth flow, and the non-chat providers for web search, image generation, and speech-to-text.
+Eidon ships no API key. You add provider profiles, and every chat routes through the profile you pick. This covers the built-in presets, the settings on each profile, the GitHub Copilot and ChatGPT subscription sign-ins, and the non-chat providers for web search, image generation, and speech-to-text.
 
 Chat provider profiles live under **Settings → Providers** and are admin-only.
 
 ## Provider kinds
 
-Every profile has one of three kinds, which determines how Eidon talks to the endpoint.
+Every profile has one of four kinds, which determines how Eidon talks to the endpoint.
 
 | Kind | Wire protocol | Connection | Model selection |
 | --- | --- | --- | --- |
 | `openai_compatible` | OpenAI Responses API or Chat Completions API, selectable per profile | API key | Typed in manually |
 | `anthropic` | Anthropic Messages API | API key | Typed in manually |
 | `github_copilot` | GitHub Copilot API | OAuth (GitHub App) | Discovered from the connected account |
+| `chatgpt_subscription` | OpenAI Responses API on the ChatGPT subscription backend | Device-code sign-in | Discovered from the connected account |
 
 Because the first two kinds only need a base URL and a key, **any service exposing an OpenAI-compatible or an Anthropic Messages API can be connected manually** — pick the matching kind, paste the base URL, paste the key, and type the model id. The presets below are shortcuts, not a whitelist.
 
@@ -119,6 +120,38 @@ All three are required. Without them the GitHub Copilot profile type is still vi
 5. Pick a model from the discovered list and start chatting.
 
 Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET` before being stored. Copilot profiles do not expose temperature, API mode, or tokenizer settings — those are fixed by the Copilot API.
+
+## ChatGPT subscription
+
+Eidon can route chats through a ChatGPT Plus or Pro subscription instead of an OpenAI API key, the same way Codex CLI, Pi, and opencode do. No environment variables are needed.
+
+### Before you connect
+
+Device-code sign-in must be turned on for the ChatGPT account: **ChatGPT → Settings → Security → Device code login** for a personal account, or the workspace permissions for a workspace account. Eidon shows this hint if ChatGPT refuses to issue a code.
+
+### Connect a profile
+
+1. Open **Settings → Providers**.
+2. Add a profile and switch **Provider type** to **ChatGPT subscription**.
+3. Click **Connect ChatGPT subscription**. Eidon saves the profile and shows a one-time code.
+4. Click **Open sign-in page**, enter the code, and approve the connection. The code expires after 15 minutes.
+5. Keep the settings page open; it notices the approval within a few seconds. Pick a model from the discovered list and start chatting.
+
+The sign-in works on a remote or Docker-hosted server because nothing redirects back to Eidon: while the page is open, the server asks ChatGPT whether you have approved yet.
+
+### Private to the admin who connects it
+
+A ChatGPT subscription belongs to one person, so the profile is usable only by the administrator who connected it. Other users never see it in their pickers, and the server rejects any chat, bot, automation, title, speech cleanup, or vision request that would spend another account's subscription. If the global default profile is private, everyone else falls back to the first shared profile.
+
+### Usage limits
+
+Once connected, the profile's **Connection** section shows the subscription's usage windows — typically a 5-hour and a weekly limit — with the percentage used and when each window resets. Pro plans may report only the weekly window. Use the refresh button to fetch the latest numbers; Eidon does not poll in the background.
+
+### Notes
+
+- This uses the same unofficial sign-in as Codex CLI. OpenAI can change it without notice, and its use is governed by your ChatGPT plan's terms.
+- Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET`. The refresh token rotates on every refresh; Eidon stores the new one each time.
+- Temperature and output-token limits are not sent; the subscription backend fixes them. Reasoning effort and reasoning summaries still apply.
 
 ## GLM specifics
 

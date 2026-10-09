@@ -79,16 +79,16 @@ function buildProviderProfile(
     id: overrides.id ?? "readme_profile_default",
     name: overrides.name ?? defaults.name,
     providerKind,
-    providerConfig: providerKind === "github_copilot"
-      ? {}
+    providerConfig: providerKind === "openai_compatible"
+      ? {
+          apiBaseUrl,
+          apiMode,
+          processingMode: defaults.processingMode,
+          reasoningParameterMode: defaults.reasoningParameterMode
+        }
       : providerKind === "anthropic"
         ? { apiBaseUrl }
-        : {
-            apiBaseUrl,
-            apiMode,
-            processingMode: defaults.processingMode,
-            reasoningParameterMode: defaults.reasoningParameterMode
-          },
+        : {},
     credential: overrides.apiKey ?? "",
     credentialAction: overrides.apiKey ? "replace" as const : "clear" as const,
     model: overrides.model ?? defaults.model,

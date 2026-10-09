@@ -85,6 +85,7 @@ describe("speech cleanup route", () => {
     });
     expect(cleanSpeechTranscriptMock).toHaveBeenCalledWith({
       transcript: "um buy milk",
+      userId: "user_cleanup",
       signal: expect.any(AbortSignal)
     });
   });

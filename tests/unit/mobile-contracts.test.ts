@@ -490,7 +490,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(58);
-    expect(compileOpenApiJsonResponses()).toBe(230);
+    expect(compileOpenApiJsonResponses()).toBe(235);
   });
 
   it("widens the image generation enums for GPT Image 2.5", () => {
