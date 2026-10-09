@@ -169,6 +169,34 @@ describe("agents workspace", () => {
     });
   });
 
+  it("lists a new bot once when its live update arrives before the create response", async () => {
+    const created = buildBot({ id: "bot_new", name: "Research Bot", isChief: false });
+    global.fetch = vi.fn(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/api/bots" && init?.method === "POST") {
+        wsMocks.listener?.({ type: "bot_updated", bot: created });
+        return { ok: true, status: 201, json: async () => ({ bot: created }) } as unknown as Response;
+      }
+      throw new Error(`Unhandled fetch: ${init?.method ?? "GET"} ${url}`);
+    }) as typeof fetch;
+
+    render(
+      React.createElement(AgentsWorkspace, {
+        initialBots: [buildBot()],
+        initialRuns: [],
+        initialLimits: { maxBots: 20 }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /New bot/ }));
+    fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Research Bot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+
+    await waitFor(() => expect(routerMocks.push).toHaveBeenCalledWith("/agents/bot_new"));
+    expect(screen.getAllByRole("link", { name: /Research Bot/ })).toHaveLength(1);
+    expect(screen.getByText("2 of 20 bots")).toBeInTheDocument();
+  });
+
   it("surfaces API errors such as the bot limit", async () => {
     global.fetch = vi.fn(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();

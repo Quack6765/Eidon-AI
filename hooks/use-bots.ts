@@ -16,7 +16,7 @@ export type BotsPayload = {
   limits: BotLimits;
 };
 
-function upsertBot(current: BotSummary[], bot: BotSummary) {
+export function upsertBot(current: BotSummary[], bot: BotSummary) {
   const index = current.findIndex((entry) => entry.id === bot.id);
   if (index === -1) {
     return [...current, bot];

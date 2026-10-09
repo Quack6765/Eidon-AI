@@ -9,7 +9,7 @@ import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip, formatBotActivity } from "@/components/agents/bot-status";
 import { BotRunStatusChip, describeBotRunTrigger, formatBotRunTime } from "@/components/agents/bot-runs";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
-import { useBots } from "@/hooks/use-bots";
+import { upsertBot, useBots } from "@/hooks/use-bots";
 import type { BotRun, BotSummary } from "@/lib/types";
 
 function sortBots(bots: BotSummary[]) {
@@ -115,7 +115,7 @@ export function AgentsWorkspace({
         return payload?.error ?? "Unable to create bot";
       }
 
-      setBots((current) => [...current, payload.bot as BotSummary]);
+      setBots((current) => upsertBot(current, payload.bot as BotSummary));
       router.push(`/agents/${payload.bot.id}`);
       return null;
     } catch {
