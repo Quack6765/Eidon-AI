@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { upsertBotRun } from "@/components/agents/bot-runs";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { BotRun, BotSummary } from "@/lib/types";
 
 export type BotLimits = { maxBots: number };
+
+const MAX_RECENT_RUNS = 20;
 
 export type BotsPayload = {
   bots: BotSummary[];
@@ -13,7 +16,7 @@ export type BotsPayload = {
   limits: BotLimits;
 };
 
-function upsertBot(current: BotSummary[], bot: BotSummary) {
+export function upsertBot(current: BotSummary[], bot: BotSummary) {
   const index = current.findIndex((entry) => entry.id === bot.id);
   if (index === -1) {
     return [...current, bot];
@@ -28,7 +31,6 @@ export function useBots(initial?: BotsPayload) {
   const [runs, setRuns] = useState<BotRun[]>(initial?.runs ?? []);
   const [limits, setLimits] = useState<BotLimits>(initial?.limits ?? { maxBots: 20 });
   const [isLoading, setIsLoading] = useState(!initial);
-  const refreshTimerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -61,40 +63,21 @@ export function useBots(initial?: BotsPayload) {
   }, [initial, refresh]);
 
   useEffect(() => {
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current !== null) {
-        return;
-      }
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = null;
-        void refresh();
-      }, 250);
-    };
-
     return addGlobalWsListener((msg) => {
       if (msg.type === "bot_updated") {
         setBots((current) => upsertBot(current, msg.bot));
-        scheduleRefresh();
         return;
       }
       if (msg.type === "bot_deleted") {
         setBots((current) => current.filter((bot) => bot.id !== msg.botId));
-        scheduleRefresh();
+        setRuns((current) => current.filter((run) => run.botId !== msg.botId));
         return;
       }
       if (msg.type === "bot_run_updated") {
-        scheduleRefresh();
+        setRuns((current) => upsertBotRun(current, msg.run, MAX_RECENT_RUNS));
       }
-    }, { onReconnect: scheduleRefresh });
+    }, { onReconnect: () => void refresh() });
   }, [refresh]);
-
-  useEffect(() => {
-    return () => {
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
-      }
-    };
-  }, []);
 
   return { bots, runs, limits, isLoading, refresh, setBots, setRuns };
 }

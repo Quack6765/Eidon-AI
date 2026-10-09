@@ -315,8 +315,10 @@ function getBotOwnerUserId(bot: Bot): string | null {
 export function broadcastBotRunUpdate(run: BotRun) {
   const bot = getBot(run.botId);
   const ownerUserId = bot ? getBotOwnerUserId(bot) : null;
-  if (!ownerUserId) return;
-  getConversationManager().broadcastAll({ type: "bot_run_updated", run }, ownerUserId);
+  if (!bot || !ownerUserId) return;
+  const manager = getConversationManager();
+  manager.broadcastAll({ type: "bot_run_updated", run }, ownerUserId);
+  manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(bot) }, ownerUserId);
 }
 
 export function broadcastBotUpsert(bot: Bot) {

@@ -1059,6 +1059,9 @@ export function ChatView({
           });
           break;
         case "snapshot": {
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
           const snapshotMessages = msg.messages as Message[];
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           setIsConversationActive(
@@ -1142,6 +1145,9 @@ export function ChatView({
           break;
         }
         case "queue_updated":
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           break;
         case "messages_deleted": {
@@ -1211,6 +1217,9 @@ export function ChatView({
           setIsSending(false);
           break;
         case "delta":
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
           handleDelta(msg.event as ChatStreamEvent);
           break;
         case "conversation_title_updated":

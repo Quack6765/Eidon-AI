@@ -54,6 +54,7 @@ import {
 import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
 import {
   broadcastBotRunUpdate,
+  broadcastBotUpsert,
   createBotRunRecord,
   deleteBotRun,
   setBotRunWaitingForUser,
@@ -968,6 +969,7 @@ export async function startChatTurn(
     if (!botRun) return;
     if (result.status === "skipped") {
       deleteBotRun(botRun.id);
+      if (bot) broadcastBotUpsert(bot);
       return;
     }
     const finished = updateBotRunStatus(botRun.id, {

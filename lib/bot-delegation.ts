@@ -223,7 +223,6 @@ export function runBotTurn(input: {
 
       const runningRun = updateBotRunStatus(runId, { status: "running", startedAt: new Date().toISOString() });
       if (runningRun) broadcastBotRunUpdate(runningRun);
-      broadcastBotUpsert(bot);
 
       let turnStarted = false;
       let rejectDeadline: (error: Error) => void = () => {};
@@ -365,8 +364,6 @@ function settleDelegationRun(input: {
   })();
 
   if (finishedRun) broadcastBotRunUpdate(finishedRun);
-  const refreshedTarget = getBot(target.id);
-  if (refreshedTarget) broadcastBotUpsert(refreshedTarget);
   if (action && delegation.replyConversationId) {
     getConversationManager().broadcast(delegation.replyConversationId, {
       type: "delta",
