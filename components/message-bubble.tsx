@@ -1436,7 +1436,7 @@ function MessageBubbleImpl({
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-center">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
-                  <div className="flex w-full flex-col items-start gap-3">
+                  <div className="assistant-timeline flex w-full flex-col items-start">
                     {statusLinesByAnchor.get(-1)}
                     {assistantBlocks.flatMap((item, index) => [
                     item.timelineKind === "thinking" ? (
@@ -1455,6 +1455,7 @@ function MessageBubbleImpl({
                         key={item.id}
                         className={ASSISTANT_CONTENT}
                         data-testid="assistant-message-content"
+                        data-timeline-item="text"
                       >
                         <div className="markdown-body">
                           <AssistantMarkdown
@@ -1497,7 +1498,7 @@ function MessageBubbleImpl({
             ) : assistantBlocks.length || content || assistantImageAttachments.length || assistantFileAttachments.length ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
-                  <div ref={contentRef} className="flex flex-col gap-3">
+                  <div ref={contentRef} className="assistant-timeline flex flex-col">
                     {statusLinesByAnchor.get(-1)}
                     {assistantBlocks.flatMap((item, index) => {
                       const statusLine = statusLinesByAnchor.get(index);
@@ -1531,6 +1532,7 @@ function MessageBubbleImpl({
                           key={item.id}
                           className={ASSISTANT_CONTENT}
                           data-testid="assistant-message-content"
+                          data-timeline-item="text"
                         >
                           <div className="markdown-body" onClick={openMermaidFullscreenFromCard}>
                             <AssistantMarkdown
@@ -1556,6 +1558,7 @@ function MessageBubbleImpl({
                       <div
                         className={ASSISTANT_CONTENT}
                         data-testid="assistant-message-content"
+                        data-timeline-item="text"
                       >
                         <AssistantInlineImageAttachments
                           attachments={assistantImageAttachments}
@@ -1573,7 +1576,7 @@ function MessageBubbleImpl({
                       <InProgressIndicator />
                     ) : null}
                     {assistantFileAttachments.length ? (
-                      <div>
+                      <div data-timeline-item="text">
                         <MessageAttachments
                           attachments={assistantFileAttachments}
                           onPreview={handleAttachmentPreview}
