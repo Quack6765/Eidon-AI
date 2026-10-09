@@ -77,19 +77,22 @@ describe("ws-client reconnect listeners", () => {
 
     hook.unmount();
     act(() => {
-      vi.advanceTimersByTime(0);
+      vi.advanceTimersByTime(5000);
     });
     expect(FakeWebSocket.instances[2]!.readyState).toBe(FakeWebSocket.CLOSED);
   });
 
-  it("keeps one socket open while a page navigation swaps the component holding it", () => {
+  it("keeps one socket open while a page navigation, even through a redirect, swaps the component holding it", () => {
     const leavingPage = renderHook(() => useWebSocket());
     act(() => FakeWebSocket.instances[0]!.open());
 
     leavingPage.unmount();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
     const arrivingPage = renderHook(() => useWebSocket());
     act(() => {
-      vi.advanceTimersByTime(0);
+      vi.advanceTimersByTime(5000);
     });
 
     expect(FakeWebSocket.instances).toHaveLength(1);
@@ -97,7 +100,11 @@ describe("ws-client reconnect listeners", () => {
 
     arrivingPage.unmount();
     act(() => {
-      vi.advanceTimersByTime(0);
+      vi.advanceTimersByTime(4999);
+    });
+    expect(FakeWebSocket.instances[0]!.readyState).toBe(FakeWebSocket.OPEN);
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
     expect(FakeWebSocket.instances[0]!.readyState).toBe(FakeWebSocket.CLOSED);
   });

@@ -18,6 +18,8 @@ type UseWebSocketReturn = {
   failed: boolean;
 };
 
+const SOCKET_CLOSE_GRACE_MS = 5_000;
+
 const globalListeners = new Set<(msg: ServerMessage) => void>();
 const reconnectListeners = new Set<() => void>();
 let singletonWs: WebSocket | null = null;
@@ -144,7 +146,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       singletonRefCount--;
       if (singletonRefCount <= 0) {
         singletonRefCount = 0;
-        singletonCloseTimeout ??= setTimeout(closeSingleton, 0);
+        singletonCloseTimeout ??= setTimeout(closeSingleton, SOCKET_CLOSE_GRACE_MS);
       }
     };
   }, []);
