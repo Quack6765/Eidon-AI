@@ -9,6 +9,20 @@ const PROBE_TIMEOUT_MS = 5_000;
 const SYSTEM_READ_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt", "/proc", "/sys"];
 const KERNEL_PATHS = ["/proc", "/dev"];
 const BUBBLEWRAP_NAMESPACES = ["--unshare-user", "--unshare-pid", "--unshare-ipc", "--disable-userns", "--new-session"];
+const DOCKER_MASKED_PATHS = [
+  "/proc/acpi",
+  "/proc/asound",
+  "/proc/interrupts",
+  "/proc/kcore",
+  "/proc/keys",
+  "/proc/latency_stats",
+  "/proc/sched_debug",
+  "/proc/scsi",
+  "/proc/timer_list",
+  "/proc/timer_stats",
+  "/sys/devices/virtual/powercap",
+  "/sys/firmware"
+];
 
 export type IsolationRules = { readWrite: string[]; readOnly?: string[]; connectPorts?: number[]; keepDaemons?: boolean };
 export type IsolationStatus = "active" | "filesystem" | "unavailable";
@@ -27,6 +41,10 @@ function launcherPath() {
   return join(process.cwd(), "scripts", "landlock-exec.py");
 }
 
+function seccompLauncherPath() {
+  return join(process.cwd(), "scripts", "seccomp-exec.py");
+}
+
 function probeLandlockAbi() {
   const probe = spawnSync("python3", [launcherPath(), "--probe"], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
   const abi = Number.parseInt(probe.stdout?.trim() ?? "", 10);
@@ -34,11 +52,10 @@ function probeLandlockAbi() {
 }
 
 function probeBubblewrapError() {
-  const probe = spawnSync(
-    "bwrap",
-    [...BUBBLEWRAP_NAMESPACES, "--die-with-parent", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--remount-ro", "/", "--", "true"],
-    { encoding: "utf8", timeout: PROBE_TIMEOUT_MS }
-  );
+  const probe = spawnSync("bwrap", bubblewrapArgs("true", [], { readWrite: [] }), {
+    encoding: "utf8",
+    timeout: PROBE_TIMEOUT_MS
+  });
   if (probe.status === 0) return null;
   return probe.stderr?.trim().split("\n")[0] || probe.error?.message || `exit code ${probe.status}`;
 }
@@ -49,7 +66,9 @@ function probeIsolation(): Probe {
   if (landlockAbi > 0) return { backend: "landlock", landlockAbi };
   const bubblewrapError = probeBubblewrapError();
   if (!bubblewrapError) {
-    console.info("[isolation] Landlock is not available here, so bot shells and the browser are sandboxed with bubblewrap.");
+    console.info(
+      "[isolation] Landlock is not available here, so bot shells and the browser are sandboxed with bubblewrap and a system-call filter."
+    );
     return { backend: "bubblewrap", landlockAbi: 0 };
   }
   console.warn(
@@ -123,6 +142,16 @@ function bubblewrapSystemBinds() {
     });
 }
 
+function bubblewrapMasks() {
+  return DOCKER_MASKED_PATHS.flatMap((path) => {
+    try {
+      return lstatSync(path).isDirectory() ? ["--tmpfs", path] : ["--ro-bind", "/dev/null", path];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function bubblewrapBinds(flag: string, paths: string[]) {
   return [...new Set(paths)].filter((path) => !isKernelPath(path)).flatMap((path) => [flag, path, path]);
 }
@@ -137,9 +166,16 @@ function bubblewrapArgs(command: string, args: string[], rules: IsolationRules) 
     "/proc",
     "--dev",
     "/dev",
+    ...bubblewrapMasks(),
     ...bubblewrapBinds("--bind-try", rules.readWrite),
+    "--ro-bind",
+    seccompLauncherPath(),
+    seccompLauncherPath(),
     "--remount-ro",
     "/",
+    "--",
+    "python3",
+    seccompLauncherPath(),
     "--",
     command,
     ...args

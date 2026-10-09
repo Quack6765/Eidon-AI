@@ -80,8 +80,10 @@ function clearPendingSpawnTimers() {
 function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string>; cwd?: string }): FakeProcess {
   if (command === "python3" || command === "bwrap") {
     const split = args.indexOf("--");
-    sandboxed.push({ command: args[split + 1], rules: args.slice(command === "python3" ? 1 : 0, split), env: options.env ?? {}, cwd: options.cwd });
-    return fakeSpawn(args[split + 1], args.slice(split + 2), options);
+    const inner = command === "bwrap" ? args.slice(split + 1) : args.slice(split);
+    const innerSplit = inner.indexOf("--");
+    sandboxed.push({ command: inner[innerSplit + 1], rules: args.slice(command === "python3" ? 1 : 0, split), env: options.env ?? {}, cwd: options.cwd });
+    return fakeSpawn(inner[innerSplit + 1], inner.slice(innerSplit + 2), options);
   }
   const child = new FakeProcess();
   if (command === "agent-browser") {

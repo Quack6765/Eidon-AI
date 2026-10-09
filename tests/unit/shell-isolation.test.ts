@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { spawnSyncMock, symlinks } = vi.hoisted(() => ({ spawnSyncMock: vi.fn(), symlinks: new Map<string, string>() }));
+const { spawnSyncMock, symlinks, fakeEntries } = vi.hoisted(() => ({
+  spawnSyncMock: vi.fn(),
+  symlinks: new Map<string, string>(),
+  fakeEntries: new Map<string, "dir" | "file">()
+}));
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -12,8 +16,12 @@ vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
-    lstatSync: ((path: string, options?: never) =>
-      symlinks.has(path) ? { isSymbolicLink: () => true } : actual.lstatSync(path, options)) as typeof actual.lstatSync,
+    lstatSync: ((path: string, options?: never) => {
+      if (symlinks.has(path)) return { isSymbolicLink: () => true, isDirectory: () => false };
+      if (fakeEntries.has(path)) return { isSymbolicLink: () => false, isDirectory: () => fakeEntries.get(path) === "dir" };
+      if (path.startsWith("/proc/") || path.startsWith("/sys/")) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      return actual.lstatSync(path, options);
+    }) as typeof actual.lstatSync,
     readlinkSync: ((path: string, options?: never) => symlinks.get(path) ?? actual.readlinkSync(path, options)) as typeof actual.readlinkSync
   };
 });
@@ -27,25 +35,7 @@ import {
 } from "@/lib/shell-isolation";
 
 const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-const BUBBLEWRAP_PROBE = [
-  "--unshare-user",
-  "--unshare-pid",
-  "--unshare-ipc",
-  "--disable-userns",
-  "--new-session",
-  "--die-with-parent",
-  "--ro-bind",
-  "/",
-  "/",
-  "--proc",
-  "/proc",
-  "--dev",
-  "/dev",
-  "--remount-ro",
-  "/",
-  "--",
-  "true"
-];
+const seccompLauncher = join(process.cwd(), "scripts", "seccomp-exec.py");
 
 function onLinux() {
   Object.defineProperty(process, "platform", { ...platform, value: "linux" });
@@ -60,6 +50,7 @@ describe("shell isolation", () => {
     resetShellIsolationForTests();
     spawnSyncMock.mockReset();
     symlinks.clear();
+    fakeEntries.clear();
   });
 
   afterEach(() => {
@@ -82,7 +73,7 @@ describe("shell isolation", () => {
     expect(getIsolationStatus()).toBe("filesystem");
   });
 
-  it("falls back to bubblewrap when Landlock is missing and bubblewrap can build its sandbox", () => {
+  it("falls back to bubblewrap when Landlock is missing and the exact sandbox bots get can start", () => {
     onLinux();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     spawnSyncMock.mockReturnValueOnce({ status: 0, stdout: "0\n" }).mockReturnValueOnce({ status: 0, stdout: "", stderr: "" });
@@ -91,8 +82,11 @@ describe("shell isolation", () => {
     expect(getIsolationStatus()).toBe("filesystem");
     expect(getLandlockAbi()).toBe(0);
     expect(spawnSyncMock).toHaveBeenCalledTimes(2);
-    expect(spawnSyncMock.mock.calls[1].slice(0, 2)).toEqual(["bwrap", BUBBLEWRAP_PROBE]);
-    expect(info).toHaveBeenCalledWith(expect.stringContaining("sandboxed with bubblewrap"));
+    const [command, args] = spawnSyncMock.mock.calls[1];
+    expect(command).toBe("bwrap");
+    expect(args).toEqual(isolateCommand("true", [], { readWrite: [] }).args);
+    expect(args.slice(-7)).toEqual(["--remount-ro", "/", "--", "python3", seccompLauncher, "--", "true"]);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("sandboxed with bubblewrap and a system-call filter"));
   });
 
   it("warns with bubblewrap's reason and runs unsandboxed when neither sandbox works", () => {
@@ -168,6 +162,9 @@ describe("shell isolation", () => {
   it("builds a bubblewrap sandbox from the same rules, without the host's /proc or a writable root", () => {
     resetShellIsolationForTests("bubblewrap");
     symlinks.set("/bin", "usr/bin");
+    fakeEntries.set("/proc/kcore", "file");
+    fakeEntries.set("/proc/acpi", "dir");
+    fakeEntries.set("/sys/firmware", "dir");
     const dataDir = process.env.EIDON_DATA_DIR!;
     const attachments = join(dataDir, "attachments", "conv_1");
     vi.stubEnv("PATH", ["/usr/local/bin", "/bin", "relative/bin", "/proc/self", join(dataDir, "bin")].join(":"));
@@ -197,7 +194,9 @@ describe("shell isolation", () => {
     expect(args.join(" ")).toContain("--symlink usr/bin /bin");
     const sources = [...readOnly, ...bindSources(args, "--bind-try")];
     expect(sources.some((path) => path === "/proc" || path.startsWith("/proc/") || path.startsWith("/dev"))).toBe(false);
-    expect(args.join(" ")).toContain("--proc /proc --dev /dev");
+    expect(args.join(" ")).toContain(
+      "--proc /proc --dev /dev --tmpfs /proc/acpi --ro-bind /dev/null /proc/kcore --tmpfs /sys/firmware --bind-try"
+    );
     expect(args.lastIndexOf("--ro-bind-try")).toBeLessThan(args.indexOf("--bind-try"));
     expect(args.slice(args.indexOf("--bind-try"))).toEqual([
       "--bind-try",
@@ -206,8 +205,14 @@ describe("shell isolation", () => {
       "--bind-try",
       "/tmp",
       "/tmp",
+      "--ro-bind",
+      seccompLauncher,
+      seccompLauncher,
       "--remount-ro",
       "/",
+      "--",
+      "python3",
+      seccompLauncher,
       "--",
       "/bin/sh",
       "-lc",
@@ -223,5 +228,6 @@ describe("shell isolation", () => {
 
     expect(args).not.toContain("--die-with-parent");
     expect(args.slice(-4)).toEqual(["--", "agent-browser", "open", "about:blank"]);
+    expect(args.slice(-7, -4)).toEqual(["--", "python3", seccompLauncher]);
   });
 });

@@ -66,8 +66,9 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("COPY --from=builder /app/scripts/landlock-exec.py ./scripts/landlock-exec.py");
   });
 
-  it("installs bubblewrap as the sandbox for hosts without Landlock", () => {
-    expect(dockerfile).toContain("curl ca-certificates bubblewrap \\");
+  it("installs bubblewrap and the system-call filter launcher for hosts without Landlock", () => {
+    expect(dockerfile).toContain("curl ca-certificates bubblewrap python3-seccomp \\");
+    expect(dockerfile).toContain("COPY --from=builder /app/scripts/seccomp-exec.py ./scripts/seccomp-exec.py");
   });
 
   it("creates the TMPDIR directory before package postinsts run mktemp", () => {
