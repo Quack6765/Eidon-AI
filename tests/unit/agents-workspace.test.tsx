@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { AgentsWorkspace } from "@/components/agents/agents-workspace";
 import type { BotRun, BotSummary } from "@/lib/types";
@@ -207,6 +207,33 @@ describe("agents workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
 
     expect(await screen.findByText("Bot limit reached (20)")).toBeInTheDocument();
+  });
+
+  it("applies pushed bot and run updates without refetching an older roster over them", async () => {
+    mockGetBotsEndpoint([buildBot()]);
+
+    render(
+      React.createElement(AgentsWorkspace, {
+        initialBots: [buildBot()],
+        initialRuns: [buildRun()],
+        initialLimits: { maxBots: 20 }
+      })
+    );
+    expect(screen.getByText("1 run")).toBeInTheDocument();
+
+    act(() => {
+      wsMocks.listener?.({
+        type: "bot_run_updated",
+        run: buildRun({ id: "run_2", status: "running", createdAt: "2026-04-10T13:00:00.000Z" })
+      } as never);
+      wsMocks.listener?.({ type: "bot_updated", bot: buildBot({ status: "running" }) });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(screen.getByText("2 runs")).toBeInTheDocument();
+    expect(within(screen.getByRole("link", { name: /Chief of Staff/ })).getByLabelText("Running")).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith("/api/bots", expect.anything());
+    expect(global.fetch).not.toHaveBeenCalledWith("/api/bots");
   });
 
   it("updates bot status from websocket events", async () => {

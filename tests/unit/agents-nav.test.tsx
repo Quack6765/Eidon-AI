@@ -2,7 +2,7 @@
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 
 import { AgentsNav } from "@/components/agents/agents-nav";
 import type { BotSummary } from "@/lib/types";
@@ -28,11 +28,13 @@ vi.mock("next/link", () => ({
 }));
 
 const wsMocks = vi.hoisted(() => ({
+  listener: null as ((msg: unknown) => void) | null,
   reconnectListeners: new Set<() => void>()
 }));
 
 vi.mock("@/lib/ws-client", () => ({
-  addGlobalWsListener: (_listener: unknown, options?: { onReconnect?: () => void }) => {
+  addGlobalWsListener: (listener: (msg: unknown) => void, options?: { onReconnect?: () => void }) => {
+    wsMocks.listener = listener;
     if (options?.onReconnect) wsMocks.reconnectListeners.add(options.onReconnect);
     return () => {
       if (options?.onReconnect) wsMocks.reconnectListeners.delete(options.onReconnect);
@@ -108,6 +110,29 @@ describe("AgentsNav", () => {
 
     const workerRow = screen.getByRole("link", { name: /Research Bot/ });
     expect(workerRow.querySelector("svg[aria-label='Chief']")).toBeNull();
+  });
+
+  it("keeps a delegated bot's pushed working status instead of refetching an older one on run updates", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ bots: [buildBot({ status: "idle" })] })
+    }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      render(<AgentsNav bots={[buildBot()]} onCloseAction={() => {}} />);
+
+      await act(async () => {
+        wsMocks.listener?.({ type: "bot_run_updated", run: { id: "run_1", botId: "bot_1", status: "running" } });
+        wsMocks.listener?.({ type: "bot_updated", bot: buildBot({ status: "running" }) });
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Running")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refetches bot statuses after the live connection comes back", async () => {

@@ -1967,6 +1967,46 @@ describe("chat view", () => {
     });
   });
 
+  it("ignores live updates for a conversation it is no longer showing", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_previous",
+        event: { type: "message_start", messageId: "msg_previous" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_previous",
+        event: { type: "answer_delta", text: "Words from the conversation you left" }
+      });
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_previous",
+        messages: [createMessage({ id: "msg_previous_user", role: "user", content: "A message you left behind" })]
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_current" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Words for this conversation" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Words for this conversation")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Words from the conversation you left")).not.toBeInTheDocument();
+    expect(screen.queryByText("A message you left behind")).not.toBeInTheDocument();
+  });
+
   it("drops an active stream that a reconnect snapshot no longer contains", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

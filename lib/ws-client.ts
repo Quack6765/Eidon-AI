@@ -23,6 +23,7 @@ const reconnectListeners = new Set<() => void>();
 let singletonWs: WebSocket | null = null;
 let singletonRefCount = 0;
 let singletonReconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+let singletonCloseTimeout: ReturnType<typeof setTimeout> | undefined;
 let singletonReconnectAttempts = 0;
 let singletonHasOpened = false;
 const pendingMessages: ClientMessage[] = [];
@@ -80,6 +81,20 @@ function singletonConnect() {
   });
 }
 
+function closeSingleton() {
+  singletonCloseTimeout = undefined;
+  if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
+  singletonReconnectTimeout = undefined;
+  singletonWs?.close();
+  singletonWs = null;
+  singletonHasOpened = false;
+  singletonReconnectAttempts = 0;
+  pendingMessages.length = 0;
+  currentSubscription = null;
+  singletonOnOpenCbs = new Set();
+  singletonOnCloseCbs = new Set();
+}
+
 function scheduleSingletonReconnect() {
   if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
   const delay = Math.min(1000 * Math.pow(2, singletonReconnectAttempts), 30000);
@@ -95,6 +110,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   useEffect(() => {
     singletonRefCount++;
+    if (singletonCloseTimeout) {
+      clearTimeout(singletonCloseTimeout);
+      singletonCloseTimeout = undefined;
+    }
 
     if (!singletonWs || singletonWs.readyState === WebSocket.CLOSED || singletonWs.readyState === WebSocket.CLOSING) {
       if (!singletonWs || singletonWs.readyState === WebSocket.CLOSED) {
@@ -125,16 +144,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       singletonRefCount--;
       if (singletonRefCount <= 0) {
         singletonRefCount = 0;
-        if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
-        singletonReconnectTimeout = undefined;
-        singletonWs?.close();
-        singletonWs = null;
-        singletonHasOpened = false;
-        singletonReconnectAttempts = 0;
-        pendingMessages.length = 0;
-        currentSubscription = null;
-        singletonOnOpenCbs = new Set();
-        singletonOnCloseCbs = new Set();
+        singletonCloseTimeout ??= setTimeout(closeSingleton, 0);
       }
     };
   }, []);

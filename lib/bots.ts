@@ -518,20 +518,16 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
   }
 }
 
+function hasRunWithStatus(bot: Bot, status: "queued" | "running" | "waiting_user") {
+  return Boolean(
+    getDb().prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = ? LIMIT 1").get(bot.id, status)
+  );
+}
+
 export function getBotStatus(bot: Bot): BotStatus {
-  const waitingRun = getDb()
-    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_user' LIMIT 1")
-    .get(bot.id);
-  if (waitingRun && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
-
-  const conversation = getConversation(bot.homeConversationId);
-  if (conversation?.isActive) return "running";
-
-  const queuedRun = getDb()
-    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'queued' LIMIT 1")
-    .get(bot.id);
-  if (queuedRun) return "queued";
-
+  if (hasRunWithStatus(bot, "waiting_user") && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
+  if (getConversation(bot.homeConversationId)?.isActive || hasRunWithStatus(bot, "running")) return "running";
+  if (hasRunWithStatus(bot, "queued")) return "queued";
   return "idle";
 }
 

@@ -36,27 +36,19 @@ export function AgentsNav({
   }, [initialBots]);
 
   useEffect(() => {
-    let refreshTimer: number | null = null;
-
-    const scheduleRefresh = () => {
-      if (refreshTimer !== null) {
-        return;
-      }
-      refreshTimer = window.setTimeout(async () => {
-        refreshTimer = null;
-        try {
-          const response = await fetch("/api/bots");
-          if (!response.ok) {
-            return;
-          }
-          const payload = (await response.json()) as { bots?: BotSummary[] };
-          if (Array.isArray(payload.bots)) {
-            setBots(payload.bots);
-          }
-        } catch {
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/bots");
+        if (!response.ok) {
           return;
         }
-      }, 300);
+        const payload = (await response.json()) as { bots?: BotSummary[] };
+        if (Array.isArray(payload.bots)) {
+          setBots(payload.bots);
+        }
+      } catch {
+        return;
+      }
     };
 
     return addGlobalWsListener((msg) => {
@@ -69,12 +61,8 @@ export function AgentsNav({
       }
       if (msg.type === "bot_deleted") {
         setBots((current) => current.filter((bot) => bot.id !== msg.botId));
-        return;
       }
-      if (msg.type === "bot_run_updated") {
-        scheduleRefresh();
-      }
-    }, { onReconnect: scheduleRefresh });
+    }, { onReconnect: () => void refresh() });
   }, []);
 
   function handleNavigate(href: string) {
