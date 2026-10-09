@@ -11,13 +11,13 @@ const STATUS_COPY: Record<IsolationStatus, { label: string; dotClass: string; de
     label: "Files only",
     dotClass: "bg-amber-400",
     description:
-      "Bot commands and the browser can only use their own files. This server's Linux kernel is older than 6.7, so bots could still reach this server and your local network directly."
+      "Bot commands and the browser can only use their own files, but bots could still reach this server and your local network directly."
   },
   unavailable: {
     label: "Unavailable",
     dotClass: "bg-red-400",
     description:
-      "This server's kernel doesn't support Landlock, so bot commands and the browser run without a sandbox and could read Eidon's data. Web traffic still goes through Eidon's filter, but a bot could bypass it."
+      "This server's kernel doesn't support Landlock, so bot commands and the browser run without a sandbox and could read Eidon's data or bypass its web filter. On Unraid and other hosts without Landlock, two Docker parameters turn on a fallback sandbox: see Bot sandbox in the configuration docs."
   }
 };
 

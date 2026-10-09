@@ -70,6 +70,29 @@ describe("local shell", () => {
     await resultPromise;
   });
 
+  it("starts sandboxed commands through bubblewrap when Landlock is missing, ending them with the command", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+    resetShellIsolationForTests("bubblewrap");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "ls",
+      cwd: "/tmp/eidon",
+      isolation: { readWrite: ["/tmp/eidon"], connectPorts: [4100] }
+    });
+
+    const [command, args, options] = spawnMock.mock.calls[0];
+    expect(command).toBe("bwrap");
+    expect(args).toContain("--die-with-parent");
+    expect(args.slice(-9)).toEqual(["--bind-try", "/tmp/eidon", "/tmp/eidon", "--remount-ro", "/", "--", expectedInitialShell, "-lc", "ls"]);
+    expect(options).toEqual(expect.objectContaining({ cwd: "/tmp/eidon", detached: process.platform !== "win32" }));
+    child.emit("close", 0);
+    await resultPromise;
+    resetShellIsolationForTests(0);
+  });
+
   it("runs unrestricted commands and keeps long output for the caller to bound", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();

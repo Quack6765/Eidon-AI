@@ -423,11 +423,12 @@ describe("general section", () => {
 
     rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "filesystem" }));
     expect(status()).toHaveTextContent("Files only");
-    expect(status()).toHaveTextContent("older than 6.7");
+    expect(status()).toHaveTextContent("could still reach this server and your local network");
 
     rerender(React.createElement(GeneralSection, { settings: makeSettings(), botIsolation: "unavailable" }));
     expect(status()).toHaveTextContent("Unavailable");
     expect(status()).toHaveTextContent("could read Eidon's data");
+    expect(status()).toHaveTextContent("two Docker parameters turn on a fallback sandbox");
 
     rerender(React.createElement(GeneralSection, { settings: makeSettings() }));
     expect(screen.queryByTestId("bot-isolation-status")).not.toBeInTheDocument();

@@ -66,6 +66,10 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("COPY --from=builder /app/scripts/landlock-exec.py ./scripts/landlock-exec.py");
   });
 
+  it("installs bubblewrap as the sandbox for hosts without Landlock", () => {
+    expect(dockerfile).toContain("curl ca-certificates bubblewrap \\");
+  });
+
   it("creates the TMPDIR directory before package postinsts run mktemp", () => {
     expect(dockerfile).toContain("install -d /app/data/tmp \\\n    && apt-get update");
   });
