@@ -40,7 +40,7 @@ const allowedVendorPaths = new Set([
   "lib/web-search.ts"
 ]);
 
-const allowedVendorPathPrefixes = ["lib/provider-adapters/"];
+const allowedVendorPathPrefixes = ["lib/provider-adapters/", "lib/release-notes/"];
 
 const allowedSharedLines: Record<string, RegExp[]> = {
   "app/layout.tsx": [/next\/font\/google/],

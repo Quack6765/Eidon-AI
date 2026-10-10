@@ -47,7 +47,7 @@ what you excluded and why. The user cannot judge the bullet choice without it.
 
 Hard rules, enforced by `tests/unit/release-highlights.test.ts`:
 
-- 3 to 6 bullets per entry — the pop-up cannot hold more.
+- 1 to 6 bullets per entry — the pop-up cannot hold more than six.
 - One line each, at most 120 characters, no trailing period, no newlines.
 - Written for a non-technical self-hoster: say what they can now do, name the
   provider or service they would recognize (GLM, OpenRouter, Pushover).
@@ -89,7 +89,7 @@ Ask the user, never guess:
    the GitHub release tag, because the stable image takes
    `NEXT_PUBLIC_APP_VERSION` from `github.event.release.tag_name`.
 
-If the user's selection falls outside 3 to 6 bullets, say so and ask again.
+If the user's selection falls outside 1 to 6 bullets, say so and ask again.
 Confirm the tag before writing anything.
 
 ## 5. Write the note
