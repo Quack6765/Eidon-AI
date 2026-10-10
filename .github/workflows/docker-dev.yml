@@ -24,6 +24,18 @@ jobs:
       - name: Set dev build version
         run: echo "DEV_VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
+      - name: Pre-pull BuildKit image with retries
+        run: |
+          for i in 1 2 3 4 5; do
+            if docker pull moby/buildkit:buildx-stable-1; then
+              exit 0
+            fi
+            echo "Pull attempt $i failed; retrying in 10s"
+            sleep 10
+          done
+          echo "ERROR: could not pull moby/buildkit:buildx-stable-1 after 5 attempts"
+          exit 1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
