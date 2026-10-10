@@ -98,6 +98,19 @@ describe("bot-runs", () => {
     expect(refreshed && toBotSummary(refreshed).status).toBe("idle");
     expect(refreshed && toBotSummary(refreshed).lastRunAt).toBeTruthy();
   });
+
+  it("reports a bot as running for as long as its run is, even before its turn takes the conversation", async () => {
+    const { toBotSummary } = await import("@/lib/bots");
+    const user = await createLocalUser({ username: "runwindow", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Window Bot" }, user.id);
+    const run = createBotRunRecord({ botId: bot.id, conversationId: bot.homeConversationId, triggerSource: "delegated" });
+
+    updateBotRunStatus(run.id, { status: "running", startedAt: "2026-05-01T00:00:00.000Z" });
+    expect(toBotSummary(bot).status).toBe("running");
+
+    updateBotRunStatus(run.id, { status: "completed", finishedAt: "2026-05-01T00:01:00.000Z" });
+    expect(toBotSummary(bot).status).toBe("idle");
+  });
 });
 
 describe("bot-run broadcasts", () => {
@@ -109,12 +122,10 @@ describe("bot-run broadcasts", () => {
     const { getConversationManager } = await import("@/lib/ws-singleton");
     const manager = getConversationManager();
 
-    const events: unknown[] = [];
+    const events: Array<{ event: Parameters<typeof manager.broadcastAll>[0]; userId: string | null }> = [];
     const original = manager.broadcastAll;
     manager.broadcastAll = (event: Parameters<typeof original>[0], userId: string | null) => {
-      if (event.type === "bot_run_updated") {
-        events.push({ event, userId });
-      }
+      events.push({ event, userId });
     };
 
     const user = await createLocalUser({ username: "broadcastowner", password: "password-123", role: "user" as const });
@@ -125,9 +136,13 @@ describe("bot-run broadcasts", () => {
       triggerSource: "dm"
     });
 
-    broadcastBotRunUpdate(run);
+    const running = updateBotRunStatus(run.id, { status: "running" });
+    broadcastBotRunUpdate(running!);
     manager.broadcastAll = original;
 
-    expect(events).toHaveLength(1);
+    expect(events).toEqual([
+      { event: { type: "bot_run_updated", run: running }, userId: user.id },
+      { event: { type: "bot_updated", bot: expect.objectContaining({ id: bot.id, status: "running" }) }, userId: user.id }
+    ]);
   });
 });

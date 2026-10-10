@@ -13,7 +13,7 @@ import {
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { notifyConfigInputSchema } from "@/lib/notifications";
 import { getPersona } from "@/lib/personas";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getBot } from "@/lib/bots";
 
 const paramsSchema = z.object({
@@ -79,7 +79,7 @@ export async function PATCH(
     return badRequest("Automation not found", 404);
   }
 
-  if (body.data.providerProfileId && !getProviderProfile(body.data.providerProfileId)) {
+  if (body.data.providerProfileId && !getSelectableProviderProfile(body.data.providerProfileId, user.id)) {
     return badRequest("Provider profile not found", 404);
   }
 

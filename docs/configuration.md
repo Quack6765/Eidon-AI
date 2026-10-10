@@ -89,13 +89,46 @@ Give the container a real `/dev/shm` as well. It is cheap: it is tmpfs, not disk
 | Railway, Render, Coolify, Dokploy, Portainer | A "shared memory" / "shm size" field on the service; if your provider exposes none, the shipped flags still keep the browser working, just on disk |
 | Kubernetes | Mount an `emptyDir` with `medium: Memory` and `sizeLimit: 1Gi` at `/dev/shm` |
 
-Nothing else needs relaxing. Chromium's setuid sandbox does not work as a non-root user in a container, which is why Eidon passes `--no-sandbox` rather than asking you to grant capabilities. The default Docker seccomp profile and AppArmor profile are both fine for a `--no-sandbox` Chromium; the commonly cited `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined` workarounds are only needed if you have re-enabled a sandboxed Chromium, and Eidon does not ask you to disable either profile.
+Nothing else needs relaxing. Chromium's setuid sandbox does not work as a non-root user in a container, which is why Eidon passes `--no-sandbox` rather than asking you to grant capabilities. The default Docker seccomp profile and AppArmor profile are both fine for a `--no-sandbox` Chromium; the commonly cited `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined` workarounds are only needed if you have re-enabled a sandboxed Chromium, and Eidon does not ask you to disable either profile for the browser. The one exception is the optional bot sandbox fallback on hosts without Landlock; see [Bot sandbox](#bot-sandbox).
 
 ### Persistent models
 
 The first time you use semantic recall, conversation titles, or offline speech-to-text, Eidon downloads those models into `model-cache/` inside the data directory — roughly 210 MB of ONNX runtime, 270 MB for the title model, and 207 MB for speech. That is under `EIDON_DATA_DIR`, so mounting `/app/data` is all it takes: restarts and container recreates reuse what was already downloaded, and the files never re-download.
 
 If your platform gives you an ephemeral filesystem with a separate volume, or you deploy without a volume at all, that ~690 MB is re-fetched from `huggingface.co` on every cold start. Mount a volume at `/app/data` before the first start, not after, or you pay the download once anyway.
+
+### Bot sandbox
+
+Bot shells, bot Python, and the built-in browser run in a sandbox that limits them to the bot's own folders. **Settings → General → Bots** shows which level this server gets:
+
+| Status | What bots can do | When you get it |
+| --- | --- | --- |
+| Active | Use only their own files; web traffic is forced through Eidon's filter, which blocks this server and your local network | Linux kernel 6.7 or later with Landlock, which most current distributions have |
+| Files only | Use only their own files, but still open direct connections | Kernel 5.13 to 6.6 with Landlock, or the bubblewrap fallback below |
+| Unavailable | Run without a sandbox and read Eidon's data | Neither works |
+
+Landlock needs no configuration and works under the default Docker seccomp profile.
+
+**Hosts without Landlock, such as Unraid.** Unraid builds its kernel without Linux security modules, so Landlock cannot be turned on there, not even with a boot option. Eidon then falls back to bubblewrap, which ships in the image, but Docker blocks the namespaces bubblewrap needs unless you add two options:
+
+| Platform | How to set it |
+| --- | --- |
+| Unraid | Edit the container, switch to **Advanced View**, and add `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` to **Extra Parameters** |
+| `docker run` | `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` |
+| Docker Compose | `security_opt: ["seccomp=unconfined", "systempaths=unconfined"]` in the service |
+
+After a restart the Bots card shows **Files only**. If it still says **Unavailable**, the server log gives bubblewrap's reason: `No permissions to create new namespace` means the seccomp option is missing, and `Can't mount proc` or a `max_user_namespaces` error means the systempaths option is missing. On a host that uses AppArmor, which Unraid does not, `Failed to make / slave: Permission denied` means you also need `--security-opt apparmor=unconfined`.
+
+**What these options change.** Docker does not let a process inside a container build its own sandbox, so these two options switch off Docker's system-call filter and its masking of sensitive `/proc` files for the container. Eidon puts both back on everything it sandboxes. Bot commands, bot Python and the browser run under a system-call filter that blocks what Docker's default profile blocks for them (kernel keyrings, BPF, perf events, userfaultfd, io_uring, new namespaces, and module, mount and clock changes), with the same `/proc` and `/sys` files hidden. If that filter cannot be applied, the card shows **Unavailable** rather than running bots without it.
+
+What stays relaxed is Eidon's own server process and what it runs outside the sandbox, such as shells in regular conversations and MCP servers. If someone found a way to run code in the server itself, they would face fewer kernel-level barriers to escaping the container. Eidon never runs as root, but a process you start as root with `docker exec` gets more reach into the host than usual, so use `docker exec -u eidon`. On a host that has Landlock, leave both options out: Landlock is used first and needs neither.
+
+Under bubblewrap, a few things behave differently:
+
+- Eidon's files are absent rather than unreadable: a bot sees `No such file or directory`, and writes outside its folders fail with `Read-only file system`.
+- A background job started with `&` ends when the command that started it ends.
+- Moving or hard-linking a file between the workspace, the bot's home folder, and `/tmp` fails with `Invalid cross-device link`; copying works.
+- Network traffic is not restricted, so a bot can reach this server and your local network directly, as on kernels older than 6.7.
 
 
 ## Security and storage notes

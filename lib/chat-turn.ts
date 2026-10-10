@@ -28,7 +28,7 @@ import { badRequest } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
-import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
+import { canUseProviderProfile, resolveConversationReasoningEffort } from "@/lib/provider-profile";
 import { ensureCompactedContext, getConversationContextUsage, startBackgroundCompaction } from "@/lib/compaction";
 import { queueConversationIndex } from "@/lib/semantic-index";
 import { computeCompactionLimit, estimateTextTokens } from "@/lib/tokenization";
@@ -54,6 +54,7 @@ import {
 import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
 import {
   broadcastBotRunUpdate,
+  broadcastBotUpsert,
   createBotRunRecord,
   deleteBotRun,
   setBotRunWaitingForUser,
@@ -205,11 +206,12 @@ export function getAssistantTurnStartPreflight(conversationId: string, providerP
     };
   }
 
+  const conversationOwnerId = getConversationOwnerId(conversationId);
   const resolvedProviderProfileId = providerProfileId ?? conversation.providerProfileId;
   const profileSettings =
     (resolvedProviderProfileId
       ? getRuntimeProviderProfile(resolvedProviderProfileId)
-      : null) ?? getDefaultRuntimeProviderProfile();
+      : null) ?? getDefaultRuntimeProviderProfile(conversationOwnerId);
   const settings = profileSettings
     ? {
         ...profileSettings,
@@ -219,7 +221,6 @@ export function getAssistantTurnStartPreflight(conversationId: string, providerP
         )
       }
     : null;
-  const conversationOwnerId = getConversationOwnerId(conversationId);
   const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 
   if (!settings) {
@@ -231,7 +232,7 @@ export function getAssistantTurnStartPreflight(conversationId: string, providerP
     };
   }
 
-  const readinessError = getProviderReadinessError(settings);
+  const readinessError = getProviderReadinessError(settings, conversationOwnerId);
   if (readinessError) {
     return {
       ok: false as const,
@@ -523,8 +524,11 @@ async function startAssistantTurn(
 
     const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
 
-    const visionProfile = settings.visionProviderProfileId
+    const storedVisionProfile = settings.visionProviderProfileId
       ? getRuntimeProviderProfile(settings.visionProviderProfileId)
+      : null;
+    const visionProfile = storedVisionProfile && canUseProviderProfile(storedVisionProfile, conversationOwnerId)
+      ? storedVisionProfile
       : null;
 
     const providerResult = await resolveAssistantTurn({
@@ -965,6 +969,7 @@ export async function startChatTurn(
     if (!botRun) return;
     if (result.status === "skipped") {
       deleteBotRun(botRun.id);
+      if (bot) broadcastBotUpsert(bot);
       return;
     }
     const finished = updateBotRunStatus(botRun.id, {

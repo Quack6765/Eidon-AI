@@ -17,7 +17,8 @@ export const PROVIDER_LOGO_PATHS: Record<ProviderPresetId, string> = {
 };
 
 export const OAUTH_PROVIDER_LOGO_PATHS: Partial<Record<ProviderKind, string>> = {
-  github_copilot: "/logos/githubcopilot.svg"
+  github_copilot: "/logos/githubcopilot.svg",
+  chatgpt_subscription: "/logos/openai.svg"
 };
 
 function LogoImage({ src }: { src: string }) {

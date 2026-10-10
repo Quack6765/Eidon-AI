@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { BotDetailView } from "@/components/agents/bot-detail-view";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
@@ -253,6 +253,21 @@ describe("bot detail memories", () => {
         expect.objectContaining({ method: "POST" })
       );
     });
+  });
+
+  it("marks a later result read even when the earlier read never reached this page", async () => {
+    const fetchMock = mockMemoryEndpoints([]);
+    const readCalls = () =>
+      vi.mocked(fetchMock).mock.calls.filter(([url]) => url === "/api/bots/bot_1/read").length;
+
+    renderView(buildBot({ unread: true }));
+    await waitFor(() => expect(readCalls()).toBe(1));
+
+    act(() => {
+      wsMocks.listener?.({ type: "bot_updated", bot: buildBot({ unread: true, status: "idle" }) } as never);
+    });
+
+    await waitFor(() => expect(readCalls()).toBe(2));
   });
 
   it("does not mark the bot read while the page is hidden, then marks it once visible", async () => {

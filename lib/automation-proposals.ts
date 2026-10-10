@@ -4,7 +4,7 @@ import { getBot } from "@/lib/bots";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import type {
   Automation,
   AutomationCalendarFrequency,
@@ -175,7 +175,7 @@ export function approveAutomationProposal(
   const pending = loadPendingAutomationProposalAction(actionId, userId);
   const finalPayload = applyAutomationProposalOverrides(pending.proposalPayload, overrides);
 
-  if (!getProviderProfile(finalPayload.providerProfileId)) {
+  if (!getSelectableProviderProfile(finalPayload.providerProfileId, userId ?? null)) {
     throw new Error("Provider profile not found");
   }
 

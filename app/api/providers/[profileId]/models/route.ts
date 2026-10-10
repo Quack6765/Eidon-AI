@@ -17,7 +17,7 @@ export async function GET(
   if (params instanceof Response) return params;
   const profile = getRuntimeProviderProfile(params.profileId);
   if (!profile) return badRequest("Provider profile not found", 404);
-  const readinessError = getProviderReadinessError(profile);
+  const readinessError = getProviderReadinessError(profile, admin.id);
   if (readinessError) return badRequest(readinessError, 409);
   try {
     return ok({

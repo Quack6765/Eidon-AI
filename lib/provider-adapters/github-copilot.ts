@@ -7,11 +7,11 @@ import {
 } from "@/lib/github-copilot";
 import type { CopilotMessageAttachment } from "@/lib/github-copilot";
 import { listGithubCopilotModels } from "@/lib/github-copilot";
+import { createGithubProviderConnectionFlow } from "@/lib/provider-adapters/github-provider-connection";
 import {
-  cancelGithubProviderConnectionFlow,
-  createGithubProviderConnectionFlow,
-  getGithubProviderConnectionFlow
-} from "@/lib/provider-adapters/github-provider-connection";
+  cancelProviderConnectionFlow,
+  getProviderConnectionFlow
+} from "@/lib/provider-connection-flows";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import {
@@ -34,8 +34,8 @@ import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
 
 export const githubCopilotConnectionFlows = {
   create: createGithubProviderConnectionFlow,
-  get: getGithubProviderConnectionFlow,
-  cancel: cancelGithubProviderConnectionFlow
+  get: getProviderConnectionFlow,
+  cancel: cancelProviderConnectionFlow
 };
 
 export async function callGithubCopilotText(input: ProviderTextInput) {

@@ -12,6 +12,7 @@ const allowedVendorPaths = new Set([
   "components/settings/integration-settings/web-search-settings.tsx",
   "components/settings/provider-connection-fields.tsx",
   "lib/anthropic.ts",
+  "lib/chatgpt-subscription.ts",
   "lib/copilot-tools.ts",
   "lib/db-migrations.ts",
   "lib/env.ts",
@@ -39,7 +40,7 @@ const allowedVendorPaths = new Set([
   "lib/web-search.ts"
 ]);
 
-const allowedVendorPathPrefixes = ["lib/provider-adapters/"];
+const allowedVendorPathPrefixes = ["lib/provider-adapters/", "lib/release-notes/"];
 
 const allowedSharedLines: Record<string, RegExp[]> = {
   "app/layout.tsx": [/next\/font\/google/],

@@ -101,7 +101,7 @@ Each entry has:
   name. It must match `NEXT_PUBLIC_APP_VERSION`, which the stable workflow takes
   from `github.event.release.tag_name`.
 - `date` — the release date, `YYYY-MM-DD`.
-- `bullets` — 3 to 6 single-line highlights.
+- `bullets` — 1 to 6 single-line highlights.
 
 The array order does not matter; the newest release is selected by version.
 

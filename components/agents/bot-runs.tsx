@@ -16,6 +16,12 @@ export function isActiveBotRun(run: BotRun) {
   return run.status === "queued" || run.status === "running" || run.status === "waiting_user";
 }
 
+export function upsertBotRun(current: BotRun[], run: BotRun, limit: number) {
+  const next = [run, ...current.filter((entry) => entry.id !== run.id)];
+  next.sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0));
+  return next.slice(0, limit);
+}
+
 export function formatBotRunTime(value: string) {
   return new Date(value).toLocaleString(undefined, {
     month: "short",

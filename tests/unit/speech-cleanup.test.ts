@@ -24,7 +24,9 @@ vi.mock("@/lib/settings", () => ({
 const profile = {
   id: "profile_cleanup",
   name: "Cleanup profile",
-  model: "claude-sonnet-4-5"
+  providerKind: "anthropic",
+  model: "claude-sonnet-4-5",
+  connectionMetadata: {}
 } as RuntimeProviderProfile;
 
 describe("cleanSpeechTranscript", () => {
@@ -40,7 +42,7 @@ describe("cleanSpeechTranscript", () => {
     getSettingsMock.mockReturnValue(createRuntimeAppSettings());
     const { cleanSpeechTranscript } = await import("@/lib/speech/cleanup");
 
-    await expect(cleanSpeechTranscript({ transcript: "buy milk" })).rejects.toThrow(
+    await expect(cleanSpeechTranscript({ transcript: "buy milk", userId: "user_1" })).rejects.toThrow(
       "AI post-cleanup is disabled."
     );
     expect(callProviderTextMock).not.toHaveBeenCalled();
@@ -54,7 +56,7 @@ describe("cleanSpeechTranscript", () => {
     getRuntimeProviderProfileMock.mockReturnValue(null);
     const { cleanSpeechTranscript } = await import("@/lib/speech/cleanup");
 
-    await expect(cleanSpeechTranscript({ transcript: "buy milk" })).rejects.toThrow(
+    await expect(cleanSpeechTranscript({ transcript: "buy milk", userId: "user_1" })).rejects.toThrow(
       "AI post-cleanup provider profile is unavailable."
     );
     expect(callProviderTextMock).not.toHaveBeenCalled();
@@ -67,7 +69,7 @@ describe("cleanSpeechTranscript", () => {
     }));
     const { cleanSpeechTranscript } = await import("@/lib/speech/cleanup");
 
-    await expect(cleanSpeechTranscript({ transcript: "buy milk" })).rejects.toThrow(
+    await expect(cleanSpeechTranscript({ transcript: "buy milk", userId: "user_1" })).rejects.toThrow(
       "AI post-cleanup provider profile is unavailable."
     );
   });
@@ -80,7 +82,7 @@ describe("cleanSpeechTranscript", () => {
     }));
     const { cleanSpeechTranscript } = await import("@/lib/speech/cleanup");
 
-    const result = await cleanSpeechTranscript({ transcript: "um buy milk" });
+    const result = await cleanSpeechTranscript({ transcript: "um buy milk", userId: "user_1" });
 
     expect(result).toEqual({
       text: "Buy water.",
@@ -106,7 +108,7 @@ describe("cleanSpeechTranscript", () => {
     );
     const { DEFAULT_SPEECH_CLEANUP_PROMPT } = await import("@/lib/speech/cleanup-prompt");
 
-    await cleanSpeechTranscript({ transcript: "um buy milk" });
+    await cleanSpeechTranscript({ transcript: "um buy milk", userId: "user_1" });
 
     expect(callProviderTextMock).toHaveBeenCalledWith({
       settings: profile,

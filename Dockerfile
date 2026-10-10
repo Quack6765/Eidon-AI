@@ -33,7 +33,7 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 RUN install -d /app/data/tmp \
-    && apt-get update && apt-get install -y --no-install-recommends chromium python3 tini curl ca-certificates \
+    && apt-get update && apt-get install -y --no-install-recommends chromium python3 tini curl ca-certificates bubblewrap python3-seccomp \
     && ln -s /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g agent-browser@0.38.1 \
@@ -48,6 +48,7 @@ COPY --from=builder --chown=eidon:eidon /app/server.cjs ./server.cjs
 COPY --from=builder --chown=eidon:eidon /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
 COPY --from=builder --chown=eidon:eidon /app/seed-native-test.cjs ./seed-native-test.cjs
 COPY --from=builder /app/scripts/landlock-exec.py ./scripts/landlock-exec.py
+COPY --from=builder /app/scripts/seccomp-exec.py ./scripts/seccomp-exec.py
 COPY --from=builder /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY --from=prod-deps --chown=eidon:eidon /app/node_modules ./node_modules
 RUN rm -rf ./node_modules/onnxruntime-web/dist \

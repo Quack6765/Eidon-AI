@@ -7,10 +7,8 @@ import type { MessageOptions, PermissionRequest, PermissionRequestResult, Tool }
 
 import { env, getGithubAppCallbackUrl } from "@/lib/env";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";
-import {
-  updateProviderConnectionIfNonceMatches,
-  updateProviderConnectionIfRefreshTokenMatches
-} from "@/lib/provider-profiles";
+import { createAbortError, ensureFreshOAuthAccessToken, withAbort } from "@/lib/provider-oauth-refresh";
+import { updateProviderConnectionIfNonceMatches } from "@/lib/provider-profiles";
 import type { RuntimeProviderProfile } from "@/lib/types";
 
 const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
@@ -48,21 +46,7 @@ function ensureCopilotWorkDir(): string {
 }
 
 const REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
-const GITHUB_REFRESH_REGISTRY_KEY = Symbol.for("eidon:github-copilot-refreshes");
-type GithubRefreshEntry = {
-  refreshTokenVersion: string;
-  promise: Promise<RuntimeProviderProfile>;
-};
-
-function getGithubRefreshes() {
-  const runtime = globalThis as Record<symbol, Map<string, GithubRefreshEntry> | undefined>;
-  let registry = runtime[GITHUB_REFRESH_REGISTRY_KEY];
-  if (!registry) {
-    registry = new Map<string, GithubRefreshEntry>();
-    runtime[GITHUB_REFRESH_REGISTRY_KEY] = registry;
-  }
-  return registry;
-}
+const COPILOT_LABEL = "GitHub Copilot";
 
 type GithubTokenResponse = {
   access_token?: string;
@@ -151,46 +135,6 @@ export function clearGithubCopilotConnection() {
   };
 }
 
-function createAbortError() {
-  const error = new Error("GitHub Copilot operation aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-async function withAbort<T>(
-  operation: Promise<T>,
-  signal?: AbortSignal,
-  onAbort?: () => void
-): Promise<T> {
-  if (!signal) {
-    return operation;
-  }
-
-  if (signal.aborted) {
-    onAbort?.();
-    throw createAbortError();
-  }
-
-  return await new Promise<T>((resolve, reject) => {
-    const handleAbort = () => {
-      onAbort?.();
-      reject(createAbortError());
-    };
-
-    signal.addEventListener("abort", handleAbort, { once: true });
-    operation.then(
-      (value) => {
-        signal.removeEventListener("abort", handleAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener("abort", handleAbort);
-        reject(error);
-      }
-    );
-  });
-}
-
 export function getGithubAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.EIDON_GITHUB_APP_CLIENT_ID!,
@@ -272,68 +216,11 @@ export async function ensureFreshGithubAccessToken(
   profile: RuntimeProviderProfile,
   abortSignal?: AbortSignal
 ): Promise<RuntimeProviderProfile> {
-  if (abortSignal?.aborted) {
-    throw createAbortError();
-  }
-
-  if (!shouldRefreshGithubToken(profile)) {
-    return profile;
-  }
-
-  const githubRefreshes = getGithubRefreshes();
-  const existingRefresh = githubRefreshes.get(profile.id);
-  const refreshToken = profile.credentials.refreshToken ?? "";
-  if (existingRefresh?.refreshTokenVersion === refreshToken) {
-    return withAbort(existingRefresh.promise, abortSignal);
-  }
-
-  const refresh = (async () => {
-    const refreshed = await refreshGithubUserToken(profile);
-
-    const persisted = updateProviderConnectionIfRefreshTokenMatches(
-      profile.id,
-      refreshToken,
-      {
-        credentials: {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken
-        },
-        metadata: {
-          expiresAt: refreshed.expiresAt,
-          refreshExpiresAt: refreshed.refreshExpiresAt,
-          accountLabel: profile.connectionMetadata.accountLabel
-        }
-      }
-    );
-    if (!persisted) {
-      throw new Error("GitHub Copilot connection changed during token refresh");
-    }
-
-    return {
-      ...profile,
-      credentials: {
-        ...profile.credentials,
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken
-      },
-      connectionMetadata: {
-        ...profile.connectionMetadata,
-        expiresAt: refreshed.expiresAt,
-        refreshExpiresAt: refreshed.refreshExpiresAt
-      }
-    };
-  })();
-
-  const entry = {
-    refreshTokenVersion: refreshToken,
-    promise: refresh
-  };
-  githubRefreshes.set(profile.id, entry);
-  const clearRefresh = () => {
-    if (githubRefreshes.get(profile.id) === entry) githubRefreshes.delete(profile.id);
-  };
-  void refresh.then(clearRefresh, clearRefresh);
-  return await withAbort(refresh, abortSignal);
+  return ensureFreshOAuthAccessToken(profile, {
+    label: COPILOT_LABEL,
+    shouldRefresh: shouldRefreshGithubToken,
+    refresh: refreshGithubUserToken
+  }, abortSignal);
 }
 
 export async function listGithubCopilotModels(
@@ -374,7 +261,7 @@ export async function runGithubCopilotChat(
   }
 ) {
   if (input.abortSignal?.aborted) {
-    throw createAbortError();
+    throw createAbortError(COPILOT_LABEL);
   }
   const client = await buildGithubCopilotClient(input);
   let session: Awaited<ReturnType<typeof client.createSession>> | null = null;
@@ -383,10 +270,11 @@ export async function runGithubCopilotChat(
     session = await withAbort(client.createSession({
       model: input.model,
       onPermissionRequest: buildCopilotPermissionRouter([])
-    }), input.abortSignal);
+    }), COPILOT_LABEL, input.abortSignal);
 
     return await withAbort(
       sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      COPILOT_LABEL,
       input.abortSignal,
       () => {
         void session?.abort().catch(() => undefined);
@@ -439,7 +327,7 @@ export async function streamGithubCopilotChat(
   }
 ) {
   if (input.abortSignal?.aborted) {
-    throw createAbortError();
+    throw createAbortError(COPILOT_LABEL);
   }
   const client = await buildGithubCopilotClient(input);
   let session: Awaited<ReturnType<typeof client.createSession>> | null = null;
@@ -475,17 +363,18 @@ export async function streamGithubCopilotChat(
       ...(input.tools?.length ? { tools: input.tools } : {})
     };
 
-    session = await withAbort(client.createSession(sessionConfig), input.abortSignal);
+    session = await withAbort(client.createSession(sessionConfig), COPILOT_LABEL, input.abortSignal);
 
     await withAbort(
       sendCopilotPrompt(session, input.messages.map((m) => m.content).join("\n"), input.attachments),
+      COPILOT_LABEL,
       input.abortSignal,
       () => {
         void session?.abort().catch(() => undefined);
       }
     );
 
-    await withAbort(turnComplete, input.abortSignal, () => {
+    await withAbort(turnComplete, COPILOT_LABEL, input.abortSignal, () => {
       void session?.abort().catch(() => undefined);
     });
   } finally {

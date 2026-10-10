@@ -70,7 +70,7 @@ describe("settings domains", () => {
       apiKey: "sk-secondary"
     });
     expect(listProviderProfiles()).toHaveLength(2);
-    expect(getDefaultRuntimeProviderProfile()?.credentials.apiKey).toBe("sk-primary");
+    expect(getDefaultRuntimeProviderProfile(null)?.credentials.apiKey).toBe("sk-primary");
   });
 
   it("preserves, replaces, and clears API-key credentials explicitly", () => {

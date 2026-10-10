@@ -9,16 +9,17 @@ import {
 } from "@/lib/integration-settings";
 import {
   duplicateProviderProfileRecord,
-  getDefaultProviderProfile as getStoredDefaultProviderProfile,
   getDefaultRuntimeProviderProfile as getStoredDefaultRuntimeProviderProfile,
   getProviderProfile as getStoredProviderProfile,
   getRuntimeProviderProfile as getStoredRuntimeProviderProfile,
+  getSelectableProviderProfile as getStoredSelectableProviderProfile,
   listProviderProfiles as listStoredProviderProfiles,
-  listProviderProfileSummaries,
   listRuntimeProviderProfiles as listStoredRuntimeProviderProfiles,
   saveProviderCatalog
 } from "@/lib/provider-profiles";
+import { canUseProviderProfile, toProviderProfileSummary } from "@/lib/provider-profile";
 import { getUserPreferences, updateUserPreferences, type UserPreferences } from "@/lib/user-preferences";
+import { getUserById } from "@/lib/users";
 import type {
   AppSettings as PublicAppSettings,
   RuntimeAppSettings,
@@ -184,12 +185,27 @@ export function getRuntimeProviderProfile(profileId: string) {
   return getStoredRuntimeProviderProfile(profileId);
 }
 
-export function getDefaultProviderProfile() {
-  return getStoredDefaultProviderProfile();
+export function getSelectableProviderProfile(profileId: string, userId: string | null) {
+  return getStoredSelectableProviderProfile(profileId, userId);
 }
 
-export function getDefaultRuntimeProviderProfile() {
-  return getStoredDefaultRuntimeProviderProfile();
+export function getDefaultRuntimeProviderProfile(userId: string | null) {
+  return getStoredDefaultRuntimeProviderProfile(userId);
+}
+
+function getVisibleProviderProfiles(userId?: string) {
+  const profiles = listStoredRuntimeProviderProfiles();
+  const viewer = userId ? getUserById(userId) : null;
+  if (!viewer || viewer.role === "admin") {
+    return {
+      profiles,
+      defaultProviderProfileId: getGlobalPreferences().defaultProviderProfileId
+    };
+  }
+  return {
+    profiles: profiles.filter((profile) => canUseProviderProfile(profile, viewer.id)),
+    defaultProviderProfileId: getStoredDefaultRuntimeProviderProfile(viewer.id)?.id ?? null
+  };
 }
 
 function publicIntegrationSettings() {
@@ -207,8 +223,9 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
 } {
   const settings = runtimeSettings(userId);
   const integrations = publicIntegrationSettings();
+  const providers = getVisibleProviderProfiles(userId);
   return {
-    defaultProviderProfileId: settings.defaultProviderProfileId,
+    defaultProviderProfileId: providers.defaultProviderProfileId,
     skillsEnabled: settings.skillsEnabled,
     conversationRetention: settings.conversationRetention,
     memoriesEnabled: settings.memoriesEnabled,
@@ -232,7 +249,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     webSearch: integrations.webSearch as PublicAppSettings["webSearch"],
     imageGeneration: integrations.imageGeneration as PublicAppSettings["imageGeneration"],
     speechTranscription: integrations.speechTranscription as PublicAppSettings["speechTranscription"],
-    providerProfiles: listProviderProfileSummaries()
+    providerProfiles: providers.profiles.map(toProviderProfileSummary)
   };
 }
 

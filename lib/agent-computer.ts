@@ -17,7 +17,7 @@ import { getBotHomeDir, getBotWorkspaceDir, getSharedBotWorkspaceDir } from "@/l
 import { egressProxyEnv, ensureEgressProxy } from "@/lib/egress-proxy";
 import { env } from "@/lib/env";
 import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
-import { isolateCommand } from "@/lib/shell-isolation";
+import { getIsolationBackend, isolateCommand } from "@/lib/shell-isolation";
 import { availableMemoryMb } from "@/lib/system-memory";
 
 const REGISTRY_KEY = Symbol.for("eidon.agent-computer");
@@ -378,7 +378,8 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
       target.sandbox && port
         ? isolateCommand("agent-browser", args, {
             readWrite: [...target.sandbox.readWrite, target.socketDir, ...sandboxScratchDirs()],
-            connectPorts: [port]
+            connectPorts: [port],
+            keepDaemons: true
           })
         : { command: "agent-browser", args };
     const child = spawn(daemon.command, daemon.args, {
@@ -396,7 +397,11 @@ function runAgentBrowser(target: BrowserSessionTarget, args: string[], port?: nu
       output = error.message;
       finish(false);
     });
-    child.on("exit", (code) => finish(code === 0));
+    child.on("exit", (code) => {
+      finish(code === 0);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    });
     const timer = setTimeout(() => {
       try {
         if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
@@ -412,12 +417,39 @@ export function runBrowserSessionCommand(target: BrowserSessionTarget, args: str
   return runAgentBrowser(target, args, getRegistry().hosts.get(target.ownerKey)?.port ?? null);
 }
 
-async function stopSessionDaemon(target: BrowserSessionTarget) {
+function findDaemonPidsByEnv(socketDir: string) {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync("/proc");
+  } catch {
+    return [];
+  }
+  const socketEntry = `\0AGENT_BROWSER_SOCKET_DIR=${socketDir}\0`;
+  return entries
+    .filter((entry) => /^\d+$/.test(entry))
+    .map(Number)
+    .filter((pid) => {
+      try {
+        const environ = `\0${readFileSync(`/proc/${pid}/environ`, "utf8")}`;
+        return environ.includes("\0AGENT_BROWSER_DAEMON=1\0") && environ.includes(socketEntry);
+      } catch {
+        return false;
+      }
+    });
+}
+
+function sessionDaemonPids(socketDir: string) {
+  if (getIsolationBackend() === "bubblewrap") return findDaemonPidsByEnv(socketDir);
   let pid = 0;
   try {
-    pid = Number(readFileSync(join(target.socketDir, `${target.sessionName}.pid`), "utf8").trim());
+    pid = Number(readFileSync(join(socketDir, `${SESSION_NAME}.pid`), "utf8").trim());
   } catch {}
-  if (Number.isInteger(pid) && pid > 0 && readProcess(pid)?.command.includes("agent-browser")) {
+  return Number.isInteger(pid) && pid > 0 ? [pid] : [];
+}
+
+async function stopSessionDaemon(target: BrowserSessionTarget) {
+  for (const pid of sessionDaemonPids(target.socketDir)) {
+    if (!readProcess(pid)?.command.includes("agent-browser")) continue;
     try {
       process.kill(pid, "SIGTERM");
     } catch {}
@@ -616,14 +648,14 @@ export async function shutdownAgentComputer() {
 }
 
 function isDaemonRunning(socketDir: string) {
-  try {
-    const pid = Number(readFileSync(join(socketDir, `${SESSION_NAME}.pid`), "utf8").trim());
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  return sessionDaemonPids(socketDir).some((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function removeLegacyBrowserState() {

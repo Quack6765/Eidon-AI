@@ -11,10 +11,11 @@ import {
   type VisionMode
 } from "@/lib/provider-catalog";
 import {
+  canUseProviderProfile,
+  getProviderApiBaseUrl,
   isProviderKind,
   profileSupportsImageInput,
   resolveProviderProfileCapabilities,
-  toProviderProfileSummary,
   type ProviderConnectionMetadata,
   type ProviderCredentials,
   type ProviderProfile,
@@ -71,9 +72,13 @@ export const providerProfileInputSchema = z.discriminatedUnion("providerKind", [
   commonProfileSchema.extend({
     providerKind: z.literal("github_copilot"),
     providerConfig: z.object({}).strict()
+  }),
+  commonProfileSchema.extend({
+    providerKind: z.literal("chatgpt_subscription"),
+    providerConfig: z.object({}).strict()
   })
 ]).superRefine((value, context) => {
-  if (value.providerKind !== "github_copilot" && !value.model.trim()) {
+  if (PROVIDER_CATALOG[value.providerKind].editor.modelInput === "manual" && !value.model.trim()) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["model"],
@@ -265,7 +270,7 @@ function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
     connectionMetadata: parseObject<ProviderConnectionMetadata>(row.metadata_json, {})
   };
 
-  if (providerKind === "github_copilot") {
+  if (providerKind === "github_copilot" || providerKind === "chatgpt_subscription") {
     return { ...common, providerKind, providerConfig: {} };
   }
   if (providerKind === "anthropic") {
@@ -318,10 +323,6 @@ export function listProviderProfiles(): ProviderProfile[] {
   });
 }
 
-export function listProviderProfileSummaries() {
-  return listRuntimeProviderProfiles().map(toProviderProfileSummary);
-}
-
 export function getProviderProfile(profileId: string) {
   const row = getRow(profileId);
   if (!row) return null;
@@ -334,18 +335,27 @@ export function getRuntimeProviderProfile(profileId: string) {
   return row ? rowToRuntimeProfile(row) : null;
 }
 
+export function getSelectableProviderProfile(profileId: string, userId: string | null) {
+  const profile = getRuntimeProviderProfile(profileId);
+  return profile && canUseProviderProfile(profile, userId) ? profile : null;
+}
+
 function getDefaultProviderId() {
   return getGlobalPreferences().defaultProviderProfileId;
 }
 
-export function getDefaultProviderProfile() {
-  const id = getDefaultProviderId();
-  return id ? getProviderProfile(id) : null;
+function resolveUsableDefaultProfile(
+  profiles: RuntimeProviderProfile[],
+  defaultId: string | null,
+  userId: string | null
+) {
+  if (!defaultId) return null;
+  const usable = profiles.filter((profile) => canUseProviderProfile(profile, userId));
+  return usable.find((profile) => profile.id === defaultId) ?? usable[0] ?? null;
 }
 
-export function getDefaultRuntimeProviderProfile() {
-  const id = getDefaultProviderId();
-  return id ? getRuntimeProviderProfile(id) : null;
+export function getDefaultRuntimeProviderProfile(userId: string | null) {
+  return resolveUsableDefaultProfile(listRuntimeProviderProfiles(), getDefaultProviderId(), userId);
 }
 
 function encryptedCredentials(credentials: ProviderCredentials) {
@@ -441,9 +451,7 @@ function providerConfigJson(profile: ProviderProfile) {
 }
 
 function providerConnectionIdentity(profile: ProviderProfile) {
-  return profile.providerKind === "github_copilot"
-    ? profile.providerKind
-    : `${profile.providerKind}:${profile.providerConfig.apiBaseUrl}`;
+  return `${profile.providerKind}:${getProviderApiBaseUrl(profile)}`;
 }
 
 export function duplicateProviderProfileRecord(sourceProfileId: string) {
@@ -593,14 +601,28 @@ export function saveProviderCatalog(input: unknown) {
 
     if (removedIds.length) {
       const placeholders = removedIds.map(() => "?").join(", ");
-      getDb().prepare(`
-        UPDATE conversations SET provider_profile_id = ?
-        WHERE provider_profile_id IN (${placeholders})
-      `).run(parsed.defaultProviderProfileId, ...removedIds);
-      getDb().prepare(`
-        UPDATE automations SET provider_profile_id = ?, updated_at = ?
-        WHERE provider_profile_id IN (${placeholders})
-      `).run(parsed.defaultProviderProfileId, timestamp, ...removedIds);
+      const remainingProfiles = listRuntimeProviderProfiles()
+        .filter((profile) => !removedIds.includes(profile.id));
+      const replacementFor = (userId: string | null) =>
+        resolveUsableDefaultProfile(remainingProfiles, parsed.defaultProviderProfileId, userId)?.id ??
+        parsed.defaultProviderProfileId;
+      const ownersOf = (table: "conversations" | "automations") =>
+        (getDb().prepare(`
+          SELECT DISTINCT user_id FROM ${table}
+          WHERE provider_profile_id IN (${placeholders})
+        `).all(...removedIds) as Array<{ user_id: string | null }>).map((row) => row.user_id);
+      for (const userId of ownersOf("conversations")) {
+        getDb().prepare(`
+          UPDATE conversations SET provider_profile_id = ?
+          WHERE provider_profile_id IN (${placeholders}) AND user_id IS ?
+        `).run(replacementFor(userId), ...removedIds, userId);
+      }
+      for (const userId of ownersOf("automations")) {
+        getDb().prepare(`
+          UPDATE automations SET provider_profile_id = ?, updated_at = ?
+          WHERE provider_profile_id IN (${placeholders}) AND user_id IS ?
+        `).run(replacementFor(userId), timestamp, ...removedIds, userId);
+      }
       const preferences = getGlobalPreferences();
       if (preferences.titleGenerationProfileId && removedIds.includes(preferences.titleGenerationProfileId)) {
         updateGlobalPreferences({

@@ -12,21 +12,36 @@ describe("provider adapters", () => {
       expect(getProviderReadinessError(createRuntimeProviderProfile({
         providerKind,
         credentials: {}
-      }))).toContain("API key");
+      }), null)).toContain("API key");
       expect(getProviderReadinessError(createRuntimeProviderProfile({
         providerKind,
         credentials: { apiKey: "secret" }
-      }))).toBeNull();
+      }), null)).toBeNull();
     }
 
     expect(getProviderReadinessError(createRuntimeProviderProfile({
       providerKind: "github_copilot",
       credentials: {}
-    }))).toContain("Connect an account");
+    }), null)).toContain("Connect an account");
     expect(getProviderReadinessError(createRuntimeProviderProfile({
       providerKind: "github_copilot",
       credentials: { accessToken: "token" }
-    }))).toBeNull();
+    }), null)).toBeNull();
+  });
+
+  it("limits owner-only providers to the account that connected them", () => {
+    const profile = createRuntimeProviderProfile({
+      providerKind: "chatgpt_subscription",
+      providerConfig: {},
+      credentials: { accessToken: "token" },
+      connectionMetadata: { ownerUserId: "user_owner" }
+    });
+
+    expect(getProviderReadinessError(profile, "user_owner")).toBeNull();
+    expect(getProviderReadinessError(profile, "user_other")).toContain("private");
+    expect(getProviderReadinessError(profile, null)).toContain("private");
+    expect(getProviderReadinessError({ ...profile, credentials: {} }, "user_other"))
+      .toContain("Connect an account");
   });
 
   it("exposes retry and connection behavior from the provider boundary", () => {

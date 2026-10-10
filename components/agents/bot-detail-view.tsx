@@ -23,7 +23,7 @@ import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip } from "@/components/agents/bot-status";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
 import { BotSkillModal } from "@/components/agents/bot-skill-modal";
-import { BotRunList, isActiveBotRun } from "@/components/agents/bot-runs";
+import { BotRunList, isActiveBotRun, upsertBotRun } from "@/components/agents/bot-runs";
 import { BotWorkspaceFiles } from "@/components/agents/bot-workspace-files";
 import { ChatView } from "@/components/chat-view";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -53,12 +53,6 @@ const headerControlButton =
 
 const BOT_SUBTITLE_DESCRIPTION_MAX_CHARS = 90;
 const MAX_VISIBLE_RUNS = 30;
-
-function upsertRun(current: BotRun[], run: BotRun) {
-  const next = [run, ...current.filter((entry) => entry.id !== run.id)];
-  next.sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0));
-  return next.slice(0, MAX_VISIBLE_RUNS);
-}
 
 function buildBotSubtitle(bot: BotSummary) {
   const description = bot.description.trim();
@@ -151,7 +145,7 @@ export function BotDetailView({
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
   const [skillDeleteTarget, setSkillDeleteTarget] = useState<Skill | null>(null);
   const resetNoticeHandle = useRef<number | null>(null);
-  const refreshTimerRef = useRef<number | null>(null);
+  const skillsRefreshTimerRef = useRef<number | null>(null);
   const workspaceRefreshTimerRef = useRef<number | null>(null);
 
   const refreshBot = useCallback(async () => {
@@ -239,20 +233,20 @@ export function BotDetailView({
     markRead();
     document.addEventListener("visibilitychange", markRead);
     return () => document.removeEventListener("visibilitychange", markRead);
-  }, [bot.id, bot.unread]);
+  }, [bot]);
 
   useEffect(() => {
     void loadWorkspace();
     void loadMemories();
     void loadSkills();
     const noticeHandle = resetNoticeHandle;
-    const refreshHandle = refreshTimerRef;
+    const skillsRefreshHandle = skillsRefreshTimerRef;
     return () => {
       if (noticeHandle.current !== null) {
         window.clearTimeout(noticeHandle.current);
       }
-      if (refreshHandle.current !== null) {
-        window.clearTimeout(refreshHandle.current);
+      if (skillsRefreshHandle.current !== null) {
+        window.clearTimeout(skillsRefreshHandle.current);
       }
     };
   }, [loadMemories, loadSkills, loadWorkspace]);
@@ -285,17 +279,16 @@ export function BotDetailView({
         return;
       }
       if (msg.type === "bot_run_updated" && msg.run.requestedByBotId === initialBot.id) {
-        setRuns((current) => upsertRun(current, msg.run));
+        setRuns((current) => upsertBotRun(current, msg.run, MAX_VISIBLE_RUNS));
         return;
       }
       if (msg.type === "bot_run_updated" && msg.run.botId === initialBot.id) {
-        setRuns((current) => upsertRun(current, msg.run));
-        if (refreshTimerRef.current !== null) {
+        setRuns((current) => upsertBotRun(current, msg.run, MAX_VISIBLE_RUNS));
+        if (skillsRefreshTimerRef.current !== null) {
           return;
         }
-        refreshTimerRef.current = window.setTimeout(() => {
-          refreshTimerRef.current = null;
-          void refreshBot();
+        skillsRefreshTimerRef.current = window.setTimeout(() => {
+          skillsRefreshTimerRef.current = null;
           void loadSkills();
         }, 250);
       }
@@ -326,7 +319,7 @@ export function BotDetailView({
         setRunsError(payload?.error ?? "Could not stop the run");
         return;
       }
-      setRuns((current) => upsertRun(current, payload.run as BotRun));
+      setRuns((current) => upsertBotRun(current, payload.run as BotRun, MAX_VISIBLE_RUNS));
     } catch {
       setRunsError("Could not stop the run");
     } finally {

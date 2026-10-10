@@ -47,8 +47,8 @@ class FakeProcess extends EventEmitter {
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   pid = Math.floor(Math.random() * 10_000) + 1_000;
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
+  stdout = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+  stderr = Object.assign(new EventEmitter(), { destroy: vi.fn() });
   kill = vi.fn((signal?: NodeJS.Signals) => {
     this.signalCode = signal ?? "SIGTERM";
     queueMicrotask(() => this.emit("exit", null, this.signalCode));
@@ -78,10 +78,12 @@ function clearPendingSpawnTimers() {
 }
 
 function fakeSpawn(command: string, args: string[], options: { env?: Record<string, string>; cwd?: string }): FakeProcess {
-  if (command === "python3") {
+  if (command === "python3" || command === "bwrap") {
     const split = args.indexOf("--");
-    sandboxed.push({ command: args[split + 1], rules: args.slice(1, split), env: options.env ?? {}, cwd: options.cwd });
-    return fakeSpawn(args[split + 1], args.slice(split + 2), options);
+    const inner = command === "bwrap" ? args.slice(split + 1) : args.slice(split);
+    const innerSplit = inner.indexOf("--");
+    sandboxed.push({ command: inner[innerSplit + 1], rules: args.slice(command === "python3" ? 1 : 0, split), env: options.env ?? {}, cwd: options.cwd });
+    return fakeSpawn(inner[innerSplit + 1], inner.slice(innerSplit + 2), options);
   }
   const child = new FakeProcess();
   if (command === "agent-browser") {
@@ -577,6 +579,82 @@ describe("agent computer browser host", () => {
       await stopEgressProxy();
     }
   });
+
+  it("keeps a bubblewrap-sandboxed daemon alive after its launcher exits, but not the browser", async () => {
+    const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+    const { stopEgressProxy } = await import("@/lib/egress-proxy");
+    const { botBrowserTarget, getAgentComputerProfileDir, openBrowserSession } = await loadModule();
+    resetShellIsolationForTests("bubblewrap");
+    const target = botBrowserTarget({ id: "bot-bwrap", userId: "user_a" });
+
+    try {
+      await openBrowserSession(target);
+      const profileDir = getAgentComputerProfileDir("user_a");
+
+      expect(sandboxed.map((entry) => entry.command)).toEqual([fakeBrowser, "agent-browser"]);
+      expect(sandboxed[0].rules).toContain("--die-with-parent");
+      expect(sandboxed[0].rules.join(" ")).toContain(`--bind-try ${profileDir} ${profileDir}`);
+      expect(sandboxed[1].rules).not.toContain("--die-with-parent");
+      expect(sandboxed[1].rules.join(" ")).toContain(`--bind-try ${target.socketDir} ${target.socketDir}`);
+      expect(sandboxed[1].rules.slice(-2)).toEqual(["--remount-ro", "/"]);
+    } finally {
+      resetShellIsolationForTests(0);
+      await stopEgressProxy();
+    }
+  });
+
+  it("ignores the daemon's pid file under bubblewrap, because it holds a pid from inside the sandbox", async () => {
+    const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+    const { stopEgressProxy } = await import("@/lib/egress-proxy");
+    const { botBrowserTarget, openBrowserSession } = await loadModule();
+    resetShellIsolationForTests("bubblewrap");
+    const target = botBrowserTarget({ id: "bot-bwrap-pid", userId: "user_a" });
+
+    try {
+      await openBrowserSession(target);
+      writeFileSync(join(target.socketDir, "tab.pid"), String(process.pid));
+      await openBrowserSession(target);
+
+      expect(agentBrowserCalls.filter((call) => call.args[0] === "open")).toHaveLength(2);
+    } finally {
+      resetShellIsolationForTests(0);
+      await stopEgressProxy();
+    }
+  });
+
+  it.runIf(existsSync("/proc/self/environ"))(
+    "finds and stops a bubblewrap-sandboxed daemon by its environment",
+    async () => {
+      const { spawn: spawnReal } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+      const { resetShellIsolationForTests } = await import("@/lib/shell-isolation");
+      const { stopEgressProxy } = await import("@/lib/egress-proxy");
+      const { botBrowserTarget, closeBrowserSession, openBrowserSession, removeLegacyBrowserState } = await loadModule();
+      resetShellIsolationForTests("bubblewrap");
+      const target = botBrowserTarget({ id: "bot-bwrap-env", userId: "user_a" });
+
+      try {
+        await openBrowserSession(target);
+        const daemon = spawnReal("sleep", ["30"], {
+          argv0: "agent-browser",
+          env: { ...process.env, AGENT_BROWSER_DAEMON: "1", AGENT_BROWSER_SOCKET_DIR: target.socketDir },
+          stdio: "ignore"
+        });
+        const exited = new Promise((resolve) => daemon.once("exit", (_code, signal) => resolve(signal)));
+        writeFileSync(join(target.socketDir, "tab.pid"), "999999");
+
+        await openBrowserSession(target);
+        removeLegacyBrowserState();
+        expect(agentBrowserCalls.filter((call) => call.args[0] === "open")).toHaveLength(1);
+        expect(existsSync(target.socketDir)).toBe(true);
+
+        await closeBrowserSession(target);
+        await expect(exited).resolves.toBe("SIGTERM");
+      } finally {
+        resetShellIsolationForTests(0);
+        await stopEgressProxy();
+      }
+    }
+  );
 
   it("rebinds a bot whose daemon died and closes the tab it left behind", async () => {
     const { botBrowserTarget, openBrowserSession } = await loadModule();

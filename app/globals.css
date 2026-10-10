@@ -626,6 +626,24 @@ body > div.fixed.inset-0.z-50 [data-streamdown="mermaid"] [role="application"] >
   }
 }
 
+.assistant-timeline > * + * {
+  margin-top: 4px;
+}
+
+.assistant-timeline > * + [data-timeline-item="text"] {
+  margin-top: 16px;
+}
+
+.assistant-timeline [data-timeline-item="text"] .markdown-body > :first-child,
+.assistant-timeline [data-timeline-item="text"] .markdown-body > :first-child > :first-child {
+  margin-top: 0;
+}
+
+.assistant-timeline [data-timeline-item="text"] .markdown-body > :last-child,
+.assistant-timeline [data-timeline-item="text"] .markdown-body > :last-child > :last-child {
+  margin-bottom: 0;
+}
+
 @keyframes status-line-sweep {
   from {
     background-position: 100% 0;

@@ -13,7 +13,7 @@ import {
   updateConversationProviderProfile
 } from "@/lib/conversations";
 import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
-import { getProviderProfile } from "@/lib/settings";
+import { getSelectableProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { formatMarkdownFileLink } from "@/lib/assistant-local-attachments";
@@ -371,7 +371,7 @@ export function updateBot(
   if (!current) return null;
 
   if (patch.providerProfileId !== undefined) {
-    if (patch.providerProfileId !== null && !getProviderProfile(patch.providerProfileId)) {
+    if (patch.providerProfileId !== null && !getSelectableProviderProfile(patch.providerProfileId, userId ?? null)) {
       throw new Error("Provider profile not found");
     }
     updateConversationProviderProfile(current.homeConversationId, patch.providerProfileId, userId);
@@ -518,20 +518,16 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
   }
 }
 
+function hasRunWithStatus(bot: Bot, status: "queued" | "running" | "waiting_user") {
+  return Boolean(
+    getDb().prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = ? LIMIT 1").get(bot.id, status)
+  );
+}
+
 export function getBotStatus(bot: Bot): BotStatus {
-  const waitingRun = getDb()
-    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'waiting_user' LIMIT 1")
-    .get(bot.id);
-  if (waitingRun && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
-
-  const conversation = getConversation(bot.homeConversationId);
-  if (conversation?.isActive) return "running";
-
-  const queuedRun = getDb()
-    .prepare("SELECT 1 FROM bot_runs WHERE bot_id = ? AND status = 'queued' LIMIT 1")
-    .get(bot.id);
-  if (queuedRun) return "queued";
-
+  if (hasRunWithStatus(bot, "waiting_user") && hasPendingAction(bot, PENDING_USER_WAIT_CONDITION)) return "waiting_user";
+  if (getConversation(bot.homeConversationId)?.isActive || hasRunWithStatus(bot, "running")) return "running";
+  if (hasRunWithStatus(bot, "queued")) return "queued";
   return "idle";
 }
 

@@ -105,7 +105,7 @@ The model can't delete entries and can't move an entry to another website; only 
 **Limits.**
 
 - Redaction is best effort and is not kept after a server restart. A command that deliberately transforms a value can still print it.
-- Bot shells and Python run sandboxed when the host kernel supports Landlock. Shells and Python in regular conversations never do, so an approved command or program there can read Eidon's data directory and, with it, the vault. Keep shell and `python3` approvals narrow if the vault holds anything sensitive.
+- Bot shells and Python run sandboxed when the host kernel supports Landlock, or with bubblewrap where the container allows it; see [Bot sandbox](./configuration.md#bot-sandbox). Shells and Python in regular conversations never do, so an approved command or program there can read Eidon's data directory and, with it, the vault. Keep shell and `python3` approvals narrow if the vault holds anything sensitive.
 
 ## Automations
 
