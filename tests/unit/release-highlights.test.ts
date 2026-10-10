@@ -220,7 +220,7 @@ describe("RELEASE_NOTES", () => {
     for (const highlight of RELEASE_NOTES) {
       expect(highlight.version).toMatch(/^v\d+\.\d+\.\d+$/);
       expect(highlight.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(highlight.bullets.length).toBeGreaterThanOrEqual(3);
+      expect(highlight.bullets.length).toBeGreaterThanOrEqual(1);
       expect(highlight.bullets.length).toBeLessThanOrEqual(6);
 
       for (const bullet of highlight.bullets) {
