@@ -371,7 +371,7 @@ describe("MCP client", () => {
       content: [{ type: "text", text: "x".repeat(40_000) }]
     };
     const controller = new AbortController();
-    const { callMcpTool, MAX_MCP_RESULT_CHARS } = await import("@/lib/mcp-client");
+    const { callMcpTool, getToolResultText, MAX_MCP_RESULT_CHARS } = await import("@/lib/mcp-client");
 
     const result = await callMcpTool(
       createHttpServer(),
@@ -386,8 +386,26 @@ describe("MCP client", () => {
       undefined,
       expect.objectContaining({ signal: controller.signal })
     );
-    expect(result.content[0]?.text?.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
-    expect(result.content[0]?.text).toContain("...[truncated]");
+    const text = getToolResultText(result);
+    expect(text.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
+    expect(text).toContain("...[truncated]");
+  });
+
+  it("keeps image content from callTool results", async () => {
+    nextCallToolResult = {
+      content: [
+        { type: "text", text: "rendered" },
+        { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }
+      ]
+    };
+
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const result = await callMcpTool(createHttpServer(), "render", {});
+
+    expect(result.content).toEqual([
+      { type: "text", text: "rendered" },
+      { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }
+    ]);
   });
 
   it("caps the discovered MCP tool catalog", async () => {
