@@ -1,4 +1,11 @@
-import { getConversationAttachmentDir, resolveAbsoluteImagePathPart } from "@/lib/attachments";
+import {
+  bindAttachmentsToMessage,
+  createAttachments,
+  getConversationAttachmentDir,
+  resolveAbsoluteImagePathPart
+} from "@/lib/attachments";
+import { isProviderSafeImageMimeType, sniffImageMimeType } from "@/lib/image-normalization";
+import { renameGeneratedImages } from "@/lib/image-generation/generated-filenames";
 import { searchWorkspace } from "@/lib/semantic-index";
 import { streamProviderResponse } from "@/lib/provider";
 import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
@@ -89,6 +96,7 @@ import type {
   AutomationScheduleKind,
   McpServer,
   McpTool,
+  McpToolCallResult,
   MessageActionStatus,
   MemoryProposalState,
   MessageActionKind,
@@ -497,6 +505,38 @@ function resolveMcpToolFunction(
   return null;
 }
 
+async function attachMcpResultImages(
+  result: McpToolCallResult,
+  conversationId: string | undefined,
+  assistantMessageId: string | undefined
+): Promise<McpToolCallResult> {
+  if (!conversationId || !assistantMessageId) {
+    return result;
+  }
+
+  const content: McpToolCallResult["content"] = [];
+  for (const item of result.content) {
+    const bytes = item.type === "image" && item.data ? Buffer.from(item.data, "base64") : null;
+    const mimeType = bytes && sniffImageMimeType(bytes);
+    if (!bytes || !mimeType || !isProviderSafeImageMimeType(mimeType)) {
+      content.push(item);
+      continue;
+    }
+
+    const [attachment] = await createAttachments(
+      conversationId,
+      renameGeneratedImages([{ bytes, mimeType, filename: "" }])
+    );
+    bindAttachmentsToMessage(conversationId, assistantMessageId, [attachment.id]);
+    content.push({
+      type: "text",
+      text: `[image attached to your reply as ${attachment.filename}; the user already sees it, so do not embed or link it]`
+    });
+  }
+
+  return { ...result, content };
+}
+
 export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -506,6 +546,7 @@ export async function executeMcpToolCall(
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
       conversationId?: string;
+      assistantMessageId?: string;
       abortSignal?: AbortSignal;
       toolApproval?: ToolApprovalContext;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -614,7 +655,12 @@ export async function executeMcpToolCall(
       )
     : await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   throwIfAborted(context.input.abortSignal);
-  const resultText = redactSecrets(context.input.conversationId, getToolResultText(result));
+  const resultText = redactSecrets(
+    context.input.conversationId,
+    getToolResultText(
+      await attachMcpResultImages(result, context.input.conversationId, context.input.assistantMessageId)
+    )
+  );
 
   sortOrder += 1;
 
