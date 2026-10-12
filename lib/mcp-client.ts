@@ -569,17 +569,13 @@ export async function callMcpTool(
     );
 
     if ("content" in result && Array.isArray(result.content)) {
-      const normalized: McpToolCallResult = {
+      return {
         content: result.content,
         structuredContent:
           result.structuredContent && typeof result.structuredContent === "object"
             ? (result.structuredContent as Record<string, unknown>)
             : undefined,
         isError: typeof result.isError === "boolean" ? result.isError : undefined
-      };
-      return {
-        content: [{ type: "text", text: getToolResultText(normalized) }],
-        isError: normalized.isError
       };
     }
 
