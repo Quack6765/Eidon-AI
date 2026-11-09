@@ -986,35 +986,22 @@ describe("provider integration", () => {
 
     await stream.next();
 
-    expect(responsesCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input: expect.arrayContaining([
-          expect.objectContaining({
-            role: "user",
-            content: expect.arrayContaining([
-              expect.objectContaining({
-                type: "input_text",
-                text: expect.stringContaining("Current date and time context")
-              })
-            ])
-          }),
+    expect(responsesCreate.mock.calls.at(-1)?.[0].input).toEqual([
+      {
+        role: "assistant",
+        content: "The previous answer."
+      },
+      {
+        role: "user",
+        content: [
           {
-            role: "assistant",
-            content: "The previous answer."
+            type: "input_text",
+            text: expect.stringMatching(/^Current date and time context[\s\S]*\n\nWhat is in this file\?$/)
           },
-          {
-            role: "user",
-            content: [
-              { type: "input_text", text: "What is in this file?" },
-              { type: "input_image", image_url: "data:image/png;base64,abc123" }
-            ]
-          }
-        ])
-      }),
-      expect.objectContaining({
-        signal: expect.any(AbortSignal)
-      })
-    );
+          { type: "input_image", image_url: "data:image/png;base64,abc123" }
+        ]
+      }
+    ]);
   });
 
   it("uses responses image input for OpenCode Go GPT-5.6 models saved in chat mode", async () => {
@@ -1056,7 +1043,7 @@ describe("provider integration", () => {
           {
             role: "user",
             content: [
-              { type: "input_text", text: "Describe this image" },
+              { type: "input_text", text: expect.stringMatching(/\n\nDescribe this image$/) },
               { type: "input_image", image_url: "data:image/png;base64,abc123" }
             ]
           }
@@ -1402,31 +1389,97 @@ describe("provider integration", () => {
 
     await stream.next();
 
-    expect(chatCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: expect.arrayContaining([
+    expect(chatCreate.mock.calls.at(-1)?.[0].messages).toEqual([
+      {
+        role: "user",
+        content: [
           {
-            role: "user",
-            content: [
-              { type: "text", text: "Describe this image" },
-              {
-                type: "image_url",
-                image_url: {
-                  url: "data:image/png;base64,abc123"
-                }
-              }
-            ]
+            type: "text",
+            text: expect.stringMatching(/^Current date and time context[\s\S]*\n\nDescribe this image$/)
           },
-          expect.objectContaining({
-            role: "user",
-            content: expect.stringContaining("Current date and time context")
-          })
-        ])
-      }),
-      expect.objectContaining({
-        signal: expect.any(AbortSignal)
-      })
-    );
+          {
+            type: "image_url",
+            image_url: {
+              url: "data:image/png;base64,abc123"
+            }
+          }
+        ]
+      }
+    ]);
+  });
+
+  describe("per-request context", () => {
+    const question = "What is 17 multiplied by 23? Respond only with a number.";
+    const contextualQuestion = new RegExp(`^Current date and time context[\\s\\S]*\\n\\n${question.replace(/[?.]/g, "\\$&")}$`);
+
+    it("folds the date context into the user's turn so the question stays the last message in chat completions mode", async () => {
+      chatCreate.mockResolvedValue(createAsyncStream([{ choices: [{ delta: { content: "391" } }] }]));
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      await streamProviderResponse({
+        settings: createSettings({ model: "qwen2.5", apiMode: "chat_completions" }),
+        promptMessages: [
+          { role: "system", content: "You are helpful." },
+          { role: "user", content: question }
+        ]
+      }).next();
+
+      expect(chatCreate.mock.calls.at(-1)?.[0].messages).toEqual([
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: expect.stringMatching(contextualQuestion) }
+      ]);
+    });
+
+    it("folds the date context into the user's turn so the question stays the last message in responses mode", async () => {
+      responsesCreate.mockResolvedValue(createAsyncStream([{ type: "response.output_text.delta", delta: "391" }]));
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      await streamProviderResponse({
+        settings: createSettings({ model: "qwen2.5", apiMode: "responses" }),
+        promptMessages: [{ role: "user", content: question }]
+      }).next();
+
+      expect(responsesCreate.mock.calls.at(-1)?.[0].input).toEqual([
+        { role: "user", content: [{ type: "input_text", text: expect.stringMatching(contextualQuestion) }] }
+      ]);
+    });
+
+    it("places trailing guidance and the date ahead of the question in one user turn", async () => {
+      chatCreate.mockResolvedValue(createAsyncStream([{ choices: [{ delta: { content: "391" } }] }]));
+
+      const { streamProviderResponse } = await import("@/lib/provider");
+      await streamProviderResponse({
+        settings: createSettings({ model: "qwen2.5", apiMode: "chat_completions" }),
+        promptMessages: [
+          { role: "user", content: "An earlier question" },
+          { role: "assistant", content: "An earlier answer" },
+          { role: "user", content: question },
+          { role: "user", content: "Relevant memories: likes short answers", volatile: true }
+        ]
+      }).next();
+
+      const messages = chatCreate.mock.calls.at(-1)?.[0].messages as Array<{ role: string; content: string }>;
+      expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+      expect(messages[0].content).toBe("An earlier question");
+      expect(messages[2].content).toMatch(
+        /^Relevant memories: likes short answers\n\nCurrent date and time context[\s\S]*\n\nWhat is 17 multiplied by 23\? Respond only with a number\.$/
+      );
+    });
+
+    it("merges the date context into one user turn for text-only requests", async () => {
+      chatCreate.mockResolvedValue({ choices: [{ message: { content: "Multiplication question" } }] });
+
+      const { callProviderText } = await import("@/lib/provider");
+      await callProviderText({
+        settings: createSettings({ model: "qwen2.5", apiMode: "chat_completions" }),
+        prompt: question,
+        purpose: "title"
+      });
+
+      expect(chatCreate.mock.calls.at(-1)?.[0].messages).toEqual([
+        { role: "user", content: expect.stringMatching(contextualQuestion) }
+      ]);
+    });
   });
 
   describe("tool result images", () => {
@@ -1473,8 +1526,12 @@ describe("provider integration", () => {
         {
           role: "user",
           content: [
-            { type: "text", text: "Images returned by the tool calls above:" },
-            { type: "text", text: "Attached image: page.png" },
+            {
+              type: "text",
+              text: expect.stringMatching(
+                /^Current date and time context[\s\S]*\n\nImages returned by the tool calls above:\n\nAttached image: page\.png$/
+              )
+            },
             { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } }
           ]
         }
@@ -1497,8 +1554,12 @@ describe("provider integration", () => {
         {
           role: "user",
           content: [
-            { type: "input_text", text: "Images returned by the tool calls above:" },
-            { type: "input_text", text: "Attached image: page.png" },
+            {
+              type: "input_text",
+              text: expect.stringMatching(
+                /^Current date and time context[\s\S]*\n\nImages returned by the tool calls above:\n\nAttached image: page\.png$/
+              )
+            },
             { type: "input_image", image_url: "data:image/png;base64,abc123" }
           ]
         }
