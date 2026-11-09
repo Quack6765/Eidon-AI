@@ -4,7 +4,7 @@ import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
 import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
-import type { PromptMessage, ProviderProfile, ToolDefinition } from "@/lib/types";
+import type { PromptContentPart, PromptMessage, ProviderProfile, ToolDefinition } from "@/lib/types";
 
 export function createOpenAIClient(settings: ProviderProfile, apiKey: string, conversationId?: string) {
   return new OpenAI({
@@ -66,10 +66,56 @@ function toChatCompletionContentParts(content: PromptMessage["content"]) {
   });
 }
 
+function joinUserContents(contents: PromptMessage["content"][]): PromptMessage["content"] {
+  if (contents.every((content) => typeof content === "string")) {
+    return contents.join("\n\n");
+  }
+
+  const parts: PromptContentPart[] = [];
+  for (const part of contents.flatMap((content) =>
+    typeof content === "string" ? [{ type: "text" as const, text: content }] : content
+  )) {
+    const previous = parts.at(-1);
+    if (part.type === "text" && previous?.type === "text") {
+      parts[parts.length - 1] = { type: "text", text: `${previous.text}\n\n${part.text}` };
+    } else {
+      parts.push(part);
+    }
+  }
+  return parts;
+}
+
+function mergeConsecutiveUserMessages(messages: PromptMessage[]): PromptMessage[] {
+  const merged: PromptMessage[] = [];
+  let run: PromptMessage[] = [];
+
+  const flush = () => {
+    if (run.length > 1) {
+      const ordered = [...run.filter((message) => message.volatile), ...run.filter((message) => !message.volatile)];
+      merged.push({ role: "user", content: joinUserContents(ordered.map((message) => message.content)) });
+    } else {
+      merged.push(...run);
+    }
+    run = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === "user") {
+      run.push(message);
+      continue;
+    }
+    flush();
+    merged.push(message);
+  }
+  flush();
+
+  return merged;
+}
+
 export function buildOpenAIResponsesInput(messages: PromptMessage[]): any[] {
   const input: unknown[] = [];
 
-  for (const message of messages) {
+  for (const message of mergeConsecutiveUserMessages(messages)) {
     if (message.role === "tool") {
       input.push({
         type: "function_call_output",
@@ -142,7 +188,7 @@ function usesThinkingReplay(settings: ProviderProfile) {
 export function buildOpenAIChatCompletionMessages(messages: PromptMessage[], settings?: ProviderProfile): any[] {
   const replayReasoningContent = settings ? usesThinkingReplay(settings) : false;
 
-  return messages.map((message) => {
+  return mergeConsecutiveUserMessages(messages).map((message) => {
     if (message.role === "tool") {
       return {
         role: "tool" as const,
