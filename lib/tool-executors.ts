@@ -79,7 +79,6 @@ import {
 } from "@/lib/tool-approvals";
 import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
 import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
-import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import {
@@ -110,7 +109,6 @@ import type {
   McpToolCallResult,
   MessageDraftProposalPayload,
   PromptMessage,
-  ProviderToolCall,
   Skill,
   ToolApprovalContext,
   ToolApprovalProposalPayload,
@@ -1195,7 +1193,7 @@ function describeVaultEntry(entry: VaultEntry) {
     .join(" · ");
 }
 
-async function executeListSecrets(toolCallId: string, context: ToolExecutionContext) {
+export async function executeListSecrets(toolCallId: string, context: ToolExecutionContext) {
   const owner = vaultOwner(context.input);
   if (!owner) {
     return toolCallResult(context, toolCallId, `Error: ${VAULT_UNAVAILABLE}`, context.timelineSortOrder);
@@ -1221,7 +1219,7 @@ function optionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
-async function executeSaveSecret(
+export async function executeSaveSecret(
   toolCallId: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext
@@ -1285,7 +1283,7 @@ async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessio
   };
 }
 
-async function executeRequestTakeover(
+export async function executeRequestTakeover(
   toolCallId: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext
@@ -1303,7 +1301,7 @@ async function executeRequestTakeover(
   return toolCallResult(context, toolCallId, resultText, context.timelineSortOrder + 1);
 }
 
-async function executeRequestSecret(
+export async function executeRequestSecret(
   toolCallId: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext
@@ -1888,116 +1886,4 @@ export async function executeSearchWorkspace(
     await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
     return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder, false);
   }
-}
-
-export async function executeToolCall(
-  toolCall: ProviderToolCall,
-  context: ToolExecutionContext
-): Promise<ToolExecutionResult> {
-  const { id: toolCallId, name, arguments: argsJson } = toolCall;
-  let args: Record<string, unknown>;
-  try {
-    args = JSON.parse(argsJson);
-  } catch {
-    return toolCallResult(context, toolCallId, `Error: Invalid JSON arguments for tool ${name}`, context.timelineSortOrder);
-  }
-
-  if (name === "load_skill") {
-    return executeLoadSkill(toolCallId, args, context);
-  }
-
-  if (name === "skill_manage") {
-    return executeSkillManage(toolCallId, args, context);
-  }
-
-  if (name === "execute_shell_command") {
-    return executeShellCommand(toolCallId, args, context);
-  }
-
-  if (name === "run_python") {
-    return executePythonCode(toolCallId, args, context);
-  }
-
-  if (name === "request_takeover") {
-    return executeRequestTakeover(toolCallId, args, context);
-  }
-
-  if (name === "request_secret") {
-    return executeRequestSecret(toolCallId, args, context);
-  }
-
-  if (name === "list_secrets") {
-    return executeListSecrets(toolCallId, context);
-  }
-
-  if (name === "save_secret") {
-    return executeSaveSecret(toolCallId, args, context);
-  }
-
-  if (name === "message_bot") {
-    return executeMessageBot(toolCallId, args, context);
-  }
-
-  if (name === "check_bot") {
-    return executeCheckBot(toolCallId, args, context);
-  }
-
-  if (name === "create_bot") {
-    return executeCreateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_bot") {
-    return executeUpdateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_own_instructions") {
-    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
-  }
-
-  if (name === "create_memory") {
-    return executeCreateMemory(toolCallId, args, context);
-  }
-
-  if (name === "update_memory") {
-    return executeUpdateMemory(toolCallId, args, context);
-  }
-
-  if (name === "delete_memory") {
-    return executeDeleteMemory(toolCallId, args, context);
-  }
-
-  if (name === "create_automation") {
-    return executeCreateAutomationProposal(toolCallId, args, context);
-  }
-
-  if (name === "draft_message") {
-    return executeDraftMessage(toolCallId, args, context);
-  }
-
-  if (name === "web_search") {
-    return executeWebSearch(toolCallId, args, context);
-  }
-
-  if (name === "read_page") {
-    return executeReadPage(toolCallId, args, context);
-  }
-
-  if (name === "search_workspace") {
-    return executeSearchWorkspace(toolCallId, args, context);
-  }
-
-  if (name === "generate_image") {
-    return executeImageGeneration(toolCallId, args, context);
-  }
-
-  if (name === "analyze_image") {
-    return executeAnalyzeImage(toolCallId, args, context);
-  }
-
-  if (name.startsWith("mcp_")) {
-    return executeMcpToolCall(toolCallId, name, args, context);
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Unknown tool: ${name}`);
-  return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
 }

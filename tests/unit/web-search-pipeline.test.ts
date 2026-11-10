@@ -10,7 +10,7 @@ import {
   runWebSearchFanOut,
   runWebSearchPipeline
 } from "@/lib/web-search-pipeline";
-import { executeToolCall } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
 import type { ToolSet } from "@/lib/tool-definitions";
 import type {
   PromptMessage,

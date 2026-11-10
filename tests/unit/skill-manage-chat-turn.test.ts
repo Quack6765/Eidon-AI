@@ -38,7 +38,7 @@ import { createLocalUser } from "@/lib/users";
 import { createBot } from "@/lib/bots";
 import { createConversation } from "@/lib/conversations";
 import { createLibrarySkill, ensureLibraryReady, getSkillLibraryDir } from "@/lib/skill-library";
-import { buildToolDefinitions } from "@/lib/tool-definitions";
+import { buildToolDefinitions } from "@/lib/tool-registry";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import { updateProviderCatalog } from "@/lib/settings";
 import type { Skill } from "@/lib/types";

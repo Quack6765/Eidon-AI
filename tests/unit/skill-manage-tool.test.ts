@@ -99,7 +99,7 @@ describe("skill_manage tool", () => {
   });
 
   it("writes the skill through the tool dispatch path", async () => {
-    const { executeToolCall } = await import("@/lib/tool-executors");
+    const { executeToolCall } = await import("@/lib/tool-registry");
     const { context } = buildContext(conversationId);
     const result = await executeToolCall(
       {

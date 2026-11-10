@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { redactSecrets } from "@/lib/secret-redaction";
-import { executeToolCall } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
 import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type { PromptMessage } from "@/lib/types";
 import { createLocalUser } from "@/lib/users";

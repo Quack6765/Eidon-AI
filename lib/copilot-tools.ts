@@ -4,12 +4,10 @@ import { readAttachmentBuffer } from "@/lib/attachments";
 import { throwIfChatTurnAborted } from "@/lib/chat-turn-control";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import {
-  buildToolDefinitions
-} from "@/lib/tool-definitions";
-import type { SuccessfulReadOnlyToolResult } from "@/lib/tool-lifecycle";
-import {
+  buildToolDefinitions,
   executeToolCall
-} from "@/lib/tool-executors";
+} from "@/lib/tool-registry";
+import type { SuccessfulReadOnlyToolResult } from "@/lib/tool-lifecycle";
 import type { RuntimeToolContext } from "@/lib/runtime-tool-context";
 import type { PromptMessage, VisionMode } from "@/lib/types";
 

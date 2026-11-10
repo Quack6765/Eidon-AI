@@ -26,7 +26,7 @@ import {
   assertOpenApiResponse,
   assertWebSocketMessage
 } from "@/tests/fixtures/mobile-contract-validator";
-import { buildToolDefinitions } from "@/lib/tool-definitions";
+import { buildToolDefinitions } from "@/lib/tool-registry";
 import { executeDraftMessage } from "@/lib/tool-executors";
 import { isProposalToolCall } from "@/lib/tool-traits";
 import { isToolActivityAction } from "@/lib/tool-activity-summary";

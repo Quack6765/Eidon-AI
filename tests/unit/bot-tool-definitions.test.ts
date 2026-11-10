@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildToolDefinitions } from "@/lib/tool-definitions";
+import { buildToolDefinitions } from "@/lib/tool-registry";
 
 type TeamOptions = { isChief: boolean; roster: [] };
 

@@ -17,9 +17,10 @@ import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 import { isLibrarySkillId } from "./skill-library";
-import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
+import { type ToolSet, mcpToolFunctionName } from "./tool-definitions";
 import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage } from "./tool-lifecycle";
-import { executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { buildToolDefinitions, executeToolCall } from "./tool-registry";
+import { loadSkillIntoTurn } from "./tool-executors";
 import { getToolTraits, isProposalToolCall, toolNamesWithTrait } from "./tool-traits";
 import { findReferencedNames } from "./reference-tokens";
 import type {
