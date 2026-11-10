@@ -29,6 +29,25 @@ function readSqliteLabel(dbPath: string) {
   return run("sqlite3", [dbPath, "SELECT label FROM marker;"], path.dirname(dbPath)).trim();
 }
 
+function writeInstallMarker(nodeModulesDir: string) {
+  fs.mkdirSync(nodeModulesDir, { recursive: true });
+  fs.writeFileSync(path.join(nodeModulesDir, ".package-lock.json"), "{}\n");
+}
+
+function createFakeNpm(tempDir: string) {
+  const binDir = path.join(tempDir, "bin");
+  const logPath = path.join(tempDir, "npm.log");
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, "npm"), `#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(logPath)}\n`, {
+    mode: 0o755
+  });
+
+  return {
+    logPath,
+    pathEnv: `${binDir}:${process.env.PATH ?? ""}`
+  };
+}
+
 function createWorktreeFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-setup-worktree-"));
   tempDirs.push(tempDir);
@@ -55,7 +74,7 @@ function createWorktreeFixture() {
   fs.writeFileSync(path.join(mainDir, ".data/source-only.txt"), "source only");
 
   run("git", ["worktree", "add", "-b", "feature", worktreeDir], mainDir);
-  fs.mkdirSync(path.join(worktreeDir, "node_modules"));
+  writeInstallMarker(path.join(worktreeDir, "node_modules"));
 
   return { mainDir, worktreeDir };
 }
@@ -185,5 +204,31 @@ describe("scripts/setup-worktree.sh", () => {
     expect(output).toContain("source and destination data directories are the same");
     expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("same-source");
     expect(fs.readFileSync(path.join(worktreeDir, ".data/attachments/source.txt"), "utf8")).toBe("same source");
+  });
+
+  it("repairs an incomplete install that has no install marker", () => {
+    const { worktreeDir } = createWorktreeFixture();
+    fs.rmSync(path.join(worktreeDir, "node_modules/.package-lock.json"));
+    fs.writeFileSync(path.join(worktreeDir, "node_modules/stale.txt"), "stale");
+    const fakeNpm = createFakeNpm(path.dirname(worktreeDir));
+
+    const output = run("./scripts/setup-worktree.sh", [], worktreeDir, { PATH: fakeNpm.pathEnv });
+
+    expect(output).toContain("repairing incomplete install");
+    expect(output).toContain("installing dependencies");
+    expect(fs.existsSync(path.join(worktreeDir, "node_modules/stale.txt"))).toBe(false);
+    expect(fs.readFileSync(fakeNpm.logPath, "utf8")).toBe(`ci --prefix ${fs.realpathSync(worktreeDir)}\n`);
+  });
+
+  it("leaves a completed install alone", () => {
+    const { worktreeDir } = createWorktreeFixture();
+    fs.writeFileSync(path.join(worktreeDir, "node_modules/completed.txt"), "completed");
+    const fakeNpm = createFakeNpm(path.dirname(worktreeDir));
+
+    const output = run("./scripts/setup-worktree.sh", [], worktreeDir, { PATH: fakeNpm.pathEnv });
+
+    expect(output).toContain("already installed");
+    expect(fs.readFileSync(path.join(worktreeDir, "node_modules/completed.txt"), "utf8")).toBe("completed");
+    expect(fs.existsSync(fakeNpm.logPath)).toBe(false);
   });
 });
