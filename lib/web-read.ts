@@ -137,7 +137,7 @@ function decodeBody(bytes: ArrayBuffer, charset: string | undefined) {
   }
 }
 
-export async function fetchGuardedHttp(initialUrl: URL | string, init: RequestInit = {}) {
+async function fetchGuardedHttp(initialUrl: URL | string, init: RequestInit = {}) {
   let url = parsePageUrl(initialUrl.toString());
   for (let hop = 0; hop <= MAX_WEB_READ_REDIRECTS; hop += 1) {
     const response = await pinnedFetch(url, {

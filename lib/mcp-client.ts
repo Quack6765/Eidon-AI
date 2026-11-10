@@ -24,7 +24,6 @@ import {
   MCP_AUTH_REQUIRED_MESSAGE
 } from "@/lib/mcp-oauth";
 import type { McpServer, McpTool, McpToolCallResult } from "@/lib/types";
-import { fetchGuardedHttp } from "@/lib/web-read";
 
 export const MAX_MCP_RESULT_CHARS = MAX_RUNTIME_TOOL_RESULT_CHARS;
 export const MAX_MCP_DISCOVERED_TOOLS = 100;
@@ -152,10 +151,6 @@ export async function boundedMcpFetch(url: string | URL, init?: RequestInit) {
   return boundMcpResponse(await globalThis.fetch(url, init));
 }
 
-export async function guardedMcpFetch(url: string | URL, init?: RequestInit) {
-  return boundMcpResponse((await fetchGuardedHttp(url, init)).response as unknown as Response);
-}
-
 type ConnectedMcpClient = {
   key: string;
   serverId: string | null;
@@ -225,7 +220,7 @@ function mapMcpConnectionError(server: McpServer, error: unknown) {
   );
 }
 
-function createTransport(server: McpServer, fetchImpl = boundedMcpFetch) {
+function createTransport(server: McpServer) {
   if (server.transport === "stdio") {
     const transport = new StdioClientTransport({
       command: server.command ?? "",
@@ -255,7 +250,7 @@ function createTransport(server: McpServer, fetchImpl = boundedMcpFetch) {
     ...(oauthConnection && (oauthConnection.accessToken || oauthConnection.clientId)
       ? { authProvider: new McpOAuthProvider(server.id, server.url) }
       : {}),
-    fetch: fetchImpl
+    fetch: boundedMcpFetch
   });
 
   transport.setProtocolVersion(MCP_PROTOCOL_VERSION);
@@ -672,7 +667,7 @@ export async function initializeMcpServers() {
 }
 
 export async function testMcpServerConnection(server: McpServer) {
-  const transport = createTransport(server, guardedMcpFetch);
+  const transport = createTransport(server);
   drainTransportStderr(transport, server.name);
   const client = createClient();
 

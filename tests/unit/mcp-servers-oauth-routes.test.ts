@@ -33,7 +33,6 @@ vi.mock("@/lib/mcp-oauth", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   testMcpServerConnection: mocks.testMcpServerConnection,
-  guardedMcpFetch: vi.fn(),
   evictMcpClientsByServerId: mocks.evictMcpClientsByServerId,
   getConnectedClient: mocks.getConnectedClient,
   disconnectMcpServer: vi.fn()
