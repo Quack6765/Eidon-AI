@@ -120,6 +120,133 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
     executeDraftMessage
   ),
   toolRecord(
+    "load_skill",
+    (input) => {
+      if (!input.skills.length && !forcedByAllowlist(input, "load_skill")) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "load_skill",
+          description: "Load the full content and instructions of a skill. The available skill names are listed under \"Available skills\" in the conversation.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              skill_name: { type: "string", description: "Name of the skill to load" }
+            },
+            required: ["skill_name"]
+          }
+        }
+      };
+    },
+    executeLoadSkill
+  ),
+  toolRecord(
+    "skill_manage",
+    (input) => {
+      if (!input.skillManageEnabled && !forcedByAllowlist(input, "skill_manage")) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "skill_manage",
+          description:
+            "Create or update reusable skills in the shared skills library. Prefer extending an existing skill over creating a narrow sibling: patch a loaded skill first, then an existing umbrella, then add a references/ or templates/ or scripts/ support file, and only create when no skill covers the class of task. Never create a skill for a one-off task, a single-step task, or an incident that only made sense today. Names must be class-level and lowercase. Send up to 20 operations in one call; delete must be the sole operation.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              operations: {
+                type: "array",
+                maxItems: 20,
+                description: "Operations to apply in order. Batches are atomic and roll back on failure.",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["name", "action"],
+                  properties: {
+                    name: {
+                      type: "string",
+                      description: "Skill name, or 'category/name'. Must match the directory name exactly."
+                    },
+                    action: {
+                      type: "string",
+                      enum: ["create", "patch", "write_file", "remove_file", "delete"],
+                      description: "What to do with this skill"
+                    },
+                    content: {
+                      type: "string",
+                      description: "Full SKILL.md text (YAML frontmatter + markdown body) — for create, or patch as a last-resort full rewrite."
+                    },
+                    category: {
+                      type: "string",
+                      description: "Optional category subdir (e.g. 'devops'). create only."
+                    },
+                    old_string: {
+                      type: "string",
+                      description: "Text to find. patch only."
+                    },
+                    new_string: {
+                      type: "string",
+                      description: "Replacement; empty string deletes the match. patch only."
+                    },
+                    replace_all: {
+                      type: "boolean",
+                      description: "Replace all occurrences (default false). patch only."
+                    },
+                    file_path: {
+                      type: "string",
+                      description:
+                        "Path RELATIVE to the skill's own directory, e.g. 'references/api.md' — no leading slash, never absolute; first segment must be references/, templates/, scripts/ or assets/."
+                    },
+                    file_content: {
+                      type: "string",
+                      description: "Full text of the supporting file. write_file only."
+                    },
+                    absorbed_into: {
+                      type: "string",
+                      description:
+                        "Curator consolidation only: the umbrella skill that absorbed this one (must exist). Required for any delete that is not a direct user request."
+                    }
+                  }
+                }
+              }
+            },
+            required: ["operations"]
+          }
+        }
+      };
+    },
+    executeSkillManage
+  ),
+  toolRecord(
+    "analyze_image",
+    (input) => {
+      if (!input.visionToolEnabled) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "analyze_image",
+          description: "Analyze attached images using a vision-capable model. Use the absolute file paths listed in the system message and include an optional question about the images. Returns a text description from the vision model.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              file_paths: {
+                type: "array",
+                items: { type: "string" },
+                maxItems: 10,
+                description: "Absolute file paths of the images to analyze (from the attachment list in the system message)"
+              },
+              question: {
+                type: "string",
+                description: "Optional question to answer about the images"
+              }
+            },
+            required: ["file_paths"]
+          }
+        }
+      };
+    },
+    executeAnalyzeImage
+  ),
+  toolRecord(
     "execute_shell_command",
     () => ({
       type: "function" as const,
@@ -420,6 +547,51 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
     executeSearchWorkspace
   ),
   toolRecord(
+    "generate_image",
+    (input) => {
+      if (!input.imageGenerationProviderId || input.imageGenerationProviderId === "disabled") return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "generate_image",
+          description: "Generate an image from a text prompt, or restyle/modify an image generated earlier in this conversation. Use it when: the user asks for an image, picture, photo, illustration, render, poster, or similar visual; or when the user follows up on an image you generated to revise it (e.g. 'add a hat', 'make it 16:9', 'No, use a pixel theme.', 'another one'). Do NOT use it when: the user is only discussing, asking about, or complaining about images; when the output is a diagram or chart (use a mermaid code block instead); or when nobody asked for an image — never produce decorative, celebratory, or summary images of completed work. If the user has told you not to generate images, obey that until they ask. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. When the request involves more than one attached image, always pass images naming each one's role — say which attachment is the base image to modify (role \"canvas\") and which is content to place into it (role \"content\", e.g. a logo or product) — so the placement is unambiguous. Returns generated images as attachments on the response.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              prompt: { type: "string", description: "Detailed image generation prompt for the latest user request only" },
+              negative_prompt: { type: "string", description: "Things to exclude from the image" },
+              aspect_ratio: {
+                type: "string",
+                enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+                description: "Desired aspect ratio (default 1:1)"
+              },
+              count: { type: "number", description: "Number of images to generate (1-4, default 1)" },
+              images: {
+                type: "array",
+                description: "Role of each attached input image. Required when more than one image is attached and one of them is being placed onto another.",
+                items: {
+                  type: "object" as const,
+                  properties: {
+                    filename: { type: "string", description: "Filename of the attached image, exactly as shown in the request" },
+                    role: {
+                      type: "string",
+                      enum: ["canvas", "content", "style", "character"],
+                      description: "canvas = the image to modify; content = an element to place into the canvas (logo, product, sticker); style = a style reference only; character = a person or character to keep consistent"
+                    },
+                    label: { type: "string", description: "Short human phrase for this image, e.g. \"the logo\" or \"base photo\"" }
+                  },
+                  required: ["filename", "role"]
+                }
+              }
+            },
+            required: ["prompt"]
+          }
+        }
+      };
+    },
+    executeImageGeneration
+  ),
+  toolRecord(
     "create_memory",
     (input) => {
       if (!input.memoriesEnabled) return null;
@@ -543,49 +715,6 @@ function forcedByAllowlist(input: ToolDefinitionsInput, name: string) {
 export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinition[] {
   const definitionInput: BuiltinToolDefinitionInput = { ...input, hasSendingMcpTool: false };
 
-  const imageTool =
-    input.imageGenerationProviderId &&
-    input.imageGenerationProviderId !== "disabled"
-      ? {
-          type: "function" as const,
-          function: {
-            name: "generate_image",
-            description: "Generate an image from a text prompt, or restyle/modify an image generated earlier in this conversation. Use it when: the user asks for an image, picture, photo, illustration, render, poster, or similar visual; or when the user follows up on an image you generated to revise it (e.g. 'add a hat', 'make it 16:9', 'No, use a pixel theme.', 'another one'). Do NOT use it when: the user is only discussing, asking about, or complaining about images; when the output is a diagram or chart (use a mermaid code block instead); or when nobody asked for an image — never produce decorative, celebratory, or summary images of completed work. If the user has told you not to generate images, obey that until they ask. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. When the request involves more than one attached image, always pass images naming each one's role — say which attachment is the base image to modify (role \"canvas\") and which is content to place into it (role \"content\", e.g. a logo or product) — so the placement is unambiguous. Returns generated images as attachments on the response.",
-            parameters: {
-              type: "object" as const,
-              properties: {
-                prompt: { type: "string", description: "Detailed image generation prompt for the latest user request only" },
-                negative_prompt: { type: "string", description: "Things to exclude from the image" },
-                aspect_ratio: {
-                  type: "string",
-                  enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
-                  description: "Desired aspect ratio (default 1:1)"
-                },
-                count: { type: "number", description: "Number of images to generate (1-4, default 1)" },
-                images: {
-                  type: "array",
-                  description: "Role of each attached input image. Required when more than one image is attached and one of them is being placed onto another.",
-                  items: {
-                    type: "object" as const,
-                    properties: {
-                      filename: { type: "string", description: "Filename of the attached image, exactly as shown in the request" },
-                      role: {
-                        type: "string",
-                        enum: ["canvas", "content", "style", "character"],
-                        description: "canvas = the image to modify; content = an element to place into the canvas (logo, product, sticker); style = a style reference only; character = a person or character to keep consistent"
-                      },
-                      label: { type: "string", description: "Short human phrase for this image, e.g. \"the logo\" or \"base photo\"" }
-                    },
-                    required: ["filename", "role"]
-                  }
-                }
-              },
-              required: ["prompt"]
-            }
-          }
-        }
-      : null;
-
   const tools: ToolDefinition[] = [];
   let hasSendingMcpTool = false;
 
@@ -618,120 +747,11 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
 
   pushRecordDefinition(tools, "draft_message", definitionInput);
 
-  if (input.skills.length || forcedByAllowlist(input, "load_skill")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "load_skill",
-        description: "Load the full content and instructions of a skill. The available skill names are listed under \"Available skills\" in the conversation.",
-        parameters: {
-          type: "object",
-          properties: {
-            skill_name: { type: "string", description: "Name of the skill to load" }
-          },
-          required: ["skill_name"]
-        }
-      }
-    });
-  }
+  pushRecordDefinition(tools, "load_skill", definitionInput);
 
-  if (input.skillManageEnabled || forcedByAllowlist(input, "skill_manage")) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "skill_manage",
-        description:
-          "Create or update reusable skills in the shared skills library. Prefer extending an existing skill over creating a narrow sibling: patch a loaded skill first, then an existing umbrella, then add a references/ or templates/ or scripts/ support file, and only create when no skill covers the class of task. Never create a skill for a one-off task, a single-step task, or an incident that only made sense today. Names must be class-level and lowercase. Send up to 20 operations in one call; delete must be the sole operation.",
-        parameters: {
-          type: "object",
-          properties: {
-            operations: {
-              type: "array",
-              maxItems: 20,
-              description: "Operations to apply in order. Batches are atomic and roll back on failure.",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["name", "action"],
-                properties: {
-                  name: {
-                    type: "string",
-                    description: "Skill name, or 'category/name'. Must match the directory name exactly."
-                  },
-                  action: {
-                    type: "string",
-                    enum: ["create", "patch", "write_file", "remove_file", "delete"],
-                    description: "What to do with this skill"
-                  },
-                  content: {
-                    type: "string",
-                    description: "Full SKILL.md text (YAML frontmatter + markdown body) — for create, or patch as a last-resort full rewrite."
-                  },
-                  category: {
-                    type: "string",
-                    description: "Optional category subdir (e.g. 'devops'). create only."
-                  },
-                  old_string: {
-                    type: "string",
-                    description: "Text to find. patch only."
-                  },
-                  new_string: {
-                    type: "string",
-                    description: "Replacement; empty string deletes the match. patch only."
-                  },
-                  replace_all: {
-                    type: "boolean",
-                    description: "Replace all occurrences (default false). patch only."
-                  },
-                  file_path: {
-                    type: "string",
-                    description:
-                      "Path RELATIVE to the skill's own directory, e.g. 'references/api.md' — no leading slash, never absolute; first segment must be references/, templates/, scripts/ or assets/."
-                  },
-                  file_content: {
-                    type: "string",
-                    description: "Full text of the supporting file. write_file only."
-                  },
-                  absorbed_into: {
-                    type: "string",
-                    description:
-                      "Curator consolidation only: the umbrella skill that absorbed this one (must exist). Required for any delete that is not a direct user request."
-                  }
-                }
-              }
-            }
-          },
-          required: ["operations"]
-        }
-      }
-    });
-  }
+  pushRecordDefinition(tools, "skill_manage", definitionInput);
 
-  if (input.visionToolEnabled) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "analyze_image",
-        description: "Analyze attached images using a vision-capable model. Use the absolute file paths listed in the system message and include an optional question about the images. Returns a text description from the vision model.",
-        parameters: {
-          type: "object",
-          properties: {
-            file_paths: {
-              type: "array",
-              items: { type: "string" },
-              maxItems: 10,
-              description: "Absolute file paths of the images to analyze (from the attachment list in the system message)"
-            },
-            question: {
-              type: "string",
-              description: "Optional question to answer about the images"
-            }
-          },
-          required: ["file_paths"]
-        }
-      }
-    });
-  }
+  pushRecordDefinition(tools, "analyze_image", definitionInput);
 
   pushRecordDefinition(tools, "execute_shell_command", definitionInput);
 
@@ -877,9 +897,7 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
   pushRecordDefinition(tools, "read_page", definitionInput);
   pushRecordDefinition(tools, "search_workspace", definitionInput);
 
-  if (imageTool) {
-    tools.push(imageTool);
-  }
+  pushRecordDefinition(tools, "generate_image", definitionInput);
 
   pushRecordDefinition(tools, "create_memory", definitionInput);
   pushRecordDefinition(tools, "update_memory", definitionInput);
@@ -910,14 +928,6 @@ export async function executeToolCall(
     return record.execute(toolCallId, args, context);
   }
 
-  if (name === "load_skill") {
-    return executeLoadSkill(toolCallId, args, context);
-  }
-
-  if (name === "skill_manage") {
-    return executeSkillManage(toolCallId, args, context);
-  }
-
   if (name === "message_bot") {
     return executeMessageBot(toolCallId, args, context);
   }
@@ -936,14 +946,6 @@ export async function executeToolCall(
 
   if (name === "update_own_instructions") {
     return executeUpdateOwnInstructionsTool(toolCallId, args, context);
-  }
-
-  if (name === "generate_image") {
-    return executeImageGeneration(toolCallId, args, context);
-  }
-
-  if (name === "analyze_image") {
-    return executeAnalyzeImage(toolCallId, args, context);
   }
 
   if (name.startsWith("mcp_")) {
