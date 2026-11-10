@@ -671,7 +671,6 @@ describe("executeWebSearch pipeline integration", () => {
       { id: "call_1", name: "web_search", arguments: JSON.stringify(args) },
       {
         input: context.input,
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: context.timelineSortOrder,

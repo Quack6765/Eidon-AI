@@ -22,7 +22,8 @@ import {
 } from "@/lib/conversations";
 import { getUserAllowAllTools, setUserAllowAllTools } from "@/lib/user-preferences";
 import { getDb } from "@/lib/db";
-import { executeMcpToolCall, executeShellCommand, type RuntimeAction } from "@/lib/tool-executors";
+import { executeMcpToolCall, executeShellCommand } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { createLocalUser } from "@/lib/users";
 import type {
   McpServer,

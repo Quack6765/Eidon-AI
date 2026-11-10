@@ -58,7 +58,6 @@ describe("read_page tool executor", () => {
       { id: "call_1", name: "read_page", arguments: JSON.stringify(args) },
       {
         input: context.input,
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: context.timelineSortOrder,

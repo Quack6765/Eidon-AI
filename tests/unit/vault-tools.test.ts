@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { redactSecrets } from "@/lib/secret-redaction";
-import { executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type { PromptMessage } from "@/lib/types";
 import { createLocalUser } from "@/lib/users";
 import { createVaultEntry, findVaultEntry, listVaultEntries, revealVaultSecret } from "@/lib/vault";
@@ -43,7 +44,6 @@ async function vaultFixture(username: string) {
           onActionComplete,
           onActionError
         },
-        mcpServers: [],
         loadedSkillIds: new Set<string>(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: 0,

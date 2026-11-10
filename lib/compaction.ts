@@ -25,7 +25,7 @@ import {
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
 } from "@/lib/compaction-turns";
-import { buildToolResultMessage } from "@/lib/tool-executors";
+import { buildToolResultMessage } from "@/lib/tool-lifecycle";
 import { describeMessageDraftForPrompt } from "@/lib/message-draft-display";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { computeCompactionLimit, estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";

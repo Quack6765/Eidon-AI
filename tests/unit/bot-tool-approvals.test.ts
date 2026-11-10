@@ -51,7 +51,7 @@ import { getTurnActivity } from "@/lib/turn-activity";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import { updateProviderCatalog } from "@/lib/settings";
 import type { ToolApprovalContext } from "@/lib/types";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 
 type TurnInput = {
   toolApproval: ToolApprovalContext;

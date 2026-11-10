@@ -25,7 +25,7 @@ import {
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { redactSecrets, resetSecretRedactionForTests } from "@/lib/secret-redaction";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { createLocalUser } from "@/lib/users";
 import { createVaultEntry, getVaultEntry, listVaultEntries, revealVaultSecret } from "@/lib/vault";
 

@@ -6,16 +6,12 @@ import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import {
   buildToolDefinitions
 } from "@/lib/tool-definitions";
+import type { SuccessfulReadOnlyToolResult } from "@/lib/tool-lifecycle";
 import {
-  executeToolCall,
-  type SuccessfulReadOnlyToolResult
+  executeToolCall
 } from "@/lib/tool-executors";
 import type { RuntimeToolContext } from "@/lib/runtime-tool-context";
-import type {
-  McpServer,
-  PromptMessage,
-  VisionMode
-} from "@/lib/types";
+import type { PromptMessage, VisionMode } from "@/lib/types";
 
 function promptResult(messages: PromptMessage[], effectiveVisionMode: VisionMode): string | ToolResultObject {
   const content = messages.at(-1)?.content;
@@ -52,7 +48,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
     effectiveVisionMode: context.effectiveVisionMode
   });
-  const mcpServers: McpServer[] = context.mcpToolSets.map(({ server }) => server);
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
   let timelineSortOrder = 0;
 
@@ -88,7 +83,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
             abortSignal: context.abortSignal,
             toolApproval: context.toolApproval
           },
-          mcpServers,
           loadedSkillIds: context.loadedSkillIds,
           successfulReadOnlyToolResults,
           timelineSortOrder,

@@ -29,7 +29,8 @@ import {
   getMessage,
   updateMessageAction
 } from "@/lib/conversations";
-import { executeShellCommand, type RuntimeAction } from "@/lib/tool-executors";
+import { executeShellCommand } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { createToolApprovalRules } from "@/lib/tool-approvals";
 import type { PromptMessage } from "@/lib/types";
 

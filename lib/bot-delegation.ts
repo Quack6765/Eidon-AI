@@ -46,30 +46,9 @@ import {
   releaseBotUserSlot
 } from "@/lib/bot-run-limiter";
 import { getConversationManager } from "@/lib/ws-singleton";
-import type { RuntimeAction } from "./tool-executors";
+import { type ToolExecutionContext, resolveActionHandle, toolCallResult } from "./tool-lifecycle";
 import type { ChatTurnResult, StartChatTurn } from "@/lib/chat-turn";
 import type { Bot, BotRun, ChatResearchOptions, DelegationChain, PromptMessage } from "@/lib/types";
-
-type BotToolContext = {
-  input: {
-    memoryUserId?: string | null;
-    conversationId?: string;
-    assistantMessageId?: string;
-    delegationChain?: DelegationChain;
-    abortSignal?: AbortSignal;
-    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    onActionComplete?: (
-      handle: string | undefined,
-      patch: { detail?: string; resultSummary?: string }
-    ) => Promise<void> | void;
-    onActionError?: (
-      handle: string | undefined,
-      patch: { detail?: string; resultSummary?: string }
-    ) => Promise<void> | void;
-  };
-  timelineSortOrder: number;
-  promptMessages: PromptMessage[];
-};
 
 class BotRunDeadlineError extends Error {
   constructor() {
@@ -487,23 +466,23 @@ export function resumeDelegations() {
 export async function executeMessageBot(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: BotToolContext
+  context: ToolExecutionContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const botReference = String(args.bot ?? "").trim();
   const message = String(args.message ?? "").trim();
 
-  const result = (content: string, sortOrder: number) => ({
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
-  });
-
   if (!ownerUserId) {
-    return result("Error: bot messaging is not available in this conversation", context.timelineSortOrder);
+    return toolCallResult(
+      context,
+      toolCallId,
+      "Error: bot messaging is not available in this conversation",
+      context.timelineSortOrder
+    );
   }
 
   if (!botReference || !message) {
-    return result("Error: bot and message are required", context.timelineSortOrder + 1);
+    return toolCallResult(context, toolCallId, "Error: bot and message are required", context.timelineSortOrder + 1);
   }
 
   const sender = context.input.conversationId
@@ -511,7 +490,9 @@ export async function executeMessageBot(
     : null;
   const target = resolveBotByNameOrId(botReference, ownerUserId);
   if (!target || (sender && target.id === sender.id)) {
-    return result(
+    return toolCallResult(
+      context,
+      toolCallId,
       `Error: no other bot "${botReference}" was found. Message an existing teammate by its exact name or id.`,
       context.timelineSortOrder + 1
     );
@@ -520,7 +501,9 @@ export async function executeMessageBot(
   if (sender && context.input.conversationId) {
     const senderLastReply = getLatestAssistantSummary(context.input.conversationId);
     if (senderLastReply && message === senderLastReply) {
-      return result(
+      return toolCallResult(
+        context,
+        toolCallId,
         [
           `Error: this message duplicates the reply you just gave in this conversation. Your answers here are for the user — never send them to a bot, and never use message_bot to acknowledge or forward a bot's reply.`,
           `Report ${target.name}'s reply to the user directly instead. Only call message_bot to give ${target.name} new instructions or a new question.`
@@ -532,7 +515,9 @@ export async function executeMessageBot(
 
   const delegationChain = context.input.delegationChain ?? { messagesSent: 0 };
   if (delegationChain.messagesSent >= MAX_BOT_MESSAGES_PER_REQUEST) {
-    return result(
+    return toolCallResult(
+      context,
+      toolCallId,
       `Error: bots have already sent each other ${MAX_BOT_MESSAGES_PER_REQUEST} messages for this request without a new message from the user, so message_bot is paused to stop a loop. Report what you have to the user instead; you can message bots again after the user replies.`,
       context.timelineSortOrder + 1
     );
@@ -552,7 +537,7 @@ export async function executeMessageBot(
     toolName: "message_bot",
     arguments: { bot: target.name, message: truncateText(message, MAX_STORED_SENT_MESSAGE_CHARS) }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   const run = createBotRunRecord({
     botId: target.id,
@@ -569,18 +554,18 @@ export async function executeMessageBot(
     console.error("[bot-delegation] async settlement failed", error);
   });
 
-  return {
-    ...result(
-      [
-        `Message sent to ${target.name}.`,
-        "The bot is working on it in the background and its reply will arrive here as a new message when it finishes.",
-        `Say right away that you have messaged ${target.name} and that you will report back once you have the answer, then continue with anything else.`,
-        `When ${target.name}'s reply arrives as a new message, report it to the user directly — do not send it, or an acknowledgment, back to ${target.name}.`
-      ].join("\n"),
-      context.timelineSortOrder + 1
-    ),
-    toolSucceeded: true
-  };
+  return toolCallResult(
+    context,
+    toolCallId,
+    [
+      `Message sent to ${target.name}.`,
+      "The bot is working on it in the background and its reply will arrive here as a new message when it finishes.",
+      `Say right away that you have messaged ${target.name} and that you will report back once you have the answer, then continue with anything else.`,
+      `When ${target.name}'s reply arrives as a new message, report it to the user directly — do not send it, or an acknowledgment, back to ${target.name}.`
+    ].join("\n"),
+    context.timelineSortOrder + 1,
+    true
+  );
 }
 
 const CHECK_BOT_OUTPUT_CHARS = 1_500;
@@ -647,16 +632,13 @@ export function describeBotProgress(target: NonNullable<ReturnType<typeof resolv
 export async function executeCheckBot(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: BotToolContext
+  context: ToolExecutionContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const botReference = String(args.bot ?? "").trim();
 
-  const result = (content: string, toolSucceeded?: boolean) => ({
-    nextSortOrder: context.timelineSortOrder,
-    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }],
-    ...(toolSucceeded === undefined ? {} : { toolSucceeded })
-  });
+  const result = (content: string, toolSucceeded?: boolean) =>
+    toolCallResult(context, toolCallId, content, context.timelineSortOrder, toolSucceeded);
 
   if (!ownerUserId) {
     return result("Error: bot status checks are not available in this conversation");
@@ -681,7 +663,7 @@ const MAX_BOT_INSTRUCTIONS_CHARS = MAX_INSTRUCTION_CHARS;
 export async function executeUpdateBotTool(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: BotToolContext
+  context: ToolExecutionContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const botReference = String(args.bot ?? "").trim();
@@ -690,10 +672,8 @@ export async function executeUpdateBotTool(
   const description = args.description !== undefined ? String(args.description).trim() : undefined;
   const instructions = args.instructions !== undefined ? String(args.instructions).trim() : undefined;
 
-  const result = (content: string, sortOrder: number) => ({
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
-  });
+  const result = (content: string, sortOrder: number) =>
+    toolCallResult(context, toolCallId, content, sortOrder);
 
   const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
 
@@ -745,7 +725,7 @@ export async function executeUpdateBotTool(
       ...(instructions !== undefined ? { instructions } : {})
     }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const updated = updateBot(
@@ -785,7 +765,7 @@ export async function executeUpdateBotTool(
 export async function executeCreateBotTool(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: BotToolContext
+  context: ToolExecutionContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const name = String(args.name ?? "").trim();
@@ -793,10 +773,8 @@ export async function executeCreateBotTool(
   const description = String(args.description ?? "").trim();
   const instructions = String(args.instructions ?? "").trim();
 
-  const result = (content: string, sortOrder: number) => ({
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
-  });
+  const result = (content: string, sortOrder: number) =>
+    toolCallResult(context, toolCallId, content, sortOrder);
 
   const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
 
@@ -834,7 +812,7 @@ export async function executeCreateBotTool(
     toolName: "create_bot",
     arguments: { name, title, description, instructions }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const bot = createBot({ name, title, description, systemPrompt: instructions }, ownerUserId);
@@ -862,15 +840,13 @@ export async function executeCreateBotTool(
 export async function executeUpdateOwnInstructionsTool(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: BotToolContext
+  context: ToolExecutionContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const instructions = String(args.instructions ?? "").trim();
 
-  const result = (content: string, sortOrder: number) => ({
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, { role: "tool" as const, toolCallId, content }]
-  });
+  const result = (content: string, sortOrder: number) =>
+    toolCallResult(context, toolCallId, content, sortOrder);
 
   const actingBot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
 
@@ -902,7 +878,7 @@ export async function executeUpdateOwnInstructionsTool(
     toolName: "update_own_instructions",
     arguments: { instructions }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const updated = updateBot(actingBot.id, { systemPrompt: instructions }, ownerUserId);

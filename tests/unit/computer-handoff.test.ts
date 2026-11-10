@@ -16,7 +16,8 @@ import {
 } from "@/lib/computer-handoff";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
-import { executeShellCommand, executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
+import { executeShellCommand, executeToolCall } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { settleUserGate, waitForUserGate } from "@/lib/user-gate";
 import { rememberSecretForRedaction, resetSecretRedactionForTests } from "@/lib/secret-redaction";
 import { declineComputerSecret } from "@/lib/computer-secrets";

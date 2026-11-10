@@ -68,7 +68,6 @@ describe("search_workspace tool", () => {
       { id: "call_1", name: "search_workspace", arguments: JSON.stringify({ query: "backend stack", limit: 50 }) },
       {
         input: { skills: [], mcpToolSets: [], memoryUserId: "user_a", onActionStart, onActionComplete },
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: 3,

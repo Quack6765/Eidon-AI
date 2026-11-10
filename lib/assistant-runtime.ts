@@ -18,7 +18,8 @@ import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-promp
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 import { isLibrarySkillId } from "./skill-library";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage } from "./tool-lifecycle";
+import { executeToolCall, loadSkillIntoTurn } from "./tool-executors";
 import { getToolTraits, isProposalToolCall, toolNamesWithTrait } from "./tool-traits";
 import { findReferencedNames } from "./reference-tokens";
 import type {
@@ -35,7 +36,7 @@ import type {
 } from "@/lib/types";
 
 export type { ToolSet } from "./tool-definitions";
-export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
+export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-lifecycle";
 export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 
 type Usage = {
@@ -783,7 +784,6 @@ export async function resolveAssistantTurn(input: {
     const runToolCall = (toolCall: ProviderToolCall, sortOrder: number) =>
       executeToolCall(toolCall, {
         input: toolRuntimeInput,
-        mcpServers,
         loadedSkillIds,
         successfulReadOnlyToolResults,
         timelineSortOrder: sortOrder,
