@@ -827,11 +827,6 @@ export function getToolRecord(name: string): ToolRecord | undefined {
   return BUILTIN_TOOL_RECORDS.find((record) => record.name === name);
 }
 
-function pushRecordDefinition(tools: ToolDefinition[], name: string, input: BuiltinToolDefinitionInput) {
-  const definition = getToolRecord(name)?.buildDefinition(input);
-  if (definition) tools.push(definition);
-}
-
 const HOST_OS_NAMES: Partial<Record<NodeJS.Platform, string>> = { linux: "Linux", darwin: "macOS", win32: "Windows" };
 
 function describeHostOs() {
@@ -865,8 +860,6 @@ function forcedByAllowlist(input: ToolDefinitionsInput, name: string) {
 }
 
 export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinition[] {
-  const definitionInput: BuiltinToolDefinitionInput = { ...input, hasSendingMcpTool: false };
-
   const tools: ToolDefinition[] = [];
   let hasSendingMcpTool = false;
 
@@ -895,43 +888,12 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
     }
   }
 
-  definitionInput.hasSendingMcpTool = hasSendingMcpTool;
+  const definitionInput: BuiltinToolDefinitionInput = { ...input, hasSendingMcpTool };
 
-  pushRecordDefinition(tools, "draft_message", definitionInput);
-
-  pushRecordDefinition(tools, "load_skill", definitionInput);
-
-  pushRecordDefinition(tools, "skill_manage", definitionInput);
-
-  pushRecordDefinition(tools, "analyze_image", definitionInput);
-
-  pushRecordDefinition(tools, "execute_shell_command", definitionInput);
-
-  pushRecordDefinition(tools, "run_python", definitionInput);
-
-  pushRecordDefinition(tools, "create_automation", definitionInput);
-
-  pushRecordDefinition(tools, "request_takeover", definitionInput);
-  pushRecordDefinition(tools, "request_secret", definitionInput);
-
-  pushRecordDefinition(tools, "list_secrets", definitionInput);
-  pushRecordDefinition(tools, "save_secret", definitionInput);
-
-  pushRecordDefinition(tools, "message_bot", definitionInput);
-  pushRecordDefinition(tools, "check_bot", definitionInput);
-  pushRecordDefinition(tools, "update_own_instructions", definitionInput);
-  pushRecordDefinition(tools, "create_bot", definitionInput);
-  pushRecordDefinition(tools, "update_bot", definitionInput);
-
-  pushRecordDefinition(tools, "web_search", definitionInput);
-  pushRecordDefinition(tools, "read_page", definitionInput);
-  pushRecordDefinition(tools, "search_workspace", definitionInput);
-
-  pushRecordDefinition(tools, "generate_image", definitionInput);
-
-  pushRecordDefinition(tools, "create_memory", definitionInput);
-  pushRecordDefinition(tools, "update_memory", definitionInput);
-  pushRecordDefinition(tools, "delete_memory", definitionInput);
+  for (const record of BUILTIN_TOOL_RECORDS) {
+    const definition = record.buildDefinition(definitionInput);
+    if (definition) tools.push(definition);
+  }
 
   if (input.toolAllowlist) {
     const allowed = new Set(input.toolAllowlist);
