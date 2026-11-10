@@ -236,6 +236,98 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
       }
     }),
     executeSaveSecret
+  ),
+  toolRecord(
+    "web_search",
+    (input) => {
+      if (!input.webSearchEnabled) return null;
+      const parallelSearch = (input.webSearchPipelineMode ?? "auto") !== "off";
+      return {
+        type: "function" as const,
+        function: {
+          name: "web_search",
+          description: parallelSearch
+            ? "Search the web using the configured provider. Pass multiple distinct queries in `queries` when the question has several facets or complementary phrasings — they run in parallel and their results are merged. Provide every facet query needed to answer in this single call — one comprehensive call is much faster for the user than multiple sequential search rounds. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently."
+            : "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
+          parameters: parallelSearch
+            ? {
+                type: "object" as const,
+                properties: {
+                  query: { type: "string", description: "Single search query" },
+                  queries: {
+                    type: "array",
+                    items: { type: "string" },
+                    minItems: 1,
+                    maxItems: 5,
+                    description: "Multiple distinct search queries to run in parallel; each should target a different facet of the question"
+                  },
+                  max_results: {
+                    type: "number",
+                    description: "Maximum number of results to return per query (default 5, max 10)"
+                  }
+                }
+              }
+            : {
+                type: "object" as const,
+                properties: {
+                  query: { type: "string", description: "Search query" },
+                  max_results: {
+                    type: "number",
+                    description: "Maximum number of results to return per query (default 5, max 10)"
+                  }
+                },
+                required: ["query"]
+              }
+        }
+      };
+    },
+    executeWebSearch
+  ),
+  toolRecord(
+    "read_page",
+    () => ({
+      type: "function" as const,
+      function: {
+        name: "read_page",
+        description:
+          "Fetch a web page by URL and return its main content as Markdown (bounded to 32,000 characters). Use it to read a specific page in full: a web_search result, a link the user shared, an article, or documentation. To read several pages, issue multiple read_page calls in the same step; they run in parallel. Works on static content only; for JavaScript-heavy, login-gated, or interactive pages use the agent-browser skill.",
+        parameters: {
+          type: "object" as const,
+          properties: {
+            url: { type: "string", description: "Absolute http(s) URL of the page to read" },
+            max_chars: {
+              type: "number",
+              description: "Maximum characters to return (1000-32000, default 32000). Use a smaller value when you only need an overview."
+            }
+          },
+          required: ["url"]
+        }
+      }
+    }),
+    executeReadPage
+  ),
+  toolRecord(
+    "search_workspace",
+    (input) => {
+      if (!input.semanticRecallAvailable) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "search_workspace",
+          description:
+            "Semantically search this user's own workspace: saved memories, past conversations (including automation transcripts), conversation summaries, and attached document text. Use it when the user refers to something discussed before, a past decision, or a document they shared, and the answer is not already in the current conversation. Read-only.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              query: { type: "string", description: "Natural-language description of what to find" },
+              limit: { type: "number", description: "Maximum number of results (default 8, max 20)" }
+            },
+            required: ["query"]
+          }
+        }
+      };
+    },
+    executeSearchWorkspace
   )
 ];
 
@@ -692,86 +784,9 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
     }
   }
 
-  if (input.webSearchEnabled) {
-    const parallelSearch = (input.webSearchPipelineMode ?? "auto") !== "off";
-    tools.push({
-      type: "function",
-      function: {
-        name: "web_search",
-        description: parallelSearch
-          ? "Search the web using the configured provider. Pass multiple distinct queries in `queries` when the question has several facets or complementary phrasings — they run in parallel and their results are merged. Provide every facet query needed to answer in this single call — one comprehensive call is much faster for the user than multiple sequential search rounds. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently."
-          : "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
-        parameters: parallelSearch
-          ? {
-              type: "object",
-              properties: {
-                query: { type: "string", description: "Single search query" },
-                queries: {
-                  type: "array",
-                  items: { type: "string" },
-                  minItems: 1,
-                  maxItems: 5,
-                  description: "Multiple distinct search queries to run in parallel; each should target a different facet of the question"
-                },
-                max_results: {
-                  type: "number",
-                  description: "Maximum number of results to return per query (default 5, max 10)"
-                }
-              }
-            }
-          : {
-              type: "object",
-              properties: {
-                query: { type: "string", description: "Search query" },
-                max_results: {
-                  type: "number",
-                  description: "Maximum number of results to return per query (default 5, max 10)"
-                }
-              },
-              required: ["query"]
-            }
-      }
-    });
-  }
-
-  tools.push({
-    type: "function",
-    function: {
-      name: "read_page",
-      description:
-        "Fetch a web page by URL and return its main content as Markdown (bounded to 32,000 characters). Use it to read a specific page in full: a web_search result, a link the user shared, an article, or documentation. To read several pages, issue multiple read_page calls in the same step; they run in parallel. Works on static content only; for JavaScript-heavy, login-gated, or interactive pages use the agent-browser skill.",
-      parameters: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "Absolute http(s) URL of the page to read" },
-          max_chars: {
-            type: "number",
-            description: "Maximum characters to return (1000-32000, default 32000). Use a smaller value when you only need an overview."
-          }
-        },
-        required: ["url"]
-      }
-    }
-  });
-
-  if (input.semanticRecallAvailable) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "search_workspace",
-        description:
-          "Semantically search this user's own workspace: saved memories, past conversations (including automation transcripts), conversation summaries, and attached document text. Use it when the user refers to something discussed before, a past decision, or a document they shared, and the answer is not already in the current conversation. Read-only.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Natural-language description of what to find" },
-            limit: { type: "number", description: "Maximum number of results (default 8, max 20)" }
-          },
-          required: ["query"]
-        }
-      }
-    });
-  }
+  pushRecordDefinition(tools, "web_search", definitionInput);
+  pushRecordDefinition(tools, "read_page", definitionInput);
+  pushRecordDefinition(tools, "search_workspace", definitionInput);
 
   if (imageTool) {
     tools.push(imageTool);
@@ -910,18 +925,6 @@ export async function executeToolCall(
 
   if (name === "draft_message") {
     return executeDraftMessage(toolCallId, args, context);
-  }
-
-  if (name === "web_search") {
-    return executeWebSearch(toolCallId, args, context);
-  }
-
-  if (name === "read_page") {
-    return executeReadPage(toolCallId, args, context);
-  }
-
-  if (name === "search_workspace") {
-    return executeSearchWorkspace(toolCallId, args, context);
   }
 
   if (name === "generate_image") {
