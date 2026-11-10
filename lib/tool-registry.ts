@@ -84,7 +84,55 @@ function toolRecord(
   return { name, traits: TOOL_TRAITS[name], buildDefinition, execute };
 }
 
-export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [];
+export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
+  toolRecord(
+    "execute_shell_command",
+    () => ({
+      type: "function" as const,
+      function: {
+        name: "execute_shell_command",
+        description: `Run a shell command on the ${describeHostOs()} host with \`${resolveShellPath()} -lc\`. Each call starts a fresh non-interactive shell in your persistent working directory: files you create there stay available to later calls, but cd and exported variables do not carry over, and stdin is empty. ${LONG_OUTPUT_NOTE} Use it for files, processes, and command-line tools; for calculations or for parsing and transforming data, use run_python instead.`,
+        parameters: {
+          type: "object" as const,
+          properties: {
+            command: { type: "string", description: "The command to execute" },
+            timeout_ms: TIMEOUT_PARAMETER,
+            secrets: buildSecretsParameter("Refer to them as $VARIABLE in the command")
+          },
+          required: ["command"]
+        }
+      }
+    }),
+    executeShellCommand
+  ),
+  toolRecord(
+    "run_python",
+    () => ({
+      type: "function" as const,
+      function: {
+        name: "run_python",
+        description: `Run a Python 3 program and return what it prints. Use it whenever an answer depends on exact results — arithmetic, counting, dates and times, statistics, or parsing and transforming text, JSON, CSV, or other files — and run the code instead of working the result out mentally. Each call is a fresh python3 process in the same persistent working directory as execute_shell_command: files persist between calls, variables do not. Print everything you need to see. ${LONG_OUTPUT_NOTE} Only the standard library is available unless you list packages.`,
+        parameters: {
+          type: "object" as const,
+          properties: {
+            code: { type: "string", description: "The Python source to run" },
+            packages: {
+              type: "array",
+              description:
+                "PyPI packages the code needs, such as pandas or openpyxl, installed for this run with uv. Leave it out when the standard library is enough",
+              items: { type: "string" },
+              maxItems: 10
+            },
+            timeout_ms: TIMEOUT_PARAMETER,
+            secrets: buildSecretsParameter("Read them with os.environ[\"VARIABLE\"]")
+          },
+          required: ["code"]
+        }
+      }
+    }),
+    executePythonCode
+  )
+];
 
 export function getToolRecord(name: string): ToolRecord | undefined {
   return BUILTIN_TOOL_RECORDS.find((record) => record.name === name);
@@ -348,46 +396,9 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
     });
   }
 
-  tools.push({
-    type: "function",
-    function: {
-      name: "execute_shell_command",
-      description: `Run a shell command on the ${describeHostOs()} host with \`${resolveShellPath()} -lc\`. Each call starts a fresh non-interactive shell in your persistent working directory: files you create there stay available to later calls, but cd and exported variables do not carry over, and stdin is empty. ${LONG_OUTPUT_NOTE} Use it for files, processes, and command-line tools; for calculations or for parsing and transforming data, use run_python instead.`,
-      parameters: {
-        type: "object",
-        properties: {
-          command: { type: "string", description: "The command to execute" },
-          timeout_ms: TIMEOUT_PARAMETER,
-          secrets: buildSecretsParameter("Refer to them as $VARIABLE in the command")
-        },
-        required: ["command"]
-      }
-    }
-  });
+  pushRecordDefinition(tools, "execute_shell_command", definitionInput);
 
-  tools.push({
-    type: "function",
-    function: {
-      name: "run_python",
-      description: `Run a Python 3 program and return what it prints. Use it whenever an answer depends on exact results — arithmetic, counting, dates and times, statistics, or parsing and transforming text, JSON, CSV, or other files — and run the code instead of working the result out mentally. Each call is a fresh python3 process in the same persistent working directory as execute_shell_command: files persist between calls, variables do not. Print everything you need to see. ${LONG_OUTPUT_NOTE} Only the standard library is available unless you list packages.`,
-      parameters: {
-        type: "object",
-        properties: {
-          code: { type: "string", description: "The Python source to run" },
-          packages: {
-            type: "array",
-            description:
-              "PyPI packages the code needs, such as pandas or openpyxl, installed for this run with uv. Leave it out when the standard library is enough",
-            items: { type: "string" },
-            maxItems: 10
-          },
-          timeout_ms: TIMEOUT_PARAMETER,
-          secrets: buildSecretsParameter("Read them with os.environ[\"VARIABLE\"]")
-        },
-        required: ["code"]
-      }
-    }
-  });
+  pushRecordDefinition(tools, "run_python", definitionInput);
 
   tools.push({
     type: "function",
@@ -830,20 +841,17 @@ export async function executeToolCall(
     return toolCallResult(context, toolCallId, `Error: Invalid JSON arguments for tool ${name}`, context.timelineSortOrder);
   }
 
+  const record = getToolRecord(name);
+  if (record) {
+    return record.execute(toolCallId, args, context);
+  }
+
   if (name === "load_skill") {
     return executeLoadSkill(toolCallId, args, context);
   }
 
   if (name === "skill_manage") {
     return executeSkillManage(toolCallId, args, context);
-  }
-
-  if (name === "execute_shell_command") {
-    return executeShellCommand(toolCallId, args, context);
-  }
-
-  if (name === "run_python") {
-    return executePythonCode(toolCallId, args, context);
   }
 
   if (name === "request_takeover") {
