@@ -455,6 +455,158 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
     executeSaveSecret
   ),
   toolRecord(
+    "message_bot",
+    (input) => {
+      if (!input.botTeam) return null;
+      const rosterSummary = input.botTeam.roster.length
+        ? input.botTeam.roster
+            .map((bot) => `- ${bot.name}${bot.isChief ? " — chief of staff" : ""}${bot.title ? ` (${bot.title})` : ""}${bot.description ? `: ${bot.description}` : ""}`)
+            .join("\n")
+        : "(no other bots yet)";
+      return {
+        type: "function" as const,
+        function: {
+          name: "message_bot",
+          description:
+            "Send a message to another bot on the team. Returns immediately — the bot works on it in the background in its own conversation with its own browser session and workspace, and its reply arrives here as a new message when it finishes. After sending, say right away what you asked and that you will report back once you have the answer, then continue with other work. When the reply arrives as a new message, report it to the user directly — never message the bot back just to acknowledge or forward its reply. Bots you can message:\n" +
+            rosterSummary,
+          parameters: {
+            type: "object" as const,
+            properties: {
+              bot: {
+                type: "string",
+                description: "Name or id of another bot on the team (not yourself)"
+              },
+              message: {
+                type: "string",
+                description: "Complete, self-contained message or instructions for the bot"
+              }
+            },
+            required: ["bot", "message"]
+          }
+        }
+      };
+    },
+    executeMessageBot
+  ),
+  toolRecord(
+    "check_bot",
+    (input) => {
+      if (!input.botTeam) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "check_bot",
+          description:
+            "Check on a bot without interrupting it: returns whether it is idle, queued, running or stalled, how long it has been working, its current step, and its latest output so far. Use this when the user asks how a delegated task is going. Never use message_bot just to ask a bot for a status update.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              bot: {
+                type: "string",
+                description: "Name or id of a bot on the team"
+              }
+            },
+            required: ["bot"]
+          }
+        }
+      };
+    },
+    executeCheckBot
+  ),
+  toolRecord(
+    "update_own_instructions",
+    (input) => {
+      if (!input.botTeam) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "update_own_instructions",
+          description:
+            "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. A lasting directive about how you should work belongs here, never in memory. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              instructions: {
+                type: "string",
+                description: "The complete new instructions that replace the current ones"
+              }
+            },
+            required: ["instructions"]
+          }
+        }
+      };
+    },
+    executeUpdateOwnInstructionsTool
+  ),
+  toolRecord(
+    "create_bot",
+    (input) => {
+      if (!input.botTeam?.isChief) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "create_bot",
+          description:
+            "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. Always write the bot's specific instructions in the same call — its identity, what it owns, how it should work, its quality bar, and what to avoid — never a generic placeholder. After creation, send work to it with message_bot.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              name: { type: "string", description: "Short unique name for the bot" },
+              title: { type: "string", description: "One-line job title (optional)" },
+              description: {
+                type: "string",
+                description: "What this bot owns and how it should work (optional)"
+              },
+              instructions: {
+                type: "string",
+                description:
+                  "The bot's specific instructions: its identity, what it owns, how it should work, its quality bar, and what to avoid"
+              }
+            },
+            required: ["name", "instructions"]
+          }
+        }
+      };
+    },
+    executeCreateBotTool
+  ),
+  toolRecord(
+    "update_bot",
+    (input) => {
+      if (!input.botTeam?.isChief) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "update_bot",
+          description:
+            "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or instructions. Prefer this over creating a duplicate bot.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              bot: {
+                type: "string",
+                description: "Name or id of the specialist bot to update (not yourself)"
+              },
+              name: { type: "string", description: "New unique name for the bot (optional)" },
+              title: { type: "string", description: "New one-line job title (optional)" },
+              description: {
+                type: "string",
+                description: "New description of what this bot owns (optional)"
+              },
+              instructions: {
+                type: "string",
+                description: "New instructions replacing how the bot works (optional)"
+              }
+            },
+            required: ["bot"]
+          }
+        }
+      };
+    },
+    executeUpdateBotTool
+  ),
+  toolRecord(
     "web_search",
     (input) => {
       if (!input.webSearchEnabled) return null;
@@ -765,133 +917,11 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
   pushRecordDefinition(tools, "list_secrets", definitionInput);
   pushRecordDefinition(tools, "save_secret", definitionInput);
 
-  if (input.botTeam) {
-    const rosterSummary = input.botTeam.roster.length
-      ? input.botTeam.roster
-          .map((bot) => `- ${bot.name}${bot.isChief ? " — chief of staff" : ""}${bot.title ? ` (${bot.title})` : ""}${bot.description ? `: ${bot.description}` : ""}`)
-          .join("\n")
-      : "(no other bots yet)";
-
-    tools.push({
-      type: "function",
-      function: {
-        name: "message_bot",
-        description:
-          "Send a message to another bot on the team. Returns immediately — the bot works on it in the background in its own conversation with its own browser session and workspace, and its reply arrives here as a new message when it finishes. After sending, say right away what you asked and that you will report back once you have the answer, then continue with other work. When the reply arrives as a new message, report it to the user directly — never message the bot back just to acknowledge or forward its reply. Bots you can message:\n" +
-          rosterSummary,
-        parameters: {
-          type: "object",
-          properties: {
-            bot: {
-              type: "string",
-              description: "Name or id of another bot on the team (not yourself)"
-            },
-            message: {
-              type: "string",
-              description: "Complete, self-contained message or instructions for the bot"
-            }
-          },
-          required: ["bot", "message"]
-        }
-      }
-    });
-
-    tools.push({
-      type: "function",
-      function: {
-        name: "check_bot",
-        description:
-          "Check on a bot without interrupting it: returns whether it is idle, queued, running or stalled, how long it has been working, its current step, and its latest output so far. Use this when the user asks how a delegated task is going. Never use message_bot just to ask a bot for a status update.",
-        parameters: {
-          type: "object",
-          properties: {
-            bot: {
-              type: "string",
-              description: "Name or id of a bot on the team"
-            }
-          },
-          required: ["bot"]
-        }
-      }
-    });
-
-    tools.push({
-      type: "function",
-      function: {
-        name: "update_own_instructions",
-        description:
-          "Update your own instructions — the identity and working rules that shape how you behave. Only call this when the user asks for it or when your responsibilities have genuinely drifted from your current instructions; never rewrite them on your own for convenience. A lasting directive about how you should work belongs here, never in memory. After updating, tell the user what you changed and why. The new instructions apply from your next message.",
-        parameters: {
-          type: "object",
-          properties: {
-            instructions: {
-              type: "string",
-              description: "The complete new instructions that replace the current ones"
-            }
-          },
-          required: ["instructions"]
-        }
-      }
-    });
-
-    if (input.botTeam.isChief) {
-      tools.push(
-        {
-          type: "function",
-          function: {
-            name: "create_bot",
-            description:
-              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. Always write the bot's specific instructions in the same call — its identity, what it owns, how it should work, its quality bar, and what to avoid — never a generic placeholder. After creation, send work to it with message_bot.",
-            parameters: {
-              type: "object",
-              properties: {
-                name: { type: "string", description: "Short unique name for the bot" },
-                title: { type: "string", description: "One-line job title (optional)" },
-                description: {
-                  type: "string",
-                  description: "What this bot owns and how it should work (optional)"
-                },
-                instructions: {
-                  type: "string",
-                  description:
-                    "The bot's specific instructions: its identity, what it owns, how it should work, its quality bar, and what to avoid"
-                }
-              },
-              required: ["name", "instructions"]
-            }
-          }
-        },
-        {
-          type: "function",
-          function: {
-            name: "update_bot",
-            description:
-              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or instructions. Prefer this over creating a duplicate bot.",
-            parameters: {
-              type: "object",
-              properties: {
-                bot: {
-                  type: "string",
-                  description: "Name or id of the specialist bot to update (not yourself)"
-                },
-                name: { type: "string", description: "New unique name for the bot (optional)" },
-                title: { type: "string", description: "New one-line job title (optional)" },
-                description: {
-                  type: "string",
-                  description: "New description of what this bot owns (optional)"
-                },
-                instructions: {
-                  type: "string",
-                  description: "New instructions replacing how the bot works (optional)"
-                }
-              },
-              required: ["bot"]
-            }
-          }
-        }
-      );
-    }
-  }
+  pushRecordDefinition(tools, "message_bot", definitionInput);
+  pushRecordDefinition(tools, "check_bot", definitionInput);
+  pushRecordDefinition(tools, "update_own_instructions", definitionInput);
+  pushRecordDefinition(tools, "create_bot", definitionInput);
+  pushRecordDefinition(tools, "update_bot", definitionInput);
 
   pushRecordDefinition(tools, "web_search", definitionInput);
   pushRecordDefinition(tools, "read_page", definitionInput);
@@ -926,26 +956,6 @@ export async function executeToolCall(
   const record = getToolRecord(name);
   if (record) {
     return record.execute(toolCallId, args, context);
-  }
-
-  if (name === "message_bot") {
-    return executeMessageBot(toolCallId, args, context);
-  }
-
-  if (name === "check_bot") {
-    return executeCheckBot(toolCallId, args, context);
-  }
-
-  if (name === "create_bot") {
-    return executeCreateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_bot") {
-    return executeUpdateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_own_instructions") {
-    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
   }
 
   if (name.startsWith("mcp_")) {
