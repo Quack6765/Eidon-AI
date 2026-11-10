@@ -86,6 +86,40 @@ function toolRecord(
 
 export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
   toolRecord(
+    "draft_message",
+    (input) => {
+      if (!input.hasSendingMcpTool) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "draft_message",
+          description:
+            "Prepare an outgoing message — an email, a Slack or chat message, a reply, a post, or a comment — as a draft the user reviews, edits, and sends from a card in this conversation. Use it instead of calling a connected tool that sends, posts, or replies on the user's behalf; call that tool directly only when the user explicitly asks to skip the draft. Nothing is sent until the user presses Send, which calls the tool you name with the arguments you give (after any edits). You can leave several drafts at once. To revise a draft that is still waiting, pass its id as replaces_draft_id so the old version is withdrawn. Never claim a message was sent — say the draft is ready for them to review and send.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              tool: {
+                type: "string",
+                description: "Exact name of the connected tool that sends the message, as it appears in your tool list (for example mcp_gmail_send_message)"
+              },
+              arguments: {
+                type: "object",
+                additionalProperties: true,
+                description: "Complete arguments for that tool, exactly as its schema expects, including recipients and the full message text"
+              },
+              replaces_draft_id: {
+                type: "string",
+                description: "Optional id of an earlier draft that is still waiting; it is withdrawn and replaced by this one"
+              }
+            },
+            required: ["tool", "arguments"]
+          }
+        }
+      };
+    },
+    executeDraftMessage
+  ),
+  toolRecord(
     "execute_shell_command",
     () => ({
       type: "function" as const,
@@ -131,6 +165,62 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
       }
     }),
     executePythonCode
+  ),
+  toolRecord(
+    "create_automation",
+    () => ({
+      type: "function" as const,
+      function: {
+        name: "create_automation",
+        description: buildCreateAutomationDescription(),
+        parameters: {
+          type: "object" as const,
+          properties: {
+            name: { type: "string", description: "Short name for the automation (max 100 chars)" },
+            prompt: {
+              type: "string",
+              description:
+                "Complete, self-contained instructions the scheduled run will execute. Supports the variables {{date}} (run date), {{run_number}} (1-based ordinal of this run), and {{last_result}} (result of the previous run, empty on the first run)."
+            },
+            schedule_kind: {
+              type: "string",
+              enum: ["interval", "calendar", "once"],
+              description: "interval = every N minutes; calendar = daily or weekly at a local time; once = a single run at an absolute instant, after which the automation deletes itself"
+            },
+            interval_minutes: {
+              type: "number",
+              description: "Minutes between runs for interval schedules (minimum 5)"
+            },
+            calendar_frequency: {
+              type: "string",
+              enum: ["daily", "weekly"],
+              description: "Calendar frequency (required for calendar schedules)"
+            },
+            time_of_day: {
+              type: "string",
+              description: "Run time in HH:MM 24h local format (required for calendar schedules)"
+            },
+            days_of_week: {
+              type: "array",
+              items: { type: "number" },
+              description: "Weekdays for weekly schedules, 0=Sunday through 6=Saturday"
+            },
+            run_at: {
+              type: "string",
+              description:
+                "Absolute ISO 8601 instant the single run fires at, with a UTC offset, for example 2026-03-05T09:00:00-05:00 (required for schedule_kind 'once', and it must be in the future)"
+            },
+            continue_previous_conversation: {
+              type: "boolean",
+              description:
+                "true = each run continues the previous run's conversation so briefs build on prior results; false (default) = each run starts a fresh conversation"
+            }
+          },
+          required: ["name", "prompt", "schedule_kind"]
+        }
+      }
+    }),
+    executeCreateAutomationProposal
   ),
   toolRecord(
     "request_takeover",
@@ -328,6 +418,84 @@ export const BUILTIN_TOOL_RECORDS: ToolRecord[] = [
       };
     },
     executeSearchWorkspace
+  ),
+  toolRecord(
+    "create_memory",
+    (input) => {
+      if (!input.memoriesEnabled) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "create_memory",
+          description: buildCreateMemoryDescription(input.memoriesRigor ?? "balanced"),
+          parameters: {
+            type: "object" as const,
+            properties: {
+              content: {
+                type: "string",
+                description:
+                  "The fact to remember, written as a general statement about the user (for example \"Prefers concise answers without preamble\") rather than a note about this conversation"
+              },
+              category: { type: "string", description: "One of: personal, preference, work, location, other" }
+            },
+            required: ["content", "category"]
+          }
+        }
+      };
+    },
+    executeCreateMemory
+  ),
+  toolRecord(
+    "update_memory",
+    (input) => {
+      if (!input.memoriesEnabled) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "update_memory",
+          description:
+            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation. Never rewrite a memory to restate your instructions — memory adds to them, never copies them.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              id: { type: "string", description: "The memory ID shown before the fact in the memory list" },
+              content: {
+                type: "string",
+                description: "The full replacement fact, written to stand on its own outside this conversation"
+              },
+              category: {
+                type: "string",
+                description: "New category (optional). One of: personal, preference, work, location, other"
+              }
+            },
+            required: ["id", "content"]
+          }
+        }
+      };
+    },
+    executeUpdateMemory
+  ),
+  toolRecord(
+    "delete_memory",
+    (input) => {
+      if (!input.memoriesEnabled) return null;
+      return {
+        type: "function" as const,
+        function: {
+          name: "delete_memory",
+          description:
+            "Delete a stored memory that is no longer true, no longer useful, or that duplicates your instructions; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
+          parameters: {
+            type: "object" as const,
+            properties: {
+              id: { type: "string", description: "The memory ID to delete" }
+            },
+            required: ["id"]
+          }
+        }
+      };
+    },
+    executeDeleteMemory
   )
 ];
 
@@ -448,35 +616,7 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
 
   definitionInput.hasSendingMcpTool = hasSendingMcpTool;
 
-  if (hasSendingMcpTool) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "draft_message",
-        description:
-          "Prepare an outgoing message — an email, a Slack or chat message, a reply, a post, or a comment — as a draft the user reviews, edits, and sends from a card in this conversation. Use it instead of calling a connected tool that sends, posts, or replies on the user's behalf; call that tool directly only when the user explicitly asks to skip the draft. Nothing is sent until the user presses Send, which calls the tool you name with the arguments you give (after any edits). You can leave several drafts at once. To revise a draft that is still waiting, pass its id as replaces_draft_id so the old version is withdrawn. Never claim a message was sent — say the draft is ready for them to review and send.",
-        parameters: {
-          type: "object",
-          properties: {
-            tool: {
-              type: "string",
-              description: "Exact name of the connected tool that sends the message, as it appears in your tool list (for example mcp_gmail_send_message)"
-            },
-            arguments: {
-              type: "object",
-              additionalProperties: true,
-              description: "Complete arguments for that tool, exactly as its schema expects, including recipients and the full message text"
-            },
-            replaces_draft_id: {
-              type: "string",
-              description: "Optional id of an earlier draft that is still waiting; it is withdrawn and replaced by this one"
-            }
-          },
-          required: ["tool", "arguments"]
-        }
-      }
-    });
-  }
+  pushRecordDefinition(tools, "draft_message", definitionInput);
 
   if (input.skills.length || forcedByAllowlist(input, "load_skill")) {
     tools.push({
@@ -597,58 +737,7 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
 
   pushRecordDefinition(tools, "run_python", definitionInput);
 
-  tools.push({
-    type: "function",
-    function: {
-      name: "create_automation",
-      description: buildCreateAutomationDescription(),
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Short name for the automation (max 100 chars)" },
-          prompt: {
-            type: "string",
-            description:
-              "Complete, self-contained instructions the scheduled run will execute. Supports the variables {{date}} (run date), {{run_number}} (1-based ordinal of this run), and {{last_result}} (result of the previous run, empty on the first run)."
-          },
-          schedule_kind: {
-            type: "string",
-            enum: ["interval", "calendar", "once"],
-            description: "interval = every N minutes; calendar = daily or weekly at a local time; once = a single run at an absolute instant, after which the automation deletes itself"
-          },
-          interval_minutes: {
-            type: "number",
-            description: "Minutes between runs for interval schedules (minimum 5)"
-          },
-          calendar_frequency: {
-            type: "string",
-            enum: ["daily", "weekly"],
-            description: "Calendar frequency (required for calendar schedules)"
-          },
-          time_of_day: {
-            type: "string",
-            description: "Run time in HH:MM 24h local format (required for calendar schedules)"
-          },
-          days_of_week: {
-            type: "array",
-            items: { type: "number" },
-            description: "Weekdays for weekly schedules, 0=Sunday through 6=Saturday"
-          },
-          run_at: {
-            type: "string",
-            description:
-              "Absolute ISO 8601 instant the single run fires at, with a UTC offset, for example 2026-03-05T09:00:00-05:00 (required for schedule_kind 'once', and it must be in the future)"
-          },
-          continue_previous_conversation: {
-            type: "boolean",
-            description:
-              "true = each run continues the previous run's conversation so briefs build on prior results; false (default) = each run starts a fresh conversation"
-          }
-        },
-        required: ["name", "prompt", "schedule_kind"]
-      }
-    }
-  });
+  pushRecordDefinition(tools, "create_automation", definitionInput);
 
   pushRecordDefinition(tools, "request_takeover", definitionInput);
   pushRecordDefinition(tools, "request_secret", definitionInput);
@@ -792,67 +881,9 @@ export function buildToolDefinitions(input: ToolDefinitionsInput): ToolDefinitio
     tools.push(imageTool);
   }
 
-  if (input.memoriesEnabled) {
-    tools.push(
-      {
-        type: "function",
-        function: {
-          name: "create_memory",
-          description: buildCreateMemoryDescription(input.memoriesRigor ?? "balanced"),
-          parameters: {
-            type: "object",
-            properties: {
-              content: {
-                type: "string",
-                description:
-                  "The fact to remember, written as a general statement about the user (for example \"Prefers concise answers without preamble\") rather than a note about this conversation"
-              },
-              category: { type: "string", description: "One of: personal, preference, work, location, other" }
-            },
-            required: ["content", "category"]
-          }
-        }
-      },
-      {
-        type: "function",
-        function: {
-          name: "update_memory",
-          description:
-            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation. Never rewrite a memory to restate your instructions — memory adds to them, never copies them.",
-          parameters: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "The memory ID shown before the fact in the memory list" },
-              content: {
-                type: "string",
-                description: "The full replacement fact, written to stand on its own outside this conversation"
-              },
-              category: {
-                type: "string",
-                description: "New category (optional). One of: personal, preference, work, location, other"
-              }
-            },
-            required: ["id", "content"]
-          }
-        }
-      },
-      {
-        type: "function",
-        function: {
-          name: "delete_memory",
-          description:
-            "Delete a stored memory that is no longer true, no longer useful, or that duplicates your instructions; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
-          parameters: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "The memory ID to delete" }
-            },
-            required: ["id"]
-          }
-        }
-      }
-    );
-  }
+  pushRecordDefinition(tools, "create_memory", definitionInput);
+  pushRecordDefinition(tools, "update_memory", definitionInput);
+  pushRecordDefinition(tools, "delete_memory", definitionInput);
 
   if (input.toolAllowlist) {
     const allowed = new Set(input.toolAllowlist);
@@ -905,26 +936,6 @@ export async function executeToolCall(
 
   if (name === "update_own_instructions") {
     return executeUpdateOwnInstructionsTool(toolCallId, args, context);
-  }
-
-  if (name === "create_memory") {
-    return executeCreateMemory(toolCallId, args, context);
-  }
-
-  if (name === "update_memory") {
-    return executeUpdateMemory(toolCallId, args, context);
-  }
-
-  if (name === "delete_memory") {
-    return executeDeleteMemory(toolCallId, args, context);
-  }
-
-  if (name === "create_automation") {
-    return executeCreateAutomationProposal(toolCallId, args, context);
-  }
-
-  if (name === "draft_message") {
-    return executeDraftMessage(toolCallId, args, context);
   }
 
   if (name === "generate_image") {
