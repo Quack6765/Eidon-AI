@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
-import { guardedMcpFetch, testMcpServerConnection } from "@/lib/mcp-client";
+import { testMcpServerConnection } from "@/lib/mcp-client";
 import {
   checkMcpOAuthSupport,
   getMcpOAuthConnectionSummary,
@@ -12,7 +12,6 @@ import {
   MCP_AUTH_REQUIRED_MESSAGE
 } from "@/lib/mcp-oauth";
 import { getMcpServer } from "@/lib/mcp-servers";
-import { BlockedUrlError, parsePageUrl } from "@/lib/web-read";
 
 const bodySchema = z.strictObject({ serverId: z.string().min(1) });
 
@@ -31,10 +30,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (server.transport === "streamable_http") {
-      parsePageUrl(server.url);
-    }
-
     const result = await testMcpServerConnection(server);
     markMcpOAuthConnectionConnected(server.id);
 
@@ -53,7 +48,7 @@ export async function POST(request: Request) {
     if (
       error instanceof McpAuthenticationRequiredError &&
       server.transport === "streamable_http" &&
-      (await checkMcpOAuthSupport(server.url, guardedMcpFetch))
+      (await checkMcpOAuthSupport(server.url))
     ) {
       markMcpOAuthConnectionAuthRequired(server.id, { createIfMissing: true });
       return ok({
@@ -67,9 +62,7 @@ export async function POST(request: Request) {
     const detail =
       error instanceof McpAuthenticationRequiredError
         ? MCP_AUTH_REQUIRED_MESSAGE
-        : error instanceof BlockedUrlError
-          ? "The server URL is not allowed."
-          : "Could not reach the server.";
+        : "Could not reach the server.";
     return badRequest("MCP connection test failed", 502, detail);
   }
 }
