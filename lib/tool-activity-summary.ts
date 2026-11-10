@@ -1,5 +1,6 @@
 import type { MessageAction, MessageActionKind, MessageActionStatus } from "@/lib/types";
 import { isDelegationActionKind } from "@/lib/delegation-marker";
+import { proposalActionKinds } from "@/lib/tool-traits";
 
 export type ToolActivityRow = {
   id: string;
@@ -19,15 +20,7 @@ export type ToolActivitySource = Pick<
   "id" | "kind" | "toolName" | "label" | "detail" | "status" | "arguments"
 >;
 
-const PROPOSAL_ACTION_KINDS: ReadonlySet<MessageActionKind> = new Set([
-  "create_memory",
-  "update_memory",
-  "delete_memory",
-  "create_automation",
-  "draft_message",
-  "computer_handoff",
-  "secret_request"
-]);
+const PROPOSAL_ACTION_KINDS: ReadonlySet<MessageActionKind> = new Set(proposalActionKinds());
 
 const BUCKETS = [
   { key: "tools", singular: "tool", plural: "tools" },

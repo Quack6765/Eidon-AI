@@ -9,6 +9,7 @@ import {
   updateMemory
 } from "@/lib/memories";
 import { getSettings } from "@/lib/settings";
+import { toolNamesWithTrait } from "@/lib/tool-traits";
 import type {
   MemoryCategory,
   MemoryProposalPayload,
@@ -33,7 +34,7 @@ function toProposalMemorySnapshot(memory: UserMemory) {
   };
 }
 
-const MEMORY_PROPOSAL_KINDS = new Set(["create_memory", "update_memory", "delete_memory"]);
+const MEMORY_PROPOSAL_KINDS = toolNamesWithTrait("memoryProposal");
 
 type PendingMemoryProposalActionRow = {
   id: string;

@@ -140,16 +140,6 @@ export function buildToolResultMessage(toolCallId: string, content: PromptMessag
   };
 }
 
-export function isProposalToolCall(name: string) {
-  return (
-    name === "create_memory" ||
-    name === "update_memory" ||
-    name === "delete_memory" ||
-    name === "create_automation" ||
-    name === "draft_message"
-  );
-}
-
 function buildShellResultForPrompt(input: { heading: string[]; resultSummary: string; isError: boolean }) {
   return [
     ...input.heading,
