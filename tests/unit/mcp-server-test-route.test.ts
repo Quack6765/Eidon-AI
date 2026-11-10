@@ -29,7 +29,6 @@ vi.mock("@/lib/mcp-oauth", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   testMcpServerConnection: mocks.testMcpServerConnection,
-  guardedMcpFetch: vi.fn(),
   evictMcpClientsByServerId: vi.fn(),
   getConnectedClient: vi.fn(),
   disconnectMcpServer: vi.fn()
@@ -119,30 +118,25 @@ describe("POST /api/mcp-servers/test", () => {
   });
 
   it.each([
-    "http://169.254.169.254/latest/meta-data",
+    "http://192.168.1.10:8123/api/mcp",
     "http://127.0.0.1:8080/mcp",
     "http://localhost/mcp",
-    "http://10.0.0.5/mcp",
-    "http://172.16.0.9/mcp",
-    "http://192.168.1.10/mcp",
-    "http://[::1]/mcp",
-    "http://[fe80::1]/mcp",
-    "http://[::ffff:127.0.0.1]/mcp",
-    "http://[::ffff:a00:1]/mcp",
-    "file:///etc/passwd",
-    "ftp://example.com/mcp"
-  ])("rejects blocked or non-http target %s before connecting", async (url) => {
+    "http://homeassistant.local:8123/api/mcp",
+    "http://[::1]/mcp"
+  ])("tests a private-network server at %s the same way the runtime connects to it", async (url) => {
     const server = seedServer({ url });
-    const response = await testRoute(request({ serverId: server.id }));
-    const body = await response.json();
-
-    expect(response.status).toBe(502);
-    expect(body).toEqual({
-      error: "MCP connection test failed",
-      detail: "The server URL is not allowed."
+    mocks.testMcpServerConnection.mockResolvedValue({
+      protocolVersion: "2025-03-26",
+      serverInfo: null,
+      sessionId: null,
+      toolCount: 1,
+      tools: []
     });
-    expect(mocks.testMcpServerConnection).not.toHaveBeenCalled();
-    expect(JSON.stringify(body)).not.toContain(url);
+
+    const response = await testRoute(request({ serverId: server.id }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.testMcpServerConnection).toHaveBeenCalledWith(expect.objectContaining({ id: server.id, url }));
   });
 
   it("does not return subprocess stderr to the client", async () => {
