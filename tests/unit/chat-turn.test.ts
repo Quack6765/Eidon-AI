@@ -1523,7 +1523,7 @@ describe("chat-turn", () => {
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
-    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { claimExistingMessageTurn } = await import("@/lib/turn-session");
     const { getConversationManager } = await import("@/lib/ws-singleton");
 
     const { profileId, profile } = setupProviderProfile();
@@ -1551,11 +1551,14 @@ describe("chat-turn", () => {
       content: "Edited prompt"
     });
 
-    const result = await startAssistantTurnFromExistingUserMessage(
-      getConversationManager(),
-      conversation.id,
-      existingUser.id
-    );
+    const claimed = claimExistingMessageTurn({
+      manager: getConversationManager(),
+      conversationId: conversation.id,
+      messageId: existingUser.id
+    });
+    expect(claimed.ok).toBe(true);
+
+    const result = claimed.ok ? await claimed.run() : { status: "failed" as const };
 
     expect(result).toEqual({ status: "completed" });
     const messages = listVisibleMessages(conversation.id);
@@ -1665,7 +1668,7 @@ describe("chat-turn", () => {
 
   it("does not create an assistant placeholder when continuation preflight fails", async () => {
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
-    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { claimExistingMessageTurn } = await import("@/lib/turn-session");
     const { getConversationManager } = await import("@/lib/ws-singleton");
 
     const conversation = createConversation("Restart conversation");
@@ -1675,12 +1678,15 @@ describe("chat-turn", () => {
       content: "Edited prompt"
     });
 
+    const claimed = claimExistingMessageTurn({
+      manager: getConversationManager(),
+      conversationId: conversation.id,
+      messageId: existingUser.id
+    });
+    expect(claimed.ok).toBe(true);
+
     await expect(
-      startAssistantTurnFromExistingUserMessage(
-        getConversationManager(),
-        conversation.id,
-        existingUser.id
-      )
+      claimed.ok ? claimed.run() : Promise.resolve({ status: "skipped" as const })
     ).resolves.toEqual({
       status: "failed",
       errorMessage: "Set an API key in settings before starting a chat"
@@ -2140,7 +2146,7 @@ describe("chat-turn", () => {
     updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
     const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
 
-    const { createPendingUserMessage, startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { claimExistingMessageTurn, createPendingUserMessage } = await import("@/lib/turn-session");
     const pending = createPendingUserMessage({ conversationId: conv.id, content: "Research heat pumps", attachmentIds: [] });
     const { listVisibleMessages, deletePendingUserMessage } = await import("@/lib/conversations");
     expect(listVisibleMessages(conv.id).map((message) => message.role)).toEqual(["user"]);
@@ -2150,9 +2156,15 @@ describe("chat-turn", () => {
       return { answer: "# Report", thinking: "", usage: { outputTokens: 2 } };
     })());
 
-    const result = await startAssistantTurnFromExistingUserMessage(manager, conv.id, pending.id, undefined, {
+    const claimed = claimExistingMessageTurn({
+      manager,
+      conversationId: conv.id,
+      messageId: pending.id,
       research: { plan: ["Find subsidy pages"] }
     });
+    expect(claimed.ok).toBe(true);
+
+    const result = claimed.ok ? await claimed.run() : { status: "failed" as const };
 
     expect(result).toEqual({ status: "completed" });
     const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages.at(-1)?.content);

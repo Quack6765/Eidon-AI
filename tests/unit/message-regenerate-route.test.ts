@@ -11,68 +11,25 @@ const { requireUserMock } = vi.hoisted(() => ({
   requireUserMock: vi.fn()
 }));
 
-const { startAssistantTurnFromExistingUserMessageMock, startManipulationTurnMock } = vi.hoisted(() => ({
-  startAssistantTurnFromExistingUserMessageMock: vi.fn(),
-  startManipulationTurnMock: vi.fn()
-}));
-
-const { prepareMessageManipulationTurnMock } = vi.hoisted(() => ({
-  prepareMessageManipulationTurnMock: vi.fn()
-}));
-
-const claimTurnControl = { id: "claim-control" };
-
-const { releaseChatTurnStartMock } = vi.hoisted(() => ({
-  releaseChatTurnStartMock: vi.fn()
+const { restartTurnAfterMutationMock } = vi.hoisted(() => ({
+  restartTurnAfterMutationMock: vi.fn()
 }));
 
 vi.mock("@/lib/auth", () => ({
   requireUser: requireUserMock
 }));
 
-vi.mock("@/lib/chat-turn", () => ({
-  startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock,
-  prepareMessageManipulationTurn: prepareMessageManipulationTurnMock,
-  startManipulationTurn: startManipulationTurnMock,
-  restartAssistantTurnAfterMutation: (input: {
-    conversationId: string;
-    userMessageId: string;
-    turn: { preflight: unknown; control: unknown };
-    logTag: string;
-    mutate: () => unknown;
-  }) => {
-    const result = input.mutate();
-    startManipulationTurnMock({
-      conversationId: input.conversationId,
-      userMessageId: input.userMessageId,
-      preflight: input.turn.preflight,
-      control: input.turn.control,
-      logTag: input.logTag
-    });
-    return result;
-  }
-}));
-
-vi.mock("@/lib/chat-turn-control", () => ({
-  releaseChatTurnStart: releaseChatTurnStartMock
+vi.mock("@/lib/turn-session", () => ({
+  restartTurnAfterMutation: restartTurnAfterMutationMock
 }));
 
 describe("message regenerate route", () => {
-  const defaultPreflight = { ok: true as const, context: {} };
-  const defaultTurnContext = {
-    snapshot: null as any,
-    preflight: defaultPreflight,
-    control: claimTurnControl
-  };
-
   beforeEach(() => {
     requireUserMock.mockReset();
-    startAssistantTurnFromExistingUserMessageMock.mockReset();
-    startAssistantTurnFromExistingUserMessageMock.mockResolvedValue({ status: "completed" });
-    startManipulationTurnMock.mockReset();
-    prepareMessageManipulationTurnMock.mockReset();
-    prepareMessageManipulationTurnMock.mockReturnValue(defaultTurnContext);
-    releaseChatTurnStartMock.mockReset();
+    restartTurnAfterMutationMock.mockReset();
+    restartTurnAfterMutationMock.mockImplementation((input: {
+      mutate: (turn: { snapshot: null }) => unknown;
+    }) => input.mutate({ snapshot: null }));
   });
 
   it("deletes the next assistant message and starts a new turn", async () => {
@@ -117,13 +74,16 @@ describe("message regenerate route", () => {
       })
     );
     expect(getMessage(assistantMessage.id)).toBeNull();
-    expect(startManipulationTurnMock).toHaveBeenCalledWith({
-      conversationId: conversation.id,
-      userMessageId: userMessage.id,
-      preflight: defaultPreflight,
-      control: claimTurnControl,
-      logTag: "message-regenerate-route"
-    });
+    expect(restartTurnAfterMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: conversation.id,
+        userId: user.id,
+        userMessageId: userMessage.id,
+        busyErrorMessage: "Wait for the current assistant response to finish before regenerating",
+        logTag: "message-regenerate-route",
+        mutate: expect.any(Function)
+      })
+    );
   });
 
   it("starts a new turn even when no assistant message exists after the user message", async () => {
@@ -150,13 +110,13 @@ describe("message regenerate route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(startManipulationTurnMock).toHaveBeenCalledWith({
-      conversationId: conversation.id,
-      userMessageId: userMessage.id,
-      preflight: defaultPreflight,
-      control: claimTurnControl,
-      logTag: "message-regenerate-route"
-    });
+    expect(restartTurnAfterMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: conversation.id,
+        userMessageId: userMessage.id,
+        logTag: "message-regenerate-route"
+      })
+    );
   });
 
   it("deletes every assistant message after the user message and starts a new turn", async () => {
@@ -207,13 +167,13 @@ describe("message regenerate route", () => {
     );
     expect(getMessage(firstAssistantMessage.id)).toBeNull();
     expect(getMessage(secondAssistantMessage.id)).toBeNull();
-    expect(startManipulationTurnMock).toHaveBeenCalledWith({
-      conversationId: conversation.id,
-      userMessageId: userMessage.id,
-      preflight: defaultPreflight,
-      control: claimTurnControl,
-      logTag: "message-regenerate-route"
-    });
+    expect(restartTurnAfterMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: conversation.id,
+        userMessageId: userMessage.id,
+        logTag: "message-regenerate-route"
+      })
+    );
   });
 
   it("rejects mid-history user messages with 409 and deletes nothing", async () => {
@@ -262,7 +222,7 @@ describe("message regenerate route", () => {
     expect(getMessage(firstAssistantMessage.id)).not.toBeNull();
     expect(getMessage(lastUserMessage.id)).not.toBeNull();
     expect(getMessage(lastAssistantMessage.id)).not.toBeNull();
-    expect(startManipulationTurnMock).not.toHaveBeenCalled();
+    expect(restartTurnAfterMutationMock).not.toHaveBeenCalled();
   });
 
   it("returns 404 when regenerating another user's message", async () => {
@@ -296,7 +256,7 @@ describe("message regenerate route", () => {
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "Message not found" });
     expect(getMessage(userMessage.id)).not.toBeNull();
-    expect(startManipulationTurnMock).not.toHaveBeenCalled();
+    expect(restartTurnAfterMutationMock).not.toHaveBeenCalled();
   });
 
   it("rejects assistant messages with 400", async () => {
@@ -341,7 +301,7 @@ describe("message regenerate route", () => {
       content: "Regenerate this"
     });
 
-    prepareMessageManipulationTurnMock.mockReturnValue(
+    restartTurnAfterMutationMock.mockReturnValue(
       new Response(JSON.stringify({ error: "Wait for the current assistant response to finish before regenerating" }), { status: 409 })
     );
 
@@ -383,7 +343,7 @@ describe("message regenerate route", () => {
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    prepareMessageManipulationTurnMock.mockReturnValue(
+    restartTurnAfterMutationMock.mockReturnValue(
       new Response(JSON.stringify({ error: "No provider profile configured" }), { status: 400 })
     );
 
@@ -403,7 +363,6 @@ describe("message regenerate route", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(startManipulationTurnMock).not.toHaveBeenCalled();
   });
 
   it("returns 409 when the turn is already claimed", async () => {
@@ -413,7 +372,7 @@ describe("message regenerate route", () => {
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    prepareMessageManipulationTurnMock.mockReturnValue(
+    restartTurnAfterMutationMock.mockReturnValue(
       new Response(JSON.stringify({ error: "Wait for the current assistant response to finish before regenerating" }), { status: 409 })
     );
 
@@ -433,7 +392,6 @@ describe("message regenerate route", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(startManipulationTurnMock).not.toHaveBeenCalled();
   });
 
 });

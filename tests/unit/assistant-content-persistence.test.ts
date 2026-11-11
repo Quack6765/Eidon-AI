@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
+import { createAssistantContentPersistenceTracker } from "@/lib/content-persistence";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 
 describe("assistant content persistence (chunked streaming)", () => {

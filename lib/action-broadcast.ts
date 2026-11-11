@@ -9,7 +9,7 @@ export function broadcastActionUpdate(action: MessageAction) {
   if (!conversationId) return;
   const event = { type: "action_complete" as const, action };
   getConversationManager().broadcast(conversationId, { type: "delta", conversationId, event });
-  void import("@/lib/chat-turn")
+  void import("@/lib/turn-session")
     .then(({ getChatEmitter }) => getChatEmitter().emit("delta", conversationId, event))
     .catch(() => undefined);
 }
