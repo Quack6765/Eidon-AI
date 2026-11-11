@@ -1203,7 +1203,6 @@ describe("db", () => {
 
     const db = dbModule.getDb();
     db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("bot_conversations_follow_default_provider");
-    db.prepare("DELETE FROM migration_flags WHERE name = ?").run("bot_conversations_follow_default_provider");
     migrate(db);
 
     expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBeNull();

@@ -412,10 +412,6 @@ const BASELINE_SCHEMA_SQL = `
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
     );
-    CREATE TABLE IF NOT EXISTS migration_flags (
-      name TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL
@@ -1671,7 +1667,10 @@ function widenLegacyProviderProfiles(db: Database.Database) {
 }
 
 function legacyFlagRecorded(db: Database.Database, name: string) {
-  return Boolean(db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name));
+  return (
+    tableExists(db, "migration_flags") &&
+    Boolean(db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name))
+  );
 }
 
 type MigrationStep = {
@@ -2316,10 +2315,12 @@ const MIGRATION_STEPS: MigrationStep[] = [
         SET provider_profile_id = NULL
         WHERE id IN (SELECT home_conversation_id FROM bots)
       `);
-      db.prepare(
-        "INSERT OR IGNORE INTO migration_flags (name, applied_at) VALUES (?, ?)"
-      ).run("bot_conversations_follow_default_provider", new Date().toISOString());
     }
+  },
+  {
+    name: "drop_migration_flags_table",
+    alreadyApplied: (db) => !tableExists(db, "migration_flags"),
+    apply: (db) => db.exec("DROP TABLE IF EXISTS migration_flags")
   }
 ];
 

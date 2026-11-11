@@ -1897,28 +1897,6 @@
       ]
     },
     {
-      "name": "migration_flags",
-      "sql": "CREATE TABLE migration_flags (\n      name TEXT PRIMARY KEY,\n      applied_at TEXT NOT NULL\n    )",
-      "columns": [
-        {
-          "cid": 0,
-          "name": "name",
-          "type": "TEXT",
-          "notnull": 0,
-          "dflt_value": null,
-          "pk": 1
-        },
-        {
-          "cid": 1,
-          "name": "applied_at",
-          "type": "TEXT",
-          "notnull": 1,
-          "dflt_value": null,
-          "pk": 0
-        }
-      ]
-    },
-    {
       "name": "personas",
       "sql": "CREATE TABLE personas (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      content TEXT NOT NULL,\n      user_id TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
       "columns": [

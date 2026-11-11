@@ -73,12 +73,22 @@ describe("db migration ledger", () => {
     db.pragma("foreign_keys = ON");
     migrate(db);
     const before = schemaSnapshot(db);
+    db.exec(`
+      CREATE TABLE migration_flags (
+        name TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO migration_flags (name, applied_at) VALUES ('bot_conversations_follow_default_provider', '2026-01-01T00:00:00.000Z');
+    `);
     db.exec("DELETE FROM schema_migrations");
 
     migrate(db);
 
     expect(schemaSnapshot(db)).toEqual(before);
     expect(schemaSnapshot(db)).toEqual(goldenSnapshot);
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migration_flags'").get()
+    ).toBeUndefined();
     expect(ledgerRows(db).map((row) => row.name)).toEqual([...listMigrationSteps()].sort());
     db.close();
   });
