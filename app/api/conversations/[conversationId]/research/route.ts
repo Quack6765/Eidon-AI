@@ -4,12 +4,10 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
 import {
-  ACTIVE_TURN_ERROR_MESSAGE,
+  claimExistingMessageTurn,
   createPendingUserMessage,
-  getAssistantTurnStartPreflight,
-  startAssistantTurnFromExistingUserMessage
-} from "@/lib/chat-turn";
-import { claimChatTurnStart } from "@/lib/chat-turn-control";
+  getAssistantTurnStartPreflight
+} from "@/lib/turn-session";
 import {
   MAX_ATTACHMENT_IDS_PER_MESSAGE,
   MAX_CHAT_MESSAGE_CHARS,
@@ -99,21 +97,16 @@ export async function PUT(request: Request, context: RouteContext) {
   const payload = startSchema.safeParse(resolved.body);
   if (!payload.success) return badRequest("Invalid research request");
 
-  const userMessage = getMessage(payload.data.userMessageId, resolved.user.id);
-  if (!userMessage || userMessage.role !== "user" || userMessage.conversationId !== resolved.conversation.id) {
-    return badRequest("User message not found", 404);
-  }
+  const claimed = claimExistingMessageTurn({
+    manager: getConversationManager(),
+    conversationId: resolved.conversation.id,
+    messageId: payload.data.userMessageId,
+    personaId: payload.data.personaId,
+    research: { plan: payload.data.plan }
+  });
+  if (!claimed.ok) return badRequest(claimed.errorMessage, claimed.statusCode);
 
-  const claimed = claimChatTurnStart(resolved.conversation.id);
-  if (!claimed.ok) return badRequest(ACTIVE_TURN_ERROR_MESSAGE, 409);
-
-  void startAssistantTurnFromExistingUserMessage(
-    getConversationManager(),
-    resolved.conversation.id,
-    userMessage.id,
-    payload.data.personaId,
-    { control: claimed.control, research: { plan: payload.data.plan } }
-  ).catch(() => {});
+  void claimed.run().catch(() => {});
 
   return ok({ started: true });
 }

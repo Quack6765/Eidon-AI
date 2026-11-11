@@ -16,12 +16,7 @@ import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
 
 export type { ChatTurnOptions, ChatTurnResult, StartChatTurn } from "@/lib/turn-session";
 export type { ChatEmitter } from "@/lib/turn-session";
-export {
-  ACTIVE_TURN_ERROR_MESSAGE,
-  createPendingUserMessage,
-  getAssistantTurnStartPreflight,
-  getChatEmitter
-} from "@/lib/turn-session";
+export { getChatEmitter } from "@/lib/turn-session";
 
 export async function* runAssistantTurn(input: {
   conversationId: string;
@@ -106,20 +101,6 @@ export async function startChatTurn(
   options?: ChatTurnOptions
 ): Promise<ChatTurnResult> {
   return runTurnFromContent(manager, conversationId, content, attachmentIds, personaId, options);
-}
-
-export async function startAssistantTurnFromExistingUserMessage(
-  manager: Parameters<typeof runExistingMessageTurn>[0],
-  conversationId: string,
-  messageId: string,
-  personaId?: string,
-  options?: {
-    control?: ChatTurnControl;
-    preflight?: AssistantTurnStartReady;
-    research?: ChatResearchOptions;
-  }
-): Promise<ChatTurnResult> {
-  return runExistingMessageTurn(manager, conversationId, messageId, personaId, options);
 }
 
 export type ClaimedTurnContext = {
