@@ -47,16 +47,479 @@ const BOT_AVATARS_TABLE_SQL = `
   );
 `;
 
-function migrateBotAvatarsTable(db: Database.Database) {
-  if (tableExists(db, "bot_avatars")) {
-    const columns = db.prepare("PRAGMA table_info(bot_avatars)").all() as Array<{ name: string }>;
-    if (columns.some((column) => column.name === "variant")) {
-      return;
-    }
-    db.exec("DROP TABLE bot_avatars");
-  }
+const BASELINE_SCHEMA_SQL = `
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT NOT NULL PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      role TEXT NOT NULL,
+      auth_source TEXT NOT NULL,
+      password_hash TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      purpose TEXT NOT NULL DEFAULT 'browser',
+      device_name TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS provider_connection_flows (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      provider_kind TEXT NOT NULL,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_server_connections (
+      server_id TEXT NOT NULL PRIMARY KEY,
+      credentials_encrypted TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      payload_encrypted TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS provider_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      api_base_url TEXT NOT NULL,
+      api_key_encrypted TEXT NOT NULL,
+      model TEXT NOT NULL,
+      api_mode TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      temperature REAL NOT NULL,
+      max_output_tokens INTEGER NOT NULL,
+      reasoning_effort TEXT NOT NULL,
+      reasoning_summary_enabled INTEGER NOT NULL,
+      model_context_limit INTEGER NOT NULL,
+      compaction_threshold REAL NOT NULL,
+      fresh_tail_count INTEGER NOT NULL,
+      tokenizer_model TEXT DEFAULT 'gpt-tokenizer',
+      safety_margin_tokens INTEGER DEFAULT 1200,
+      leaf_source_token_limit INTEGER DEFAULT 12000,
+      leaf_min_message_count INTEGER DEFAULT 6,
+      merged_min_node_count INTEGER DEFAULT 4,
+      merged_target_tokens INTEGER DEFAULT 1600,
+      vision_mode TEXT NOT NULL DEFAULT 'native',
+      vision_mcp_server_id TEXT,
+      vision_provider_profile_id TEXT,
+      provider_kind TEXT NOT NULL DEFAULT 'openai_compatible',
+      github_user_access_token_encrypted TEXT NOT NULL DEFAULT '',
+      github_refresh_token_encrypted TEXT NOT NULL DEFAULT '',
+      github_token_expires_at TEXT,
+      github_refresh_token_expires_at TEXT,
+      github_account_login TEXT,
+      github_account_name TEXT,
+      github_oauth_nonce TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      user_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      title_generation_status TEXT NOT NULL DEFAULT 'completed',
+      user_id TEXT,
+      folder_id TEXT,
+      provider_profile_id TEXT,
+      reasoning_effort TEXT,
+      tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
+      share_token TEXT UNIQUE,
+      share_enabled INTEGER NOT NULL DEFAULT 0,
+      shared_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,
+      FOREIGN KEY (provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      thinking_content TEXT NOT NULL,
+      status TEXT NOT NULL,
+      estimated_tokens INTEGER NOT NULL DEFAULT 0,
+      system_kind TEXT,
+      compacted_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS queued_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sort_order INTEGER NOT NULL,
+      failure_message TEXT,
+      mode TEXT NOT NULL DEFAULT 'chat',
+      processing_started_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS memory_nodes (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      depth INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      source_start_message_id TEXT NOT NULL,
+      source_end_message_id TEXT NOT NULL,
+      source_token_count INTEGER NOT NULL,
+      summary_token_count INTEGER NOT NULL,
+      child_node_ids TEXT NOT NULL,
+      superseded_by_node_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS compaction_events (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      source_start_message_id TEXT NOT NULL,
+      source_end_message_id TEXT NOT NULL,
+      notice_message_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY (notice_message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      headers TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_vision_mcp INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS message_actions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      server_id TEXT,
+      skill_id TEXT,
+      tool_name TEXT,
+      label TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      arguments_json TEXT,
+      result_summary TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      proposal_state TEXT,
+      proposal_payload_json TEXT,
+      proposal_updated_at TEXT,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS message_text_segments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      byte_size INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      extracted_text TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS personas (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      user_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      user_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS tool_approval_rules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      scope TEXT NOT NULL,
+      family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
+      ON tool_approval_rules (user_id, scope, family);
+    CREATE TABLE IF NOT EXISTS vault_entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL COLLATE NOCASE,
+      origin TEXT,
+      username TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      secret_encrypted TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT,
+      UNIQUE (user_id, name),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      provider_profile_id TEXT NOT NULL,
+      persona_id TEXT,
+      user_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      interval_minutes INTEGER,
+      calendar_frequency TEXT,
+      time_of_day TEXT,
+      days_of_week TEXT NOT NULL DEFAULT '[]',
+      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT,
+      last_scheduled_for TEXT,
+      last_started_at TEXT,
+      last_finished_at TEXT,
+      last_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id TEXT PRIMARY KEY,
+      automation_id TEXT NOT NULL,
+      conversation_id TEXT,
+      scheduled_for TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      trigger_source TEXT NOT NULL,
+      result_message_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_success_at TEXT,
+      last_error_at TEXT,
+      disabled_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS bots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      avatar_seed TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      is_chief INTEGER NOT NULL DEFAULT 0,
+      home_conversation_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (home_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS bot_runs (
+      id TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      trigger_source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      parent_message_id TEXT,
+      error_message TEXT,
+      prompt TEXT,
+      reply_conversation_id TEXT,
+      reply_action_id TEXT,
+      pending_reply TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS migration_flags (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+`;
 
-  db.exec(BOT_AVATARS_TABLE_SQL);
+const LEGACY_SETTINGS_TABLES_SQL = `
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        default_provider_profile_id TEXT,
+        api_base_url TEXT NOT NULL,
+        api_key_encrypted TEXT NOT NULL,
+        model TEXT NOT NULL,
+        api_mode TEXT NOT NULL,
+        system_prompt TEXT NOT NULL,
+        skills_enabled INTEGER NOT NULL DEFAULT 1,
+        temperature REAL NOT NULL,
+        max_output_tokens INTEGER NOT NULL,
+        reasoning_effort TEXT NOT NULL,
+        reasoning_summary_enabled INTEGER NOT NULL,
+        model_context_limit INTEGER NOT NULL,
+        compaction_threshold REAL NOT NULL,
+        fresh_tail_count INTEGER NOT NULL,
+        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT NOT NULL PRIMARY KEY,
+        default_provider_profile_id TEXT,
+        skills_enabled INTEGER NOT NULL DEFAULT 1,
+        conversation_retention TEXT NOT NULL DEFAULT 'forever',
+        auto_compaction INTEGER NOT NULL DEFAULT 1,
+        memories_enabled INTEGER NOT NULL DEFAULT 1,
+        memories_max_count INTEGER NOT NULL DEFAULT 100,
+        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+        stt_engine TEXT NOT NULL DEFAULT 'browser',
+        stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}',
+        stt_language TEXT NOT NULL DEFAULT 'auto',
+        external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}',
+        external_stt_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        web_search_engine TEXT NOT NULL DEFAULT 'exa',
+        exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        searxng_base_url TEXT NOT NULL DEFAULT '',
+        max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
+      );
+`;
+
+function tableExists(db: Database.Database, tableName: string) {
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName)
+  );
+}
+
+function tableColumns(db: Database.Database, tableName: string) {
+  return new Set(
+    (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  );
+}
+
+function hasColumns(db: Database.Database, tableName: string, columnNames: string[]) {
+  const columns = tableColumns(db, tableName);
+  return columnNames.every((columnName) => columns.has(columnName));
+}
+
+function addColumnIfMissing(
+  db: Database.Database,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string
+) {
+  if (tableColumns(db, tableName).has(columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+}
+
+function legacySettingsMigrated(db: Database.Database) {
+  return (
+    tableExists(db, "global_preferences") &&
+    tableExists(db, "user_preferences") &&
+    tableExists(db, "integration_settings")
+  );
+}
+
+function decryptLegacyCredential(value: string | null | undefined) {
+  if (!value) return "";
+  try {
+    return decryptValue(value);
+  } catch {
+    return "";
+  }
+}
+
+function runLoggedDataMigration(db: Database.Database, label: string, runMigration: (db: Database.Database) => void) {
+  console.log(`[db] ${label}...`);
+  const startedAt = Date.now();
+  runMigration(db);
+  console.log(`[db] ${label} done in ${Date.now() - startedAt}ms`);
 }
 
 function savedLoginHost(origin: string) {
@@ -109,30 +572,6 @@ function migrateSavedLoginsToVault(db: Database.Database) {
     }
     db.exec("DROP TABLE saved_logins");
   })();
-}
-
-function tableExists(db: Database.Database, tableName: string) {
-  return Boolean(
-    db
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(tableName)
-  );
-}
-
-function decryptLegacyCredential(value: string | null | undefined) {
-  if (!value) return "";
-  try {
-    return decryptValue(value);
-  } catch {
-    return "";
-  }
-}
-
-function runLoggedDataMigration(db: Database.Database, label: string, runMigration: (db: Database.Database) => void) {
-  console.log(`[db] ${label}...`);
-  const startedAt = Date.now();
-  runMigration(db);
-  console.log(`[db] ${label} done in ${Date.now() - startedAt}ms`);
 }
 
 function migrateProviderConnectionStorage(db: Database.Database) {
@@ -211,7 +650,7 @@ function migrateProviderRequestConfiguration(db: Database.Database) {
   `).run();
 }
 
-function migrateProviderStorage(db: Database.Database) {
+function migrateProviderStorageTables(db: Database.Database) {
   const columns = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
   if (
     columns.some((column) => column.name === "provider_config_json") &&
@@ -219,12 +658,6 @@ function migrateProviderStorage(db: Database.Database) {
     tableExists(db, "provider_connection_flows")
   ) {
     migrateProviderConnectionStorage(db);
-    migrateProviderRequestConfiguration(db);
-    db.prepare(`
-      UPDATE provider_profiles
-      SET compaction_threshold = 0.8
-      WHERE ABS(compaction_threshold - 0.78) < 0.000001
-    `).run();
     return;
   }
 
@@ -424,13 +857,16 @@ function migrateProviderStorage(db: Database.Database) {
 
   const violations = db.pragma("foreign_key_check") as unknown[];
   if (violations.length) throw new Error("Provider storage migration failed foreign-key validation");
+  console.log(`[db] Provider storage migration done in ${Date.now() - legacyStartedAt}ms`);
+}
+
+function normalizeProviderProfilesData(db: Database.Database) {
   migrateProviderRequestConfiguration(db);
   db.prepare(`
     UPDATE provider_profiles
     SET compaction_threshold = 0.8
     WHERE ABS(compaction_threshold - 0.78) < 0.000001
   `).run();
-  console.log(`[db] Provider storage migration done in ${Date.now() - legacyStartedAt}ms`);
 }
 
 function migrateIntegrationSettings(db: Database.Database) {
@@ -807,14 +1243,14 @@ function migrateCompactionEventsTable(db: Database.Database) {
            FROM ${sourceTable}`
         )
         .iterate() as Iterable<{
-          id: string;
-          conversation_id: string;
-          node_id: string;
-          source_start_message_id: string;
-          source_end_message_id: string;
-          notice_message_id: string | null;
-          created_at: string;
-        }>;
+        id: string;
+        conversation_id: string;
+        node_id: string;
+        source_start_message_id: string;
+        source_end_message_id: string;
+        notice_message_id: string | null;
+        created_at: string;
+      }>;
 
       for (const row of sourceRows) {
         const signature = JSON.stringify([
@@ -890,962 +1326,19 @@ function migrateCompactionEventsTable(db: Database.Database) {
   console.log(`[db] Compaction events rebuild done in ${Date.now() - startedAt}ms`);
 }
 
-function runOnce(db: Database.Database, name: string, apply: () => void) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS migration_flags (
-      name TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL
-    );
-  `);
-  const applied = db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name);
-  if (applied) return;
-  apply();
-  db.prepare("INSERT INTO migration_flags (name, applied_at) VALUES (?, ?)").run(name, new Date().toISOString());
+function migrateBotAvatarsTable(db: Database.Database) {
+  if (tableExists(db, "bot_avatars")) {
+    const columns = db.prepare("PRAGMA table_info(bot_avatars)").all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === "variant")) {
+      return;
+    }
+    db.exec("DROP TABLE bot_avatars");
+  }
+
+  db.exec(BOT_AVATARS_TABLE_SQL);
 }
 
-export function migrateBotConversationsToFollowDefaultProvider(db: Database.Database) {
-  runOnce(db, "bot_conversations_follow_default_provider", () => {
-    db.exec(
-      `UPDATE conversations
-       SET provider_profile_id = NULL
-       WHERE id IN (SELECT home_conversation_id FROM bots)`
-    );
-  });
-}
-
-export function migrate(db: Database.Database) {
-  const isFreshDatabase = !tableExists(db, "users");
-  if (isFreshDatabase) {
-    console.log("[db] Initializing new database");
-  }
-  const migrationStartedAt = Date.now();
-  console.log("[db] Running database migrations...");
-  const needsLegacySettingsMigration = !(
-    tableExists(db, "global_preferences") &&
-    tableExists(db, "user_preferences") &&
-    tableExists(db, "integration_settings")
-  );
-  if (needsLegacySettingsMigration) {
-    console.log("[db] Migrating legacy settings storage (app_settings/user_settings)");
-  }
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT NOT NULL PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      role TEXT NOT NULL,
-      auth_source TEXT NOT NULL,
-      password_hash TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS auth_sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      purpose TEXT NOT NULL DEFAULT 'browser',
-      device_name TEXT,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS provider_connection_flows (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      profile_id TEXT NOT NULL,
-      provider_kind TEXT NOT NULL,
-      state_json TEXT NOT NULL DEFAULT '{}',
-      expires_at TEXT NOT NULL,
-      consumed_at TEXT,
-      status TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS mcp_server_connections (
-      server_id TEXT NOT NULL PRIMARY KEY,
-      credentials_encrypted TEXT NOT NULL,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
-      id TEXT PRIMARY KEY,
-      server_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      payload_encrypted TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      consumed_at TEXT,
-      status TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS provider_profiles (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      api_base_url TEXT NOT NULL,
-      api_key_encrypted TEXT NOT NULL,
-      model TEXT NOT NULL,
-      api_mode TEXT NOT NULL,
-      system_prompt TEXT NOT NULL,
-      temperature REAL NOT NULL,
-      max_output_tokens INTEGER NOT NULL,
-      reasoning_effort TEXT NOT NULL,
-      reasoning_summary_enabled INTEGER NOT NULL,
-      model_context_limit INTEGER NOT NULL,
-      compaction_threshold REAL NOT NULL,
-      fresh_tail_count INTEGER NOT NULL,
-      tokenizer_model TEXT DEFAULT 'gpt-tokenizer',
-      safety_margin_tokens INTEGER DEFAULT 1200,
-      leaf_source_token_limit INTEGER DEFAULT 12000,
-      leaf_min_message_count INTEGER DEFAULT 6,
-      merged_min_node_count INTEGER DEFAULT 4,
-      merged_target_tokens INTEGER DEFAULT 1600,
-      vision_mode TEXT NOT NULL DEFAULT 'native',
-      vision_mcp_server_id TEXT,
-      vision_provider_profile_id TEXT,
-      provider_kind TEXT NOT NULL DEFAULT 'openai_compatible',
-      github_user_access_token_encrypted TEXT NOT NULL DEFAULT '',
-      github_refresh_token_encrypted TEXT NOT NULL DEFAULT '',
-      github_token_expires_at TEXT,
-      github_refresh_token_expires_at TEXT,
-      github_account_login TEXT,
-      github_account_name TEXT,
-      github_oauth_nonce TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS folders (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      user_id TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      title_generation_status TEXT NOT NULL DEFAULT 'completed',
-      user_id TEXT,
-      folder_id TEXT,
-      provider_profile_id TEXT,
-      reasoning_effort TEXT,
-      tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
-      share_token TEXT UNIQUE,
-      share_enabled INTEGER NOT NULL DEFAULT 0,
-      shared_at TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,
-      FOREIGN KEY (provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
-    );
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      thinking_content TEXT NOT NULL,
-      status TEXT NOT NULL,
-      estimated_tokens INTEGER NOT NULL DEFAULT 0,
-      system_kind TEXT,
-      compacted_at TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS queued_messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      sort_order INTEGER NOT NULL,
-      failure_message TEXT,
-      mode TEXT NOT NULL DEFAULT 'chat',
-      processing_started_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS memory_nodes (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      depth INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      source_start_message_id TEXT NOT NULL,
-      source_end_message_id TEXT NOT NULL,
-      source_token_count INTEGER NOT NULL,
-      summary_token_count INTEGER NOT NULL,
-      child_node_ids TEXT NOT NULL,
-      superseded_by_node_id TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS compaction_events (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      node_id TEXT NOT NULL,
-      source_start_message_id TEXT NOT NULL,
-      source_end_message_id TEXT NOT NULL,
-      notice_message_id TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-      FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
-      FOREIGN KEY (notice_message_id) REFERENCES messages(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS mcp_servers (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      url TEXT NOT NULL,
-      headers TEXT NOT NULL DEFAULT '{}',
-      enabled INTEGER NOT NULL DEFAULT 1,
-      is_vision_mcp INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS message_actions (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      server_id TEXT,
-      skill_id TEXT,
-      tool_name TEXT,
-      label TEXT NOT NULL,
-      detail TEXT NOT NULL DEFAULT '',
-      arguments_json TEXT,
-      result_summary TEXT NOT NULL DEFAULT '',
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      started_at TEXT NOT NULL,
-      completed_at TEXT,
-      proposal_state TEXT,
-      proposal_payload_json TEXT,
-      proposal_updated_at TEXT,
-      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS message_text_segments (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS message_attachments (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      message_id TEXT,
-      filename TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      byte_size INTEGER NOT NULL,
-      sha256 TEXT NOT NULL,
-      relative_path TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      extracted_text TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS skills (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      content TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS personas (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      content TEXT NOT NULL,
-      user_id TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS user_memories (
-      id TEXT PRIMARY KEY,
-      content TEXT NOT NULL,
-      category TEXT NOT NULL,
-      user_id TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS tool_approval_rules (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      scope TEXT NOT NULL,
-      family TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
-      ON tool_approval_rules (user_id, scope, family);
-    CREATE TABLE IF NOT EXISTS vault_entries (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      name TEXT NOT NULL COLLATE NOCASE,
-      origin TEXT,
-      username TEXT NOT NULL DEFAULT '',
-      notes TEXT NOT NULL DEFAULT '',
-      secret_encrypted TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_used_at TEXT,
-      UNIQUE (user_id, name),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS automations (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      provider_profile_id TEXT NOT NULL,
-      persona_id TEXT,
-      user_id TEXT,
-      schedule_kind TEXT NOT NULL,
-      interval_minutes INTEGER,
-      calendar_frequency TEXT,
-      time_of_day TEXT,
-      days_of_week TEXT NOT NULL DEFAULT '[]',
-      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      next_run_at TEXT,
-      last_scheduled_for TEXT,
-      last_started_at TEXT,
-      last_finished_at TEXT,
-      last_status TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS automation_runs (
-      id TEXT PRIMARY KEY,
-      automation_id TEXT NOT NULL,
-      conversation_id TEXT,
-      scheduled_for TEXT NOT NULL,
-      started_at TEXT,
-      finished_at TEXT,
-      status TEXT NOT NULL,
-      error_message TEXT,
-      trigger_source TEXT NOT NULL,
-      result_message_id TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
-    );
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      endpoint TEXT NOT NULL UNIQUE,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      last_success_at TEXT,
-      last_error_at TEXT,
-      disabled_at TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS bots (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      name TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      avatar_seed TEXT NOT NULL,
-      system_prompt TEXT NOT NULL,
-      is_chief INTEGER NOT NULL DEFAULT 0,
-      home_conversation_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (home_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS bot_runs (
-      id TEXT PRIMARY KEY,
-      bot_id TEXT NOT NULL,
-      conversation_id TEXT NOT NULL,
-      trigger_source TEXT NOT NULL,
-      status TEXT NOT NULL,
-      started_at TEXT,
-      finished_at TEXT,
-      parent_message_id TEXT,
-      error_message TEXT,
-      prompt TEXT,
-      reply_conversation_id TEXT,
-      reply_action_id TEXT,
-      pending_reply TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
-    );
-  `);
-
-  migrateSavedLoginsToVault(db);
-
-  if (needsLegacySettingsMigration) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS app_settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        default_provider_profile_id TEXT,
-        api_base_url TEXT NOT NULL,
-        api_key_encrypted TEXT NOT NULL,
-        model TEXT NOT NULL,
-        api_mode TEXT NOT NULL,
-        system_prompt TEXT NOT NULL,
-        skills_enabled INTEGER NOT NULL DEFAULT 1,
-        temperature REAL NOT NULL,
-        max_output_tokens INTEGER NOT NULL,
-        reasoning_effort TEXT NOT NULL,
-        reasoning_summary_enabled INTEGER NOT NULL,
-        model_context_limit INTEGER NOT NULL,
-        compaction_threshold REAL NOT NULL,
-        fresh_tail_count INTEGER NOT NULL,
-        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS user_settings (
-        user_id TEXT NOT NULL PRIMARY KEY,
-        default_provider_profile_id TEXT,
-        skills_enabled INTEGER NOT NULL DEFAULT 1,
-        conversation_retention TEXT NOT NULL DEFAULT 'forever',
-        auto_compaction INTEGER NOT NULL DEFAULT 1,
-        memories_enabled INTEGER NOT NULL DEFAULT 1,
-        memories_max_count INTEGER NOT NULL DEFAULT 100,
-        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
-        stt_engine TEXT NOT NULL DEFAULT 'browser',
-        stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}',
-        stt_language TEXT NOT NULL DEFAULT 'auto',
-        external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}',
-        external_stt_api_key_encrypted TEXT NOT NULL DEFAULT '',
-        web_search_engine TEXT NOT NULL DEFAULT 'exa',
-        exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
-        tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
-        searxng_base_url TEXT NOT NULL DEFAULT '',
-        max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
-      );
-    `);
-  }
-
-  const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
-  const convColNames = convCols.map((c) => c.name);
-  if (!convColNames.includes("user_id")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
-  }
-  if (!convColNames.includes("folder_id")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL");
-  }
-  if (!convColNames.includes("sort_order")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!convColNames.includes("provider_profile_id")) {
-    db.exec(
-      "ALTER TABLE conversations ADD COLUMN provider_profile_id TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL"
-    );
-  }
-  if (!convColNames.includes("title_generation_status")) {
-    db.exec(
-      "ALTER TABLE conversations ADD COLUMN title_generation_status TEXT NOT NULL DEFAULT 'completed'"
-    );
-  }
-  if (!convColNames.includes("tool_execution_mode")) {
-    db.exec(
-      `ALTER TABLE conversations ADD COLUMN tool_execution_mode TEXT NOT NULL DEFAULT 'read_write'`
-    );
-  }
-  if (!convColNames.includes("is_active")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!convColNames.includes("share_token")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN share_token TEXT");
-  }
-  if (!convColNames.includes("share_enabled")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN share_enabled INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!convColNames.includes("shared_at")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN shared_at TEXT");
-  }
-
-  const automationConversationCols = db
-    .prepare("PRAGMA table_info(conversations)")
-    .all() as Array<{ name: string }>;
-  if (!automationConversationCols.some((col) => col.name === "automation_id")) {
-    db.exec(
-      "ALTER TABLE conversations ADD COLUMN automation_id TEXT REFERENCES automations(id) ON DELETE SET NULL"
-    );
-  }
-  if (!automationConversationCols.some((col) => col.name === "automation_run_id")) {
-    db.exec(
-      "ALTER TABLE conversations ADD COLUMN automation_run_id TEXT REFERENCES automation_runs(id) ON DELETE SET NULL"
-    );
-  }
-  if (!automationConversationCols.some((col) => col.name === "conversation_origin")) {
-    db.exec(
-      "ALTER TABLE conversations ADD COLUMN conversation_origin TEXT NOT NULL DEFAULT 'manual'"
-    );
-  }
-  if (!automationConversationCols.some((col) => col.name === "is_temporary")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0");
-    db.exec("DELETE FROM conversations WHERE is_temporary = 1");
-  }
-  if (!automationConversationCols.some((col) => col.name === "reasoning_effort")) {
-    db.exec("ALTER TABLE conversations ADD COLUMN reasoning_effort TEXT");
-  }
-
-  const messageActionCols = db.prepare("PRAGMA table_info(message_actions)").all() as Array<{ name: string }>;
-  if (!messageActionCols.some((col) => col.name === "proposal_state")) {
-    db.exec("ALTER TABLE message_actions ADD COLUMN proposal_state TEXT");
-  }
-  if (!messageActionCols.some((col) => col.name === "proposal_payload_json")) {
-    db.exec("ALTER TABLE message_actions ADD COLUMN proposal_payload_json TEXT");
-  }
-  if (!messageActionCols.some((col) => col.name === "proposal_updated_at")) {
-    db.exec("ALTER TABLE message_actions ADD COLUMN proposal_updated_at TEXT");
-  }
-
-  const folderCols = db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>;
-  if (!folderCols.some((col) => col.name === "user_id")) {
-    db.exec("ALTER TABLE folders ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
-  }
-
-  const personaCols = db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>;
-  if (!personaCols.some((col) => col.name === "user_id")) {
-    db.exec("ALTER TABLE personas ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
-  }
-
-  const memoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
-  if (!memoryCols.some((col) => col.name === "user_id")) {
-    db.exec("ALTER TABLE user_memories ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
-  }
-  if (!memoryCols.some((col) => col.name === "bot_id")) {
-    db.exec("ALTER TABLE user_memories ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE");
-  }
-
-  const automationRunCols = db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>;
-  if (!automationRunCols.some((col) => col.name === "result_message_id")) {
-    db.exec("ALTER TABLE automation_runs ADD COLUMN result_message_id TEXT");
-    db.exec(
-      `UPDATE automation_runs
-       SET result_message_id = (
-         SELECT m.id
-         FROM messages m
-         WHERE m.conversation_id = automation_runs.conversation_id
-           AND m.role = 'assistant'
-           AND m.status = 'completed'
-           AND m.created_at >= automation_runs.started_at
-           AND m.created_at <= automation_runs.finished_at
-         ORDER BY m.rowid DESC
-         LIMIT 1
-       )
-       WHERE status = 'completed'
-         AND conversation_id IS NOT NULL
-         AND started_at IS NOT NULL
-         AND finished_at IS NOT NULL`
-    );
-  }
-
-  const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
-  if (!automationCols.some((col) => col.name === "user_id")) {
-    db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
-  }
-  if (!automationCols.some((col) => col.name === "bot_id")) {
-    db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
-  }
-  if (!automationCols.some((col) => col.name === "research")) {
-    db.exec("ALTER TABLE automations ADD COLUMN research INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!automationCols.some((col) => col.name === "run_timeout_minutes")) {
-    db.exec("ALTER TABLE automations ADD COLUMN run_timeout_minutes INTEGER");
-  }
-  if (!automationCols.some((col) => col.name === "continue_previous_conversation")) {
-    db.exec(
-      "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
-    );
-  }
-  if (!automationCols.some((col) => col.name === "notify_config_json")) {
-    db.exec("ALTER TABLE automations ADD COLUMN notify_config_json TEXT NOT NULL DEFAULT '{}'");
-  }
-  if (!automationCols.some((col) => col.name === "run_at")) {
-    db.exec("ALTER TABLE automations ADD COLUMN run_at TEXT");
-  }
-
-  const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
-  if (!botCols.some((col) => col.name === "last_read_at")) {
-    db.exec("ALTER TABLE bots ADD COLUMN last_read_at TEXT");
-  }
-  if (!botCols.some((col) => col.name === "last_result_at")) {
-    db.exec("ALTER TABLE bots ADD COLUMN last_result_at TEXT");
-  }
-
-  db.exec(`
-    INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
-    SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at
-    FROM admin_users
-  `);
-  if (needsLegacySettingsMigration) {
-    db.exec(`
-      INSERT OR IGNORE INTO user_settings (user_id, updated_at)
-      SELECT id, updated_at
-      FROM admin_users
-    `);
-  }
-
-  const authSessionForeignKeys = (
-    db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
-  ).map((row) => row.table);
-  if (!authSessionForeignKeys.includes("users")) {
-    db.exec(`
-      CREATE TABLE auth_sessions_new (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        purpose TEXT NOT NULL DEFAULT 'browser',
-        device_name TEXT,
-        expires_at TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-      INSERT INTO auth_sessions_new (id, user_id, purpose, device_name, expires_at, created_at)
-      SELECT id, user_id, 'browser', NULL, expires_at, created_at
-      FROM auth_sessions;
-      DROP TABLE auth_sessions;
-      ALTER TABLE auth_sessions_new RENAME TO auth_sessions;
-    `);
-  }
-
-  const authSessionColumns = (
-    db.prepare("PRAGMA table_info(auth_sessions)").all() as Array<{ name: string }>
-  ).map((row) => row.name);
-  if (!authSessionColumns.includes("purpose")) {
-    db.exec("ALTER TABLE auth_sessions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'browser'");
-  }
-  if (!authSessionColumns.includes("device_name")) {
-    db.exec("ALTER TABLE auth_sessions ADD COLUMN device_name TEXT");
-  }
-
-  if (needsLegacySettingsMigration) {
-  const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
-  const settingsColNames = settingsCols.map((c) => c.name);
-  if (!settingsColNames.includes("default_provider_profile_id")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN default_provider_profile_id TEXT");
-  }
-  if (!settingsColNames.includes("skills_enabled")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN skills_enabled INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!settingsColNames.includes("conversation_retention")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN conversation_retention TEXT NOT NULL DEFAULT 'forever'");
-  }
-  if (!settingsColNames.includes("auto_compaction")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN auto_compaction INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!settingsColNames.includes("memories_enabled")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN memories_enabled INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!settingsColNames.includes("memories_max_count")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN memories_max_count INTEGER NOT NULL DEFAULT 100");
-  }
-  if (!settingsColNames.includes("mcp_timeout")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN mcp_timeout INTEGER NOT NULL DEFAULT 120000");
-  }
-  if (!settingsColNames.includes("max_assistant_tool_steps")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25");
-  }
-  if (!settingsColNames.includes("image_generation_backend")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN image_generation_backend TEXT NOT NULL DEFAULT 'disabled'");
-  }
-  if (!settingsColNames.includes("google_nano_banana_model")) {
-    db.exec(
-      "ALTER TABLE app_settings ADD COLUMN google_nano_banana_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image-preview'"
-    );
-  }
-  if (!settingsColNames.includes("google_nano_banana_api_key_encrypted")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN google_nano_banana_api_key_encrypted TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_base_url")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_base_url TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_auth_type")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_auth_type TEXT NOT NULL DEFAULT 'none'");
-  }
-  if (!settingsColNames.includes("comfyui_bearer_token_encrypted")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_bearer_token_encrypted TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_workflow_json")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_workflow_json TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_prompt_path")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_prompt_path TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_negative_prompt_path")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_negative_prompt_path TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_width_path")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_width_path TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_height_path")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_height_path TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("comfyui_seed_path")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_seed_path TEXT NOT NULL DEFAULT ''");
-  }
-  if (!settingsColNames.includes("title_generation_mode")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN title_generation_mode TEXT NOT NULL DEFAULT 'same'");
-  }
-  if (!settingsColNames.includes("title_generation_profile_id")) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN title_generation_profile_id TEXT");
-  }
-
-  const userSettingsCols = db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>;
-  const userSettingsColNames = userSettingsCols.map((column) => column.name);
-  if (!userSettingsColNames.includes("stt_engine")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN stt_engine TEXT NOT NULL DEFAULT 'browser'");
-  }
-  if (!userSettingsColNames.includes("stt_provider")) {
-    db.exec(`ALTER TABLE user_settings ADD COLUMN stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}'`);
-  }
-  if (!userSettingsColNames.includes("stt_language")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN stt_language TEXT NOT NULL DEFAULT 'auto'");
-  }
-  if (!userSettingsColNames.includes("external_stt_language")) {
-    db.exec(`ALTER TABLE user_settings ADD COLUMN external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}'`);
-  }
-  if (!userSettingsColNames.includes("external_stt_api_key_encrypted")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN external_stt_api_key_encrypted TEXT NOT NULL DEFAULT ''");
-  }
-  if (!userSettingsColNames.includes("web_search_engine")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN web_search_engine TEXT NOT NULL DEFAULT 'exa'");
-  }
-  if (!userSettingsColNames.includes("exa_api_key_encrypted")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN exa_api_key_encrypted TEXT NOT NULL DEFAULT ''");
-  }
-  if (!userSettingsColNames.includes("tavily_api_key_encrypted")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN tavily_api_key_encrypted TEXT NOT NULL DEFAULT ''");
-  }
-  if (!userSettingsColNames.includes("searxng_base_url")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN searxng_base_url TEXT NOT NULL DEFAULT ''");
-  }
-  if (!userSettingsColNames.includes("max_assistant_tool_steps")) {
-    db.exec("ALTER TABLE user_settings ADD COLUMN max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25");
-  }
-  }
-
-  const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
-  const mcpColNames = mcpCols.map((c) => c.name);
-  if (!mcpColNames.includes("transport")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT NOT NULL DEFAULT 'streamable_http'");
-  }
-  if (!mcpColNames.includes("command")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN command TEXT");
-  }
-  if (!mcpColNames.includes("args")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN args TEXT");
-  }
-  if (!mcpColNames.includes("env")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
-  }
-  if (!mcpColNames.includes("slug")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN slug TEXT");
-    const existingServers = db.prepare("SELECT id, name FROM mcp_servers").all() as Array<{ id: string; name: string }>;
-    const updateSlug = db.prepare("UPDATE mcp_servers SET slug = ? WHERE id = ?");
-    const usedSlugs = new Set<string>();
-    for (const server of existingServers) {
-      const baseSlug = server.name
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, "_")
-        .replace(/_+/g, "_")
-        .replace(/^_|_$/g, "") || "unnamed";
-      let slug = baseSlug;
-      let suffix = 2;
-      while (usedSlugs.has(slug)) {
-        slug = `${baseSlug}_${suffix}`;
-        suffix += 1;
-      }
-      usedSlugs.add(slug);
-      updateSlug.run(slug, server.id);
-    }
-    db.exec(`
-      CREATE TABLE mcp_servers_new (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL UNIQUE,
-        url TEXT NOT NULL,
-        headers TEXT NOT NULL DEFAULT '{}',
-        transport TEXT NOT NULL DEFAULT 'streamable_http',
-        command TEXT,
-        args TEXT,
-        env TEXT,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      INSERT INTO mcp_servers_new SELECT id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at FROM mcp_servers;
-      DROP TABLE mcp_servers;
-      ALTER TABLE mcp_servers_new RENAME TO mcp_servers;
-    `);
-  }
-  if (!mcpColNames.includes("is_vision_mcp")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN is_vision_mcp INTEGER NOT NULL DEFAULT 0");
-    backfillVisionMcpServers(db);
-  }
-
-  const mcpSecretRows = db
-    .prepare("SELECT id, headers, env FROM mcp_servers")
-    .all() as Array<{ id: string; headers: string; env: string | null }>;
-  const encryptMcpSecrets = db.prepare("UPDATE mcp_servers SET headers = ?, env = ? WHERE id = ?");
-  for (const row of mcpSecretRows) {
-    const headers = row.headers.trim().startsWith("{") ? encryptValue(row.headers) : row.headers;
-    const storedEnv = row.env?.trim().startsWith("{") ? encryptValue(row.env) : row.env;
-    if (headers !== row.headers || storedEnv !== row.env) {
-      encryptMcpSecrets.run(headers, storedEnv, row.id);
-    }
-  }
-
-  const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
-  const skillColNames = skillCols.map((c) => c.name);
-  if (!skillColNames.includes("description")) {
-    db.exec("ALTER TABLE skills ADD COLUMN description TEXT NOT NULL DEFAULT ''");
-  }
-
-  const profileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
-  const profileColNames = profileCols.map((c) => c.name);
-  if (!profileColNames.includes("provider_config_json")) {
-  const newProfileCols = {
-    tokenizer_model: "TEXT DEFAULT 'gpt-tokenizer'",
-    safety_margin_tokens: "INTEGER DEFAULT 1200",
-    leaf_source_token_limit: "INTEGER DEFAULT 12000",
-    leaf_min_message_count: "INTEGER DEFAULT 6",
-    merged_min_node_count: "INTEGER DEFAULT 4",
-    merged_target_tokens: "INTEGER DEFAULT 1600"
-  };
-  for (const [colName, colDef] of Object.entries(newProfileCols)) {
-    if (!profileColNames.includes(colName)) {
-      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
-    }
-  }
-
-  const visionProfileCols = {
-    vision_mode: "TEXT NOT NULL DEFAULT 'native'",
-    vision_mcp_server_id: "TEXT"
-  };
-  for (const [colName, colDef] of Object.entries(visionProfileCols)) {
-    if (!profileColNames.includes(colName)) {
-      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
-    }
-  }
-
-  const githubCols = {
-    provider_kind: "TEXT NOT NULL DEFAULT 'openai_compatible'",
-    github_user_access_token_encrypted: "TEXT NOT NULL DEFAULT ''",
-    github_refresh_token_encrypted: "TEXT NOT NULL DEFAULT ''",
-    github_token_expires_at: "TEXT",
-    github_refresh_token_expires_at: "TEXT",
-    github_account_login: "TEXT",
-    github_account_name: "TEXT",
-    github_oauth_nonce: "TEXT"
-  };
-  const githubProfileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
-  const githubProfileColNames = githubProfileCols.map((c) => c.name);
-  for (const [colName, colDef] of Object.entries(githubCols)) {
-    if (!githubProfileColNames.includes(colName)) {
-      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
-    }
-  }
-
-  const presetCols = {
-    provider_preset_id: "TEXT"
-  };
-  const presetProfileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
-  const presetProfileColNames = presetProfileCols.map((c) => c.name);
-  for (const [colName, colDef] of Object.entries(presetCols)) {
-    if (!presetProfileColNames.includes(colName)) {
-      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
-    }
-  }
-  }
-
-  const visionProviderCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
-  if (!visionProviderCols.some((column) => column.name === "vision_provider_profile_id")) {
-    db.exec("ALTER TABLE provider_profiles ADD COLUMN vision_provider_profile_id TEXT");
-  }
-
-  migrateCompactionEventsTable(db);
-  migrateBotAvatarsTable(db);
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_share_token ON conversations(share_token);
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
-    CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
-    CREATE INDEX IF NOT EXISTS idx_automations_enabled_next_run_at ON automations(enabled, next_run_at);
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_scheduled_for ON automation_runs(automation_id, scheduled_for DESC);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_status_scheduled_for ON automation_runs(status, scheduled_for);
-    CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);
-    CREATE INDEX IF NOT EXISTS idx_message_text_segments_message_sort_order ON message_text_segments(message_id, sort_order, created_at);
-    CREATE INDEX IF NOT EXISTS idx_queued_messages_conversation_status_sort
-      ON queued_messages(conversation_id, status, sort_order, created_at);
-    CREATE INDEX IF NOT EXISTS idx_message_attachments_message_created_at ON message_attachments(message_id, created_at ASC);
-    CREATE INDEX IF NOT EXISTS idx_message_attachments_conversation_created_at ON message_attachments(conversation_id, created_at ASC);
-    CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
-    CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
-    CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
-    CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
-    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_purpose_created
-      ON auth_sessions(user_id, purpose, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
-      ON provider_connection_flows(user_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_mcp_oauth_flows_server_created
-      ON mcp_oauth_flows(server_id, created_at DESC);
-  `);
-
-  const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
-  const queuedMessagesColNames = queuedMessagesCols.map((column) => column.name);
-  if (!queuedMessagesColNames.includes("mode")) {
-    db.exec("ALTER TABLE queued_messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'");
-  }
-
-  const botRunColNames = (db.prepare("PRAGMA table_info(bot_runs)").all() as Array<{ name: string }>).map(
-    (column) => column.name
-  );
-  for (const column of ["prompt", "reply_conversation_id", "reply_action_id", "pending_reply"]) {
-    if (!botRunColNames.includes(column)) {
-      db.exec(`ALTER TABLE bot_runs ADD COLUMN ${column} TEXT`);
-    }
-  }
-
-  const existingSkills = db
-    .prepare("SELECT id, name, content, description FROM skills")
-    .all() as Array<{ id: string; name: string; content: string; description: string }>;
-  const updateSkillMetadata = db.prepare("UPDATE skills SET name = ?, description = ? WHERE id = ?");
-
-  for (const skill of existingSkills) {
-    const metadata = parseSkillContentMetadata(skill.content);
-    const nextName = metadata.name?.trim() || skill.name;
-    const nextDescription = metadata.description?.trim() || skill.description.trim() || deriveSkillDescription(skill.content);
-
-    if (nextName !== skill.name || nextDescription !== skill.description) {
-      updateSkillMetadata.run(nextName, nextDescription, skill.id);
-    }
-  }
-
-  if (needsLegacySettingsMigration) {
+function seedLegacyDefaultProvider(db: Database.Database) {
   db.prepare(
     `INSERT OR IGNORE INTO app_settings (
       id,
@@ -2043,14 +1536,26 @@ export function migrate(db: Database.Database) {
      SET provider_profile_id = ?
      WHERE provider_profile_id IS NULL`
   ).run(resolvedDefaultProfileId);
+}
+
+function repairSkillMetadata(db: Database.Database) {
+  const existingSkills = db
+    .prepare("SELECT id, name, content, description FROM skills")
+    .all() as Array<{ id: string; name: string; content: string; description: string }>;
+  const updateSkillMetadata = db.prepare("UPDATE skills SET name = ?, description = ? WHERE id = ?");
+
+  for (const skill of existingSkills) {
+    const metadata = parseSkillContentMetadata(skill.content);
+    const nextName = metadata.name?.trim() || skill.name;
+    const nextDescription = metadata.description?.trim() || skill.description.trim() || deriveSkillDescription(skill.content);
+
+    if (nextName !== skill.name || nextDescription !== skill.description) {
+      updateSkillMetadata.run(nextName, nextDescription, skill.id);
+    }
   }
+}
 
-  db.prepare(
-    `UPDATE conversations
-     SET title_generation_status = 'completed'
-     WHERE COALESCE(title_generation_status, '') = ''`
-  ).run();
-
+function upsertBuiltinSkills(db: Database.Database) {
   const builtinSkills = [BUILTIN_AGENT_BROWSER_SKILL];
   const upsertSkill = db.prepare(
     `INSERT INTO skills (id, name, description, content, enabled, created_at, updated_at)
@@ -2064,116 +1569,707 @@ export function migrate(db: Database.Database) {
   for (const skill of builtinSkills) {
     upsertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
   }
+}
 
-  const automationRunIndexes = db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{
-    name: string;
-  }>;
-  if (!automationRunIndexes.some((index) => index.name === "idx_automation_runs_one_running")) {
-    db.prepare(
-      `UPDATE automation_runs
-       SET status = 'failed',
-           error_message = 'Duplicate running automation repaired during migration',
-           finished_at = COALESCE(finished_at, ?)
-       WHERE status = 'running'
-         AND id NOT IN (
-           SELECT MIN(id)
-           FROM automation_runs
-           WHERE status = 'running'
-           GROUP BY automation_id
-         )`
-    ).run(new Date().toISOString());
-    db.exec(`
+function authSessionsReferenceUsers(db: Database.Database) {
+  return (
+    db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
+  ).some((row) => row.table === "users");
+}
+
+function migrateMcpServerSlugs(db: Database.Database) {
+  db.exec("ALTER TABLE mcp_servers ADD COLUMN slug TEXT");
+  const existingServers = db.prepare("SELECT id, name FROM mcp_servers").all() as Array<{ id: string; name: string }>;
+  const updateSlug = db.prepare("UPDATE mcp_servers SET slug = ? WHERE id = ?");
+  const usedSlugs = new Set<string>();
+  for (const server of existingServers) {
+    const baseSlug = server.name
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "") || "unnamed";
+    let slug = baseSlug;
+    let suffix = 2;
+    while (usedSlugs.has(slug)) {
+      slug = `${baseSlug}_${suffix}`;
+      suffix += 1;
+    }
+    usedSlugs.add(slug);
+    updateSlug.run(slug, server.id);
+  }
+  db.exec(`
+    CREATE TABLE mcp_servers_new (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      headers TEXT NOT NULL DEFAULT '{}',
+      transport TEXT NOT NULL DEFAULT 'streamable_http',
+      command TEXT,
+      args TEXT,
+      env TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO mcp_servers_new SELECT id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at FROM mcp_servers;
+    DROP TABLE mcp_servers;
+    ALTER TABLE mcp_servers_new RENAME TO mcp_servers;
+  `);
+}
+
+function encryptMcpServerSecrets(db: Database.Database) {
+  const mcpSecretRows = db
+    .prepare("SELECT id, headers, env FROM mcp_servers")
+    .all() as Array<{ id: string; headers: string; env: string | null }>;
+  const encryptMcpSecrets = db.prepare("UPDATE mcp_servers SET headers = ?, env = ? WHERE id = ?");
+  for (const row of mcpSecretRows) {
+    const headers = row.headers.trim().startsWith("{") ? encryptValue(row.headers) : row.headers;
+    const storedEnv = row.env?.trim().startsWith("{") ? encryptValue(row.env) : row.env;
+    if (headers !== row.headers || storedEnv !== row.env) {
+      encryptMcpSecrets.run(headers, storedEnv, row.id);
+    }
+  }
+}
+
+function widenLegacyProviderProfiles(db: Database.Database) {
+  const newProfileCols = {
+    tokenizer_model: "TEXT DEFAULT 'gpt-tokenizer'",
+    safety_margin_tokens: "INTEGER DEFAULT 1200",
+    leaf_source_token_limit: "INTEGER DEFAULT 12000",
+    leaf_min_message_count: "INTEGER DEFAULT 6",
+    merged_min_node_count: "INTEGER DEFAULT 4",
+    merged_target_tokens: "INTEGER DEFAULT 1600"
+  };
+  for (const [colName, colDef] of Object.entries(newProfileCols)) {
+    addColumnIfMissing(db, "provider_profiles", colName, colDef);
+  }
+
+  const visionProfileCols = {
+    vision_mode: "TEXT NOT NULL DEFAULT 'native'",
+    vision_mcp_server_id: "TEXT"
+  };
+  for (const [colName, colDef] of Object.entries(visionProfileCols)) {
+    addColumnIfMissing(db, "provider_profiles", colName, colDef);
+  }
+
+  const githubCols = {
+    provider_kind: "TEXT NOT NULL DEFAULT 'openai_compatible'",
+    github_user_access_token_encrypted: "TEXT NOT NULL DEFAULT ''",
+    github_refresh_token_encrypted: "TEXT NOT NULL DEFAULT ''",
+    github_token_expires_at: "TEXT",
+    github_refresh_token_expires_at: "TEXT",
+    github_account_login: "TEXT",
+    github_account_name: "TEXT",
+    github_oauth_nonce: "TEXT"
+  };
+  for (const [colName, colDef] of Object.entries(githubCols)) {
+    addColumnIfMissing(db, "provider_profiles", colName, colDef);
+  }
+
+  addColumnIfMissing(db, "provider_profiles", "provider_preset_id", "TEXT");
+}
+
+function legacyFlagRecorded(db: Database.Database, name: string) {
+  return Boolean(db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name));
+}
+
+type MigrationStep = {
+  name: string;
+  alreadyApplied?: (db: Database.Database) => boolean;
+  apply: (db: Database.Database) => void;
+};
+
+type RecurringStep = {
+  name: string;
+  apply: (db: Database.Database) => void;
+};
+
+const MIGRATION_STEPS: MigrationStep[] = [
+  {
+    name: "saved_logins_to_vault",
+    alreadyApplied: (db) => !tableExists(db, "saved_logins"),
+    apply: (db) => migrateSavedLoginsToVault(db)
+  },
+  {
+    name: "legacy_settings_tables",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      db.exec(LEGACY_SETTINGS_TABLES_SQL);
+    }
+  },
+  {
+    name: "conversations_core_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "conversations", [
+        "user_id",
+        "folder_id",
+        "sort_order",
+        "provider_profile_id",
+        "title_generation_status",
+        "tool_execution_mode",
+        "is_active",
+        "share_token",
+        "share_enabled",
+        "shared_at"
+      ]),
+    apply: (db) => {
+      addColumnIfMissing(db, "conversations", "user_id", "TEXT REFERENCES users(id) ON DELETE CASCADE");
+      addColumnIfMissing(db, "conversations", "folder_id", "TEXT REFERENCES folders(id) ON DELETE SET NULL");
+      addColumnIfMissing(db, "conversations", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "provider_profile_id",
+        "TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL"
+      );
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "title_generation_status",
+        "TEXT NOT NULL DEFAULT 'completed'"
+      );
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "tool_execution_mode",
+        "TEXT NOT NULL DEFAULT 'read_write'"
+      );
+      addColumnIfMissing(db, "conversations", "is_active", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "conversations", "share_token", "TEXT");
+      addColumnIfMissing(db, "conversations", "share_enabled", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "conversations", "shared_at", "TEXT");
+    }
+  },
+  {
+    name: "conversations_automation_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "conversations", [
+        "automation_id",
+        "automation_run_id",
+        "conversation_origin",
+        "is_temporary",
+        "reasoning_effort"
+      ]),
+    apply: (db) => {
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "automation_id",
+        "TEXT REFERENCES automations(id) ON DELETE SET NULL"
+      );
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "automation_run_id",
+        "TEXT REFERENCES automation_runs(id) ON DELETE SET NULL"
+      );
+      addColumnIfMissing(
+        db,
+        "conversations",
+        "conversation_origin",
+        "TEXT NOT NULL DEFAULT 'manual'"
+      );
+      if (!tableColumns(db, "conversations").has("is_temporary")) {
+        db.exec("ALTER TABLE conversations ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0");
+        db.exec("DELETE FROM conversations WHERE is_temporary = 1");
+      }
+      addColumnIfMissing(db, "conversations", "reasoning_effort", "TEXT");
+    }
+  },
+  {
+    name: "message_actions_proposal_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "message_actions", ["proposal_state", "proposal_payload_json", "proposal_updated_at"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "message_actions", "proposal_state", "TEXT");
+      addColumnIfMissing(db, "message_actions", "proposal_payload_json", "TEXT");
+      addColumnIfMissing(db, "message_actions", "proposal_updated_at", "TEXT");
+    }
+  },
+  {
+    name: "folders_user_column",
+    alreadyApplied: (db) => hasColumns(db, "folders", ["user_id"]),
+    apply: (db) => addColumnIfMissing(db, "folders", "user_id", "TEXT REFERENCES users(id) ON DELETE CASCADE")
+  },
+  {
+    name: "personas_user_column",
+    alreadyApplied: (db) => hasColumns(db, "personas", ["user_id"]),
+    apply: (db) => addColumnIfMissing(db, "personas", "user_id", "TEXT REFERENCES users(id) ON DELETE CASCADE")
+  },
+  {
+    name: "user_memories_owner_columns",
+    alreadyApplied: (db) => hasColumns(db, "user_memories", ["user_id", "bot_id"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "user_memories", "user_id", "TEXT REFERENCES users(id) ON DELETE CASCADE");
+      addColumnIfMissing(db, "user_memories", "bot_id", "TEXT REFERENCES bots(id) ON DELETE CASCADE");
+    }
+  },
+  {
+    name: "automation_runs_result_message_column",
+    alreadyApplied: (db) => hasColumns(db, "automation_runs", ["result_message_id"]),
+    apply: (db) => {
+      if (tableColumns(db, "automation_runs").has("result_message_id")) return;
+      db.exec("ALTER TABLE automation_runs ADD COLUMN result_message_id TEXT");
+      db.exec(
+        `UPDATE automation_runs
+         SET result_message_id = (
+           SELECT m.id
+           FROM messages m
+           WHERE m.conversation_id = automation_runs.conversation_id
+             AND m.role = 'assistant'
+             AND m.status = 'completed'
+             AND m.created_at >= automation_runs.started_at
+             AND m.created_at <= automation_runs.finished_at
+           ORDER BY m.rowid DESC
+           LIMIT 1
+         )
+         WHERE status = 'completed'
+           AND conversation_id IS NOT NULL
+           AND started_at IS NOT NULL
+           AND finished_at IS NOT NULL`
+      );
+    }
+  },
+  {
+    name: "automations_expanded_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "automations", [
+        "user_id",
+        "bot_id",
+        "research",
+        "run_timeout_minutes",
+        "continue_previous_conversation",
+        "notify_config_json",
+        "run_at"
+      ]),
+    apply: (db) => {
+      addColumnIfMissing(db, "automations", "user_id", "TEXT REFERENCES users(id) ON DELETE CASCADE");
+      addColumnIfMissing(db, "automations", "bot_id", "TEXT REFERENCES bots(id) ON DELETE SET NULL");
+      addColumnIfMissing(db, "automations", "research", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "automations", "run_timeout_minutes", "INTEGER");
+      addColumnIfMissing(
+        db,
+        "automations",
+        "continue_previous_conversation",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      addColumnIfMissing(db, "automations", "notify_config_json", "TEXT NOT NULL DEFAULT '{}'");
+      addColumnIfMissing(db, "automations", "run_at", "TEXT");
+    }
+  },
+  {
+    name: "bots_read_columns",
+    alreadyApplied: (db) => hasColumns(db, "bots", ["last_read_at", "last_result_at"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "bots", "last_read_at", "TEXT");
+      addColumnIfMissing(db, "bots", "last_result_at", "TEXT");
+    }
+  },
+  {
+    name: "admin_users_into_users",
+    apply: (db) => {
+      db.exec(`
+        INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
+        SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at
+        FROM admin_users
+      `);
+    }
+  },
+  {
+    name: "legacy_user_settings_seed",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      db.exec(`
+        INSERT OR IGNORE INTO user_settings (user_id, updated_at)
+        SELECT id, updated_at
+        FROM admin_users
+      `);
+    }
+  },
+  {
+    name: "auth_sessions_user_foreign_key",
+    alreadyApplied: (db) => authSessionsReferenceUsers(db),
+    apply: (db) => {
+      if (authSessionsReferenceUsers(db)) return;
+      db.exec(`
+        CREATE TABLE auth_sessions_new (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          purpose TEXT NOT NULL DEFAULT 'browser',
+          device_name TEXT,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        INSERT INTO auth_sessions_new (id, user_id, purpose, device_name, expires_at, created_at)
+        SELECT id, user_id, 'browser', NULL, expires_at, created_at
+        FROM auth_sessions;
+        DROP TABLE auth_sessions;
+        ALTER TABLE auth_sessions_new RENAME TO auth_sessions;
+      `);
+    }
+  },
+  {
+    name: "auth_sessions_purpose_columns",
+    alreadyApplied: (db) => hasColumns(db, "auth_sessions", ["purpose", "device_name"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "auth_sessions", "purpose", "TEXT NOT NULL DEFAULT 'browser'");
+      addColumnIfMissing(db, "auth_sessions", "device_name", "TEXT");
+    }
+  },
+  {
+    name: "legacy_app_settings_columns",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      addColumnIfMissing(db, "app_settings", "default_provider_profile_id", "TEXT");
+      addColumnIfMissing(db, "app_settings", "skills_enabled", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "app_settings", "conversation_retention", "TEXT NOT NULL DEFAULT 'forever'");
+      addColumnIfMissing(db, "app_settings", "auto_compaction", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "app_settings", "memories_enabled", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "app_settings", "memories_max_count", "INTEGER NOT NULL DEFAULT 100");
+      addColumnIfMissing(db, "app_settings", "mcp_timeout", "INTEGER NOT NULL DEFAULT 120000");
+      addColumnIfMissing(db, "app_settings", "max_assistant_tool_steps", "INTEGER NOT NULL DEFAULT 25");
+      addColumnIfMissing(db, "app_settings", "image_generation_backend", "TEXT NOT NULL DEFAULT 'disabled'");
+      addColumnIfMissing(
+        db,
+        "app_settings",
+        "google_nano_banana_model",
+        "TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image-preview'"
+      );
+      addColumnIfMissing(
+        db,
+        "app_settings",
+        "google_nano_banana_api_key_encrypted",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      addColumnIfMissing(db, "app_settings", "comfyui_base_url", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "comfyui_auth_type", "TEXT NOT NULL DEFAULT 'none'");
+      addColumnIfMissing(db, "app_settings", "comfyui_bearer_token_encrypted", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "comfyui_workflow_json", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "comfyui_prompt_path", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(
+        db,
+        "app_settings",
+        "comfyui_negative_prompt_path",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      addColumnIfMissing(db, "app_settings", "comfyui_width_path", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "comfyui_height_path", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "comfyui_seed_path", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "app_settings", "title_generation_mode", "TEXT NOT NULL DEFAULT 'same'");
+      addColumnIfMissing(db, "app_settings", "title_generation_profile_id", "TEXT");
+    }
+  },
+  {
+    name: "legacy_user_settings_columns",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      addColumnIfMissing(db, "user_settings", "stt_engine", "TEXT NOT NULL DEFAULT 'browser'");
+      addColumnIfMissing(
+        db,
+        "user_settings",
+        "stt_provider",
+        `TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}'`
+      );
+      addColumnIfMissing(db, "user_settings", "stt_language", "TEXT NOT NULL DEFAULT 'auto'");
+      addColumnIfMissing(
+        db,
+        "user_settings",
+        "external_stt_language",
+        `TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}'`
+      );
+      addColumnIfMissing(db, "user_settings", "external_stt_api_key_encrypted", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "user_settings", "web_search_engine", "TEXT NOT NULL DEFAULT 'exa'");
+      addColumnIfMissing(db, "user_settings", "exa_api_key_encrypted", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "user_settings", "tavily_api_key_encrypted", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "user_settings", "searxng_base_url", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "user_settings", "max_assistant_tool_steps", "INTEGER NOT NULL DEFAULT 25");
+    }
+  },
+  {
+    name: "mcp_servers_transport_columns",
+    alreadyApplied: (db) => hasColumns(db, "mcp_servers", ["transport", "command", "args", "env"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "mcp_servers", "transport", "TEXT NOT NULL DEFAULT 'streamable_http'");
+      addColumnIfMissing(db, "mcp_servers", "command", "TEXT");
+      addColumnIfMissing(db, "mcp_servers", "args", "TEXT");
+      addColumnIfMissing(db, "mcp_servers", "env", "TEXT");
+    }
+  },
+  {
+    name: "mcp_servers_slug_column",
+    alreadyApplied: (db) => hasColumns(db, "mcp_servers", ["slug"]),
+    apply: (db) => {
+      if (tableColumns(db, "mcp_servers").has("slug")) return;
+      migrateMcpServerSlugs(db);
+    }
+  },
+  {
+    name: "mcp_servers_vision_flag_column",
+    alreadyApplied: (db) => hasColumns(db, "mcp_servers", ["is_vision_mcp"]),
+    apply: (db) => {
+      if (tableColumns(db, "mcp_servers").has("is_vision_mcp")) return;
+      db.exec("ALTER TABLE mcp_servers ADD COLUMN is_vision_mcp INTEGER NOT NULL DEFAULT 0");
+      backfillVisionMcpServers(db);
+    }
+  },
+  {
+    name: "mcp_servers_secrets_encrypted",
+    apply: (db) => encryptMcpServerSecrets(db)
+  },
+  {
+    name: "skills_description_column",
+    alreadyApplied: (db) => hasColumns(db, "skills", ["description"]),
+    apply: (db) => addColumnIfMissing(db, "skills", "description", "TEXT NOT NULL DEFAULT ''")
+  },
+  {
+    name: "provider_profiles_preset_columns",
+    alreadyApplied: (db) => hasColumns(db, "provider_profiles", ["provider_config_json"]),
+    apply: (db) => {
+      if (tableColumns(db, "provider_profiles").has("provider_config_json")) return;
+      widenLegacyProviderProfiles(db);
+    }
+  },
+  {
+    name: "provider_profiles_vision_delegation_column",
+    alreadyApplied: (db) => hasColumns(db, "provider_profiles", ["vision_provider_profile_id"]),
+    apply: (db) =>
+      addColumnIfMissing(db, "provider_profiles", "vision_provider_profile_id", "TEXT")
+  },
+  {
+    name: "compaction_events_rebuild",
+    alreadyApplied: (db) => hasCurrentCompactionEventsSchema(db) && !tableExists(db, "compaction_events_old"),
+    apply: (db) => migrateCompactionEventsTable(db)
+  },
+  {
+    name: "bot_avatars_variant_column",
+    alreadyApplied: (db) => hasColumns(db, "bot_avatars", ["variant"]),
+    apply: (db) => migrateBotAvatarsTable(db)
+  },
+  {
+    name: "core_indexes",
+    apply: (db) => {
+      db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_share_token ON conversations(share_token);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
+    CREATE INDEX IF NOT EXISTS idx_automations_enabled_next_run_at ON automations(enabled, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_scheduled_for ON automation_runs(automation_id, scheduled_for DESC);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_status_scheduled_for ON automation_runs(status, scheduled_for);
+    CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);
+    CREATE INDEX IF NOT EXISTS idx_message_text_segments_message_sort_order ON message_text_segments(message_id, sort_order, created_at);
+    CREATE INDEX IF NOT EXISTS idx_queued_messages_conversation_status_sort
+      ON queued_messages(conversation_id, status, sort_order, created_at);
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_message_created_at ON message_attachments(message_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_conversation_created_at ON message_attachments(conversation_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
+    CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
+    CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_purpose_created
+      ON auth_sessions(user_id, purpose, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
+      ON provider_connection_flows(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mcp_oauth_flows_server_created
+      ON mcp_oauth_flows(server_id, created_at DESC);
+      `);
+    }
+  },
+  {
+    name: "queued_messages_mode_column",
+    alreadyApplied: (db) => hasColumns(db, "queued_messages", ["mode"]),
+    apply: (db) => addColumnIfMissing(db, "queued_messages", "mode", "TEXT NOT NULL DEFAULT 'chat'")
+  },
+  {
+    name: "bot_runs_reply_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "bot_runs", ["prompt", "reply_conversation_id", "reply_action_id", "pending_reply"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "bot_runs", "prompt", "TEXT");
+      addColumnIfMissing(db, "bot_runs", "reply_conversation_id", "TEXT");
+      addColumnIfMissing(db, "bot_runs", "reply_action_id", "TEXT");
+      addColumnIfMissing(db, "bot_runs", "pending_reply", "TEXT");
+    }
+  },
+  {
+    name: "skill_metadata_repair",
+    apply: (db) => repairSkillMetadata(db)
+  },
+  {
+    name: "legacy_default_provider_seed",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      seedLegacyDefaultProvider(db);
+    }
+  },
+  {
+    name: "title_generation_status_repair",
+    apply: (db) => {
+      db.prepare(
+        `UPDATE conversations
+         SET title_generation_status = 'completed'
+         WHERE COALESCE(title_generation_status, '') = ''`
+      ).run();
+    }
+  },
+  {
+    name: "automation_runs_one_running_index",
+    alreadyApplied: (db) =>
+      (db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{ name: string }>).some(
+        (index) => index.name === "idx_automation_runs_one_running"
+      ),
+    apply: (db) => {
+      db.prepare(
+        `UPDATE automation_runs
+         SET status = 'failed',
+             error_message = 'Duplicate running automation repaired during migration',
+             finished_at = COALESCE(finished_at, ?)
+         WHERE status = 'running'
+           AND id NOT IN (
+             SELECT MIN(id)
+             FROM automation_runs
+             WHERE status = 'running'
+             GROUP BY automation_id
+           )`
+      ).run(new Date().toISOString());
+      db.exec(`
       CREATE UNIQUE INDEX idx_automation_runs_one_running
         ON automation_runs(automation_id)
         WHERE status = 'running'
     `);
-  }
-
-  migrateProviderStorage(db);
-  if (needsLegacySettingsMigration) {
-    runLoggedDataMigration(db, "Migrating integration settings", migrateIntegrationSettings);
-    runLoggedDataMigration(db, "Migrating preference storage", migratePreferenceStorage);
-  }
-  normalizeIntegrationSettingsStorage(db);
-  consolidateGlobalIntegrationSettings(db);
-
-  const globalPreferencesCols = db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>;
-  if (!globalPreferencesCols.some((column) => column.name === "confirm_external_links")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
-  }
-  const userPreferencesCols = db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>;
-  if (!userPreferencesCols.some((column) => column.name === "confirm_external_links")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!userPreferencesCols.some((column) => column.name === "allow_all_tools")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN allow_all_tools INTEGER NOT NULL DEFAULT 0");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "memories_rigor")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
-  }
-  if (!userPreferencesCols.some((column) => column.name === "memories_rigor")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "tool_call_display")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
-  }
-  if (!userPreferencesCols.some((column) => column.name === "tool_call_display")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "default_view")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
-  }
-  if (!userPreferencesCols.some((column) => column.name === "default_view")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "follow_up_behavior")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN follow_up_behavior TEXT NOT NULL DEFAULT 'queue'");
-  }
-  if (!userPreferencesCols.some((column) => column.name === "follow_up_behavior")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN follow_up_behavior TEXT NOT NULL DEFAULT 'queue'");
-  }
-
-  if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN has_completed_onboarding INTEGER NOT NULL DEFAULT 0");
-  }
-
-  if (!userPreferencesCols.some((column) => column.name === "last_seen_release")) {
-    db.exec("ALTER TABLE user_preferences ADD COLUMN last_seen_release TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_profile_id")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_profile_id TEXT");
-  }
-  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_prompt")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_prompt TEXT NOT NULL DEFAULT ''");
-  }
-  if (!globalPreferencesCols.some((column) => column.name === "bot_system_prompt")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN bot_system_prompt TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!globalPreferencesCols.some((column) => column.name === "semantic_recall_enabled")) {
-    db.exec("ALTER TABLE global_preferences ADD COLUMN semantic_recall_enabled INTEGER NOT NULL DEFAULT 1");
-  }
-
-  const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
-  if (!userMemoryCols.some((column) => column.name === "pinned")) {
-    db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
-  }
-
-  const attachmentCols = db.prepare("PRAGMA table_info(message_attachments)").all() as Array<{ name: string }>;
-  if (!attachmentCols.some((column) => column.name === "source_path")) {
-    db.exec("ALTER TABLE message_attachments ADD COLUMN source_path TEXT");
-  }
-
-  const hadSemanticChunksTable = tableExists(db, "semantic_chunks");
-  db.exec(`
+    }
+  },
+  {
+    name: "provider_storage_tables",
+    alreadyApplied: (db) =>
+      hasColumns(db, "provider_profiles", ["provider_config_json"]) &&
+      tableExists(db, "provider_profile_connections") &&
+      tableExists(db, "provider_connection_flows") &&
+      !hasColumns(db, "provider_profile_connections", ["provider_kind"]),
+    apply: (db) => migrateProviderStorageTables(db)
+  },
+  {
+    name: "legacy_integration_settings",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      runLoggedDataMigration(db, "Migrating integration settings", migrateIntegrationSettings);
+    }
+  },
+  {
+    name: "legacy_preference_storage",
+    alreadyApplied: (db) => legacySettingsMigrated(db),
+    apply: (db) => {
+      if (legacySettingsMigrated(db)) return;
+      runLoggedDataMigration(db, "Migrating preference storage", migratePreferenceStorage);
+    }
+  },
+  {
+    name: "preferences_confirm_external_links_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", ["confirm_external_links"]) &&
+      hasColumns(db, "user_preferences", ["confirm_external_links", "allow_all_tools"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "confirm_external_links", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "user_preferences", "confirm_external_links", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "user_preferences", "allow_all_tools", "INTEGER NOT NULL DEFAULT 0");
+    }
+  },
+  {
+    name: "preferences_memories_rigor_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", ["memories_rigor"]) &&
+      hasColumns(db, "user_preferences", ["memories_rigor"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "memories_rigor", "TEXT NOT NULL DEFAULT 'balanced'");
+      addColumnIfMissing(db, "user_preferences", "memories_rigor", "TEXT NOT NULL DEFAULT 'balanced'");
+    }
+  },
+  {
+    name: "preferences_tool_call_display_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", ["tool_call_display"]) &&
+      hasColumns(db, "user_preferences", ["tool_call_display"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "tool_call_display", "TEXT NOT NULL DEFAULT 'pills'");
+      addColumnIfMissing(db, "user_preferences", "tool_call_display", "TEXT NOT NULL DEFAULT 'pills'");
+    }
+  },
+  {
+    name: "preferences_default_view_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", ["default_view"]) &&
+      hasColumns(db, "user_preferences", ["default_view"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "default_view", "TEXT NOT NULL DEFAULT 'chat'");
+      addColumnIfMissing(db, "user_preferences", "default_view", "TEXT NOT NULL DEFAULT 'chat'");
+    }
+  },
+  {
+    name: "preferences_follow_up_behavior_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", ["follow_up_behavior"]) &&
+      hasColumns(db, "user_preferences", ["follow_up_behavior"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "follow_up_behavior", "TEXT NOT NULL DEFAULT 'queue'");
+      addColumnIfMissing(db, "user_preferences", "follow_up_behavior", "TEXT NOT NULL DEFAULT 'queue'");
+    }
+  },
+  {
+    name: "preferences_onboarding_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "user_preferences", ["has_completed_onboarding", "last_seen_release"]),
+    apply: (db) => {
+      addColumnIfMissing(db, "user_preferences", "has_completed_onboarding", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "user_preferences", "last_seen_release", "TEXT NOT NULL DEFAULT ''");
+    }
+  },
+  {
+    name: "preferences_speech_cleanup_columns",
+    alreadyApplied: (db) =>
+      hasColumns(db, "global_preferences", [
+        "speech_cleanup_enabled",
+        "speech_cleanup_profile_id",
+        "speech_cleanup_prompt",
+        "bot_system_prompt"
+      ]),
+    apply: (db) => {
+      addColumnIfMissing(db, "global_preferences", "speech_cleanup_enabled", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "global_preferences", "speech_cleanup_profile_id", "TEXT");
+      addColumnIfMissing(db, "global_preferences", "speech_cleanup_prompt", "TEXT NOT NULL DEFAULT ''");
+      addColumnIfMissing(db, "global_preferences", "bot_system_prompt", "TEXT NOT NULL DEFAULT ''");
+    }
+  },
+  {
+    name: "preferences_semantic_recall_column",
+    alreadyApplied: (db) => hasColumns(db, "global_preferences", ["semantic_recall_enabled"]),
+    apply: (db) =>
+      addColumnIfMissing(db, "global_preferences", "semantic_recall_enabled", "INTEGER NOT NULL DEFAULT 1")
+  },
+  {
+    name: "user_memories_pinned_column",
+    alreadyApplied: (db) => hasColumns(db, "user_memories", ["pinned"]),
+    apply: (db) => addColumnIfMissing(db, "user_memories", "pinned", "INTEGER NOT NULL DEFAULT 0")
+  },
+  {
+    name: "message_attachments_source_path_column",
+    alreadyApplied: (db) => hasColumns(db, "message_attachments", ["source_path"]),
+    apply: (db) => addColumnIfMissing(db, "message_attachments", "source_path", "TEXT")
+  },
+  {
+    name: "semantic_chunks_table",
+    alreadyApplied: (db) => tableExists(db, "semantic_chunks"),
+    apply: (db) => {
+      db.exec(`
     CREATE TABLE IF NOT EXISTS semantic_chunks (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
@@ -2207,11 +2303,84 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_semantic_chunks_message ON semantic_chunks(message_id);
     CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id);
     CREATE INDEX IF NOT EXISTS idx_semantic_chunks_attachment ON semantic_chunks(attachment_id);
-  `);
-  if (!hadSemanticChunksTable) {
-    console.log("[db] Created semantic_chunks table");
+      `);
+      console.log("[db] Created semantic_chunks table");
+    }
+  },
+  {
+    name: "bot_conversations_follow_default_provider",
+    alreadyApplied: (db) => legacyFlagRecorded(db, "bot_conversations_follow_default_provider"),
+    apply: (db) => {
+      db.exec(`
+        UPDATE conversations
+        SET provider_profile_id = NULL
+        WHERE id IN (SELECT home_conversation_id FROM bots)
+      `);
+      db.prepare(
+        "INSERT OR IGNORE INTO migration_flags (name, applied_at) VALUES (?, ?)"
+      ).run("bot_conversations_follow_default_provider", new Date().toISOString());
+    }
   }
-  migrateBotConversationsToFollowDefaultProvider(db);
+];
+
+const RECURRING_STEPS: RecurringStep[] = [
+  {
+    name: "builtin_skills_seed",
+    apply: (db) => upsertBuiltinSkills(db)
+  },
+  {
+    name: "provider_profiles_data_repair",
+    apply: (db) => normalizeProviderProfilesData(db)
+  },
+  {
+    name: "integration_settings_normalized",
+    apply: (db) => normalizeIntegrationSettingsStorage(db)
+  },
+  {
+    name: "integration_settings_consolidated",
+    apply: (db) => consolidateGlobalIntegrationSettings(db)
+  }
+];
+
+export function listMigrationSteps() {
+  return MIGRATION_STEPS.map((step) => step.name);
+}
+
+function recordAppliedStep(db: Database.Database, name: string) {
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(
+    name,
+    new Date().toISOString()
+  );
+}
+
+export function migrate(db: Database.Database) {
+  const migrationStartedAt = Date.now();
+  const isFreshDatabase = !tableExists(db, "users");
+  if (isFreshDatabase) {
+    console.log("[db] Initializing new database");
+  }
+  console.log("[db] Running database migrations...");
+  if (!legacySettingsMigrated(db)) {
+    console.log("[db] Migrating legacy settings storage (app_settings/user_settings)");
+  }
+  db.exec(BASELINE_SCHEMA_SQL);
+
+  const appliedStepNames = new Set(
+    (db.prepare("SELECT name FROM schema_migrations").all() as Array<{ name: string }>).map(
+      (row) => row.name
+    )
+  );
+  for (const step of MIGRATION_STEPS) {
+    if (appliedStepNames.has(step.name)) continue;
+    if (!step.alreadyApplied?.(db)) {
+      step.apply(db);
+    }
+    recordAppliedStep(db, step.name);
+    appliedStepNames.add(step.name);
+  }
+  for (const step of RECURRING_STEPS) {
+    step.apply(db);
+  }
   console.log(`[db] Database migrations complete in ${Date.now() - migrationStartedAt}ms`);
 }
 

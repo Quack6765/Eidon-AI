@@ -405,6 +405,7 @@ describe("db", () => {
     ).run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
 
     db.exec("ALTER TABLE user_preferences DROP COLUMN last_seen_release");
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("preferences_onboarding_columns");
     const before = (
       db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
     ).map((column) => column.name);
@@ -455,6 +456,7 @@ describe("db", () => {
     createAnswerAt("Later chat reply", "2026-04-10T08:30:00.000Z");
 
     db.exec("ALTER TABLE automation_runs DROP COLUMN result_message_id");
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("automation_runs_result_message_column");
     migrate(db);
 
     expect(automations.getPreviousAutomationRunResult("auto_backfill", "run_next")).toBe("Routine answer");
@@ -1200,6 +1202,7 @@ describe("db", () => {
     conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
 
     const db = dbModule.getDb();
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("bot_conversations_follow_default_provider");
     db.prepare("DELETE FROM migration_flags WHERE name = ?").run("bot_conversations_follow_default_provider");
     migrate(db);
 
@@ -1254,6 +1257,7 @@ describe("db", () => {
       insertLogin.run(id, userId, origin, label, encrypted.get(id), createdAt, updatedAt, lastUsedAt);
     }
 
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("saved_logins_to_vault");
     migrate(db);
 
     const tableNames = () =>
@@ -1359,6 +1363,7 @@ describe("db", () => {
       INSERT INTO compaction_events SELECT * FROM compaction_events_old;
     `);
 
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("compaction_events_rebuild");
     migrate(db);
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM compaction_events").get()
@@ -1404,6 +1409,7 @@ describe("db", () => {
     `);
     db.pragma("foreign_keys = ON");
 
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("compaction_events_rebuild");
     expect(() => migrate(db)).toThrow(
       "Unable to migrate compaction events: conflicting duplicate id cmp_partial_rebuild"
     );
@@ -1425,6 +1431,7 @@ describe("db", () => {
     ).run("2026-07-12T12:00:00.000Z");
     db.pragma("foreign_keys = ON");
 
+    db.prepare("DELETE FROM schema_migrations WHERE name = ?").run("compaction_events_rebuild");
     expect(() => migrate(db)).toThrow();
     db.close();
   });

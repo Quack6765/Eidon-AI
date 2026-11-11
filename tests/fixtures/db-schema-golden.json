@@ -1,0 +1,3202 @@
+{
+  "tables": [
+    {
+      "name": "admin_users",
+      "sql": "CREATE TABLE admin_users (\n      id TEXT PRIMARY KEY,\n      username TEXT NOT NULL UNIQUE,\n      password_hash TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "username",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "password_hash",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "auth_sessions",
+      "sql": "CREATE TABLE auth_sessions (\n      id TEXT PRIMARY KEY,\n      user_id TEXT NOT NULL,\n      purpose TEXT NOT NULL DEFAULT 'browser',\n      device_name TEXT,\n      expires_at TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "purpose",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'browser'",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "device_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "expires_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "automation_runs",
+      "sql": "CREATE TABLE automation_runs (\n      id TEXT PRIMARY KEY,\n      automation_id TEXT NOT NULL,\n      conversation_id TEXT,\n      scheduled_for TEXT NOT NULL,\n      started_at TEXT,\n      finished_at TEXT,\n      status TEXT NOT NULL,\n      error_message TEXT,\n      trigger_source TEXT NOT NULL,\n      result_message_id TEXT,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "automation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "scheduled_for",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "finished_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "error_message",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "trigger_source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "result_message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "automations",
+      "sql": "CREATE TABLE automations (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      provider_profile_id TEXT NOT NULL,\n      persona_id TEXT,\n      user_id TEXT,\n      schedule_kind TEXT NOT NULL,\n      interval_minutes INTEGER,\n      calendar_frequency TEXT,\n      time_of_day TEXT,\n      days_of_week TEXT NOT NULL DEFAULT '[]',\n      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,\n      enabled INTEGER NOT NULL DEFAULT 1,\n      next_run_at TEXT,\n      last_scheduled_for TEXT,\n      last_started_at TEXT,\n      last_finished_at TEXT,\n      last_status TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL, bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL, research INTEGER NOT NULL DEFAULT 0, run_timeout_minutes INTEGER, notify_config_json TEXT NOT NULL DEFAULT '{}', run_at TEXT,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "provider_profile_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "persona_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "schedule_kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "interval_minutes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "calendar_frequency",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "time_of_day",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "days_of_week",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'[]'",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "continue_previous_conversation",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "next_run_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "last_scheduled_for",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "last_started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "last_finished_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "last_status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "bot_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "research",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "run_timeout_minutes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 23,
+          "name": "notify_config_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 24,
+          "name": "run_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "bot_avatars",
+      "sql": "CREATE TABLE bot_avatars (\n    seed TEXT NOT NULL,\n    style TEXT NOT NULL,\n    variant TEXT NOT NULL,\n    svg TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    PRIMARY KEY (seed, style, variant)\n  )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "seed",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "style",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "variant",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 3
+        },
+        {
+          "cid": 3,
+          "name": "svg",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "bot_runs",
+      "sql": "CREATE TABLE bot_runs (\n      id TEXT PRIMARY KEY,\n      bot_id TEXT NOT NULL,\n      conversation_id TEXT NOT NULL,\n      trigger_source TEXT NOT NULL,\n      status TEXT NOT NULL,\n      started_at TEXT,\n      finished_at TEXT,\n      parent_message_id TEXT,\n      error_message TEXT,\n      prompt TEXT,\n      reply_conversation_id TEXT,\n      reply_action_id TEXT,\n      pending_reply TEXT,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,\n      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "bot_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "trigger_source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "finished_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "parent_message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "error_message",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "prompt",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "reply_conversation_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "reply_action_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "pending_reply",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "bots",
+      "sql": "CREATE TABLE bots (\n      id TEXT PRIMARY KEY,\n      user_id TEXT,\n      name TEXT NOT NULL,\n      title TEXT NOT NULL DEFAULT '',\n      description TEXT NOT NULL DEFAULT '',\n      avatar_seed TEXT NOT NULL,\n      system_prompt TEXT NOT NULL,\n      is_chief INTEGER NOT NULL DEFAULT 0,\n      home_conversation_id TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL, last_read_at TEXT, last_result_at TEXT,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,\n      FOREIGN KEY (home_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "avatar_seed",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "system_prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "is_chief",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "home_conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "last_read_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "last_result_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "compaction_events",
+      "sql": "CREATE TABLE \"compaction_events\" (\n    id TEXT PRIMARY KEY,\n    conversation_id TEXT NOT NULL,\n    node_id TEXT NOT NULL,\n    source_start_message_id TEXT NOT NULL,\n    source_end_message_id TEXT NOT NULL,\n    notice_message_id TEXT,\n    created_at TEXT NOT NULL,\n    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,\n    FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,\n    FOREIGN KEY (source_start_message_id) REFERENCES messages(id) ON DELETE CASCADE,\n    FOREIGN KEY (source_end_message_id) REFERENCES messages(id) ON DELETE CASCADE\n  )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "node_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "source_start_message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "source_end_message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "notice_message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "conversations",
+      "sql": "CREATE TABLE conversations (\n      id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      title_generation_status TEXT NOT NULL DEFAULT 'completed',\n      user_id TEXT,\n      folder_id TEXT,\n      provider_profile_id TEXT,\n      reasoning_effort TEXT,\n      tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',\n      share_token TEXT UNIQUE,\n      share_enabled INTEGER NOT NULL DEFAULT 0,\n      shared_at TEXT,\n      sort_order INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 0, automation_id TEXT REFERENCES automations(id) ON DELETE SET NULL, automation_run_id TEXT REFERENCES automation_runs(id) ON DELETE SET NULL, conversation_origin TEXT NOT NULL DEFAULT 'manual', is_temporary INTEGER NOT NULL DEFAULT 0,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,\n      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,\n      FOREIGN KEY (provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "title_generation_status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'completed'",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "folder_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "provider_profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "reasoning_effort",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "tool_execution_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'read_only'",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "share_token",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "share_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "shared_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "automation_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "automation_run_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "conversation_origin",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'manual'",
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "is_temporary",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "folders",
+      "sql": "CREATE TABLE folders (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      user_id TEXT,\n      sort_order INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "global_preferences",
+      "sql": "CREATE TABLE global_preferences (\n      id INTEGER PRIMARY KEY CHECK (id = 1),\n      default_provider_profile_id TEXT,\n      skills_enabled INTEGER NOT NULL DEFAULT 1,\n      conversation_retention TEXT NOT NULL DEFAULT 'forever',\n      memories_enabled INTEGER NOT NULL DEFAULT 1,\n      memories_max_count INTEGER NOT NULL DEFAULT 100,\n      memories_rigor TEXT NOT NULL DEFAULT 'balanced',\n      mcp_timeout INTEGER NOT NULL DEFAULT 120000,\n      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,\n      confirm_external_links INTEGER NOT NULL DEFAULT 1,\n      tool_call_display TEXT NOT NULL DEFAULT 'pills',\n      default_view TEXT NOT NULL DEFAULT 'chat',\n      follow_up_behavior TEXT NOT NULL DEFAULT 'queue',\n      title_generation_mode TEXT NOT NULL DEFAULT 'same',\n      title_generation_profile_id TEXT,\n      speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,\n      speech_cleanup_profile_id TEXT,\n      speech_cleanup_prompt TEXT NOT NULL DEFAULT '',\n      bot_system_prompt TEXT NOT NULL DEFAULT '',\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL, semantic_recall_enabled INTEGER NOT NULL DEFAULT 1,\n      FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL,\n      FOREIGN KEY (title_generation_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "default_provider_profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "skills_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "conversation_retention",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'forever'",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "memories_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "memories_max_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "100",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "memories_rigor",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'balanced'",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "mcp_timeout",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "120000",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "max_assistant_tool_steps",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "25",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "confirm_external_links",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "tool_call_display",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'pills'",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "default_view",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'chat'",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "follow_up_behavior",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'queue'",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "title_generation_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'same'",
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "title_generation_profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "speech_cleanup_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "speech_cleanup_profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "speech_cleanup_prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "bot_system_prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "semantic_recall_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "integration_settings",
+      "sql": "CREATE TABLE integration_settings (\n      capability TEXT NOT NULL,\n      user_id TEXT,\n      provider_id TEXT NOT NULL,\n      configuration_json TEXT NOT NULL DEFAULT '{}',\n      credentials_encrypted TEXT NOT NULL DEFAULT '',\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "capability",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "provider_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "configuration_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "credentials_encrypted",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "mcp_oauth_flows",
+      "sql": "CREATE TABLE mcp_oauth_flows (\n      id TEXT PRIMARY KEY,\n      server_id TEXT NOT NULL,\n      user_id TEXT NOT NULL,\n      payload_encrypted TEXT NOT NULL,\n      expires_at TEXT NOT NULL,\n      consumed_at TEXT,\n      status TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "server_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "payload_encrypted",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "expires_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "consumed_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "mcp_server_connections",
+      "sql": "CREATE TABLE mcp_server_connections (\n      server_id TEXT NOT NULL PRIMARY KEY,\n      credentials_encrypted TEXT NOT NULL,\n      metadata_json TEXT NOT NULL DEFAULT '{}',\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "server_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "credentials_encrypted",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "mcp_servers",
+      "sql": "CREATE TABLE mcp_servers (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      slug TEXT NOT NULL UNIQUE,\n      url TEXT NOT NULL,\n      headers TEXT NOT NULL DEFAULT '{}',\n      enabled INTEGER NOT NULL DEFAULT 1,\n      is_vision_mcp INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    , transport TEXT NOT NULL DEFAULT 'streamable_http', command TEXT, args TEXT, env TEXT)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "slug",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "url",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "headers",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "is_vision_mcp",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "transport",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'streamable_http'",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "command",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "args",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "env",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "memory_nodes",
+      "sql": "CREATE TABLE memory_nodes (\n      id TEXT PRIMARY KEY,\n      conversation_id TEXT NOT NULL,\n      type TEXT NOT NULL,\n      depth INTEGER NOT NULL,\n      content TEXT NOT NULL,\n      source_start_message_id TEXT NOT NULL,\n      source_end_message_id TEXT NOT NULL,\n      source_token_count INTEGER NOT NULL,\n      summary_token_count INTEGER NOT NULL,\n      child_node_ids TEXT NOT NULL,\n      superseded_by_node_id TEXT,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "depth",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "source_start_message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "source_end_message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "source_token_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "summary_token_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "child_node_ids",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "superseded_by_node_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "message_actions",
+      "sql": "CREATE TABLE message_actions (\n      id TEXT PRIMARY KEY,\n      message_id TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      status TEXT NOT NULL,\n      server_id TEXT,\n      skill_id TEXT,\n      tool_name TEXT,\n      label TEXT NOT NULL,\n      detail TEXT NOT NULL DEFAULT '',\n      arguments_json TEXT,\n      result_summary TEXT NOT NULL DEFAULT '',\n      sort_order INTEGER NOT NULL DEFAULT 0,\n      started_at TEXT NOT NULL,\n      completed_at TEXT,\n      proposal_state TEXT,\n      proposal_payload_json TEXT,\n      proposal_updated_at TEXT,\n      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "server_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "skill_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "tool_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "label",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "detail",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "arguments_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "result_summary",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "started_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "completed_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "proposal_state",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "proposal_payload_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "proposal_updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "message_attachments",
+      "sql": "CREATE TABLE message_attachments (\n      id TEXT PRIMARY KEY,\n      conversation_id TEXT NOT NULL,\n      message_id TEXT,\n      filename TEXT NOT NULL,\n      mime_type TEXT NOT NULL,\n      byte_size INTEGER NOT NULL,\n      sha256 TEXT NOT NULL,\n      relative_path TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      extracted_text TEXT NOT NULL DEFAULT '',\n      created_at TEXT NOT NULL, source_path TEXT,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,\n      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "filename",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "mime_type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "byte_size",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "sha256",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "relative_path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "extracted_text",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "source_path",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "message_text_segments",
+      "sql": "CREATE TABLE message_text_segments (\n      id TEXT PRIMARY KEY,\n      message_id TEXT NOT NULL,\n      content TEXT NOT NULL,\n      sort_order INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "message_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "messages",
+      "sql": "CREATE TABLE messages (\n      id TEXT PRIMARY KEY,\n      conversation_id TEXT NOT NULL,\n      role TEXT NOT NULL,\n      content TEXT NOT NULL,\n      thinking_content TEXT NOT NULL,\n      status TEXT NOT NULL,\n      estimated_tokens INTEGER NOT NULL DEFAULT 0,\n      system_kind TEXT,\n      compacted_at TEXT,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "role",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "thinking_content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "estimated_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "system_kind",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "compacted_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "migration_flags",
+      "sql": "CREATE TABLE migration_flags (\n      name TEXT PRIMARY KEY,\n      applied_at TEXT NOT NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "applied_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "personas",
+      "sql": "CREATE TABLE personas (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      content TEXT NOT NULL,\n      user_id TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "provider_connection_flows",
+      "sql": "CREATE TABLE \"provider_connection_flows\" (\n          id TEXT PRIMARY KEY,\n          user_id TEXT NOT NULL,\n          profile_id TEXT NOT NULL,\n          provider_kind TEXT NOT NULL,\n          state_json TEXT NOT NULL DEFAULT '{}',\n          expires_at TEXT NOT NULL,\n          consumed_at TEXT,\n          status TEXT NOT NULL,\n          created_at TEXT NOT NULL,\n          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,\n          FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE\n        )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "profile_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "provider_kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "state_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "expires_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "consumed_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "provider_profile_connections",
+      "sql": "CREATE TABLE \"provider_profile_connections\" (\n          profile_id TEXT PRIMARY KEY,\n          credentials_encrypted TEXT NOT NULL DEFAULT '',\n          metadata_json TEXT NOT NULL DEFAULT '{}',\n          oauth_nonce TEXT,\n          created_at TEXT NOT NULL,\n          updated_at TEXT NOT NULL,\n          FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE\n        )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "credentials_encrypted",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "oauth_nonce",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "provider_profiles",
+      "sql": "CREATE TABLE \"provider_profiles\" (\n          id TEXT PRIMARY KEY,\n          name TEXT NOT NULL,\n          provider_kind TEXT NOT NULL,\n          provider_config_json TEXT NOT NULL,\n          model TEXT NOT NULL,\n          system_prompt TEXT NOT NULL,\n          temperature REAL NOT NULL,\n          max_output_tokens INTEGER NOT NULL,\n          reasoning_effort TEXT NOT NULL,\n          reasoning_summary_enabled INTEGER NOT NULL,\n          model_context_limit INTEGER NOT NULL,\n          compaction_threshold REAL NOT NULL,\n          fresh_tail_count INTEGER NOT NULL,\n          tokenizer_model TEXT NOT NULL,\n          safety_margin_tokens INTEGER NOT NULL,\n          leaf_source_token_limit INTEGER NOT NULL,\n          leaf_min_message_count INTEGER NOT NULL,\n          merged_min_node_count INTEGER NOT NULL,\n          merged_target_tokens INTEGER NOT NULL,\n          vision_mode TEXT NOT NULL,\n          vision_provider_profile_id TEXT,\n          provider_preset_id TEXT,\n          created_at TEXT NOT NULL,\n          updated_at TEXT NOT NULL\n        )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "provider_kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "provider_config_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "model",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "system_prompt",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "temperature",
+          "type": "REAL",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "max_output_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "reasoning_effort",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "reasoning_summary_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "model_context_limit",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "compaction_threshold",
+          "type": "REAL",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "fresh_tail_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "tokenizer_model",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "safety_margin_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "leaf_source_token_limit",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "leaf_min_message_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "merged_min_node_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "merged_target_tokens",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "vision_mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "vision_provider_profile_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "provider_preset_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 23,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "push_subscriptions",
+      "sql": "CREATE TABLE push_subscriptions (\n      id TEXT PRIMARY KEY,\n      user_id TEXT NOT NULL,\n      endpoint TEXT NOT NULL UNIQUE,\n      p256dh TEXT NOT NULL,\n      auth TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      last_success_at TEXT,\n      last_error_at TEXT,\n      disabled_at TEXT,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "endpoint",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "p256dh",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "auth",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "last_success_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "last_error_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "disabled_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "queued_messages",
+      "sql": "CREATE TABLE queued_messages (\n      id TEXT PRIMARY KEY,\n      conversation_id TEXT NOT NULL,\n      content TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'pending',\n      sort_order INTEGER NOT NULL,\n      failure_message TEXT,\n      mode TEXT NOT NULL DEFAULT 'chat',\n      processing_started_at TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'pending'",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "failure_message",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "mode",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'chat'",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "processing_started_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "semantic_chunks",
+      "sql": "CREATE TABLE semantic_chunks (\n      id TEXT PRIMARY KEY,\n      kind TEXT NOT NULL,\n      ref_id TEXT NOT NULL,\n      chunk_index INTEGER NOT NULL,\n      user_id TEXT,\n      conversation_id TEXT,\n      memory_id TEXT,\n      message_id TEXT,\n      memory_node_id TEXT,\n      attachment_id TEXT,\n      chunk_text TEXT NOT NULL,\n      content_hash TEXT NOT NULL,\n      model_id TEXT NOT NULL,\n      dim INTEGER NOT NULL,\n      embedding BLOB NOT NULL,\n      source_created_at TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      UNIQUE (kind, ref_id, chunk_index),\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,\n      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,\n      FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE,\n      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,\n      FOREIGN KEY (memory_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,\n      FOREIGN KEY (attachment_id) REFERENCES message_attachments(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "ref_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "chunk_index",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "conversation_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "memory_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "message_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "memory_node_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "attachment_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "chunk_text",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "content_hash",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "model_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "dim",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "embedding",
+          "type": "BLOB",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "source_created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "skills",
+      "sql": "CREATE TABLE skills (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      description TEXT NOT NULL DEFAULT '',\n      content TEXT NOT NULL,\n      enabled INTEGER NOT NULL DEFAULT 1,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "tool_approval_rules",
+      "sql": "CREATE TABLE tool_approval_rules (\n      id TEXT PRIMARY KEY,\n      user_id TEXT,\n      scope TEXT NOT NULL,\n      family TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "scope",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "family",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "user_memories",
+      "sql": "CREATE TABLE user_memories (\n      id TEXT PRIMARY KEY,\n      content TEXT NOT NULL,\n      category TEXT NOT NULL,\n      user_id TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL, bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE, pinned INTEGER NOT NULL DEFAULT 0,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "content",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "bot_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "pinned",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "user_preferences",
+      "sql": "CREATE TABLE user_preferences (\n      user_id TEXT PRIMARY KEY,\n      conversation_retention TEXT NOT NULL DEFAULT 'forever',\n      memories_enabled INTEGER NOT NULL DEFAULT 1,\n      memories_max_count INTEGER NOT NULL DEFAULT 100,\n      memories_rigor TEXT NOT NULL DEFAULT 'balanced',\n      mcp_timeout INTEGER NOT NULL DEFAULT 120000,\n      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,\n      confirm_external_links INTEGER NOT NULL DEFAULT 1,\n      tool_call_display TEXT NOT NULL DEFAULT 'pills',\n      default_view TEXT NOT NULL DEFAULT 'chat',\n      follow_up_behavior TEXT NOT NULL DEFAULT 'queue',\n      allow_all_tools INTEGER NOT NULL DEFAULT 0,\n      has_completed_onboarding INTEGER NOT NULL DEFAULT 0,\n      last_seen_release TEXT NOT NULL DEFAULT '',\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "conversation_retention",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'forever'",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "memories_enabled",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "memories_max_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "100",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "memories_rigor",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'balanced'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "mcp_timeout",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "120000",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "max_assistant_tool_steps",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "25",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "confirm_external_links",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "tool_call_display",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'pills'",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "default_view",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'chat'",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "follow_up_behavior",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'queue'",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "allow_all_tools",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "has_completed_onboarding",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "last_seen_release",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "sql": "CREATE TABLE users (\n      id TEXT NOT NULL PRIMARY KEY,\n      username TEXT NOT NULL UNIQUE,\n      role TEXT NOT NULL,\n      auth_source TEXT NOT NULL,\n      password_hash TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "username",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "role",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "auth_source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "password_hash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    },
+    {
+      "name": "vault_entries",
+      "sql": "CREATE TABLE vault_entries (\n      id TEXT PRIMARY KEY,\n      user_id TEXT NOT NULL,\n      name TEXT NOT NULL COLLATE NOCASE,\n      origin TEXT,\n      username TEXT NOT NULL DEFAULT '',\n      notes TEXT NOT NULL DEFAULT '',\n      secret_encrypted TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      last_used_at TEXT,\n      UNIQUE (user_id, name),\n      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE\n    )",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "user_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "origin",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "username",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "notes",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "''",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "secret_encrypted",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "last_used_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ]
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_auth_sessions_user_purpose_created",
+      "sql": "CREATE INDEX idx_auth_sessions_user_purpose_created\n      ON auth_sessions(user_id, purpose, created_at DESC)"
+    },
+    {
+      "name": "idx_automation_runs_automation_scheduled_for",
+      "sql": "CREATE INDEX idx_automation_runs_automation_scheduled_for ON automation_runs(automation_id, scheduled_for DESC)"
+    },
+    {
+      "name": "idx_automation_runs_one_running",
+      "sql": "CREATE UNIQUE INDEX idx_automation_runs_one_running\n        ON automation_runs(automation_id)\n        WHERE status = 'running'\n    "
+    },
+    {
+      "name": "idx_automation_runs_status_scheduled_for",
+      "sql": "CREATE INDEX idx_automation_runs_status_scheduled_for ON automation_runs(status, scheduled_for)"
+    },
+    {
+      "name": "idx_automations_enabled_next_run_at",
+      "sql": "CREATE INDEX idx_automations_enabled_next_run_at ON automations(enabled, next_run_at)"
+    },
+    {
+      "name": "idx_conversations_folder",
+      "sql": "CREATE INDEX idx_conversations_folder ON conversations(folder_id, sort_order)"
+    },
+    {
+      "name": "idx_conversations_share_token",
+      "sql": "CREATE UNIQUE INDEX idx_conversations_share_token ON conversations(share_token)"
+    },
+    {
+      "name": "idx_conversations_updated_at",
+      "sql": "CREATE INDEX idx_conversations_updated_at ON conversations(updated_at DESC)"
+    },
+    {
+      "name": "idx_folders_sort_order",
+      "sql": "CREATE INDEX idx_folders_sort_order ON folders(sort_order)"
+    },
+    {
+      "name": "idx_integration_settings_global",
+      "sql": "CREATE UNIQUE INDEX idx_integration_settings_global\n      ON integration_settings(capability) WHERE user_id IS NULL"
+    },
+    {
+      "name": "idx_integration_settings_user",
+      "sql": "CREATE UNIQUE INDEX idx_integration_settings_user\n      ON integration_settings(capability, user_id) WHERE user_id IS NOT NULL"
+    },
+    {
+      "name": "idx_mcp_oauth_flows_server_created",
+      "sql": "CREATE INDEX idx_mcp_oauth_flows_server_created\n      ON mcp_oauth_flows(server_id, created_at DESC)"
+    },
+    {
+      "name": "idx_memory_nodes_conversation_depth",
+      "sql": "CREATE INDEX idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at)"
+    },
+    {
+      "name": "idx_memory_nodes_superseded",
+      "sql": "CREATE INDEX idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id)"
+    },
+    {
+      "name": "idx_message_actions_message_sort_order",
+      "sql": "CREATE INDEX idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at)"
+    },
+    {
+      "name": "idx_message_attachments_conversation_created_at",
+      "sql": "CREATE INDEX idx_message_attachments_conversation_created_at ON message_attachments(conversation_id, created_at ASC)"
+    },
+    {
+      "name": "idx_message_attachments_message_created_at",
+      "sql": "CREATE INDEX idx_message_attachments_message_created_at ON message_attachments(message_id, created_at ASC)"
+    },
+    {
+      "name": "idx_message_text_segments_message_sort_order",
+      "sql": "CREATE INDEX idx_message_text_segments_message_sort_order ON message_text_segments(message_id, sort_order, created_at)"
+    },
+    {
+      "name": "idx_messages_compacted_at",
+      "sql": "CREATE INDEX idx_messages_compacted_at ON messages(conversation_id, compacted_at)"
+    },
+    {
+      "name": "idx_messages_conversation_created_at",
+      "sql": "CREATE INDEX idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC)"
+    },
+    {
+      "name": "idx_provider_connection_flows_user_created",
+      "sql": "CREATE INDEX idx_provider_connection_flows_user_created\n          ON provider_connection_flows(user_id, created_at DESC)"
+    },
+    {
+      "name": "idx_push_subscriptions_user",
+      "sql": "CREATE INDEX idx_push_subscriptions_user ON push_subscriptions(user_id)"
+    },
+    {
+      "name": "idx_queued_messages_conversation_status_sort",
+      "sql": "CREATE INDEX idx_queued_messages_conversation_status_sort\n      ON queued_messages(conversation_id, status, sort_order, created_at)"
+    },
+    {
+      "name": "idx_semantic_chunks_attachment",
+      "sql": "CREATE INDEX idx_semantic_chunks_attachment ON semantic_chunks(attachment_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_conversation",
+      "sql": "CREATE INDEX idx_semantic_chunks_conversation ON semantic_chunks(conversation_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_memory",
+      "sql": "CREATE INDEX idx_semantic_chunks_memory ON semantic_chunks(memory_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_memory_node",
+      "sql": "CREATE INDEX idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_message",
+      "sql": "CREATE INDEX idx_semantic_chunks_message ON semantic_chunks(message_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_model",
+      "sql": "CREATE INDEX idx_semantic_chunks_model ON semantic_chunks(model_id)"
+    },
+    {
+      "name": "idx_semantic_chunks_user_kind",
+      "sql": "CREATE INDEX idx_semantic_chunks_user_kind ON semantic_chunks(user_id, kind)"
+    },
+    {
+      "name": "idx_tool_approval_rules_owner",
+      "sql": "CREATE INDEX idx_tool_approval_rules_owner\n      ON tool_approval_rules (user_id, scope, family)"
+    },
+    {
+      "name": "idx_user_memories_category",
+      "sql": "CREATE INDEX idx_user_memories_category ON user_memories(category)"
+    }
+  ]
+}
