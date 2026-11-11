@@ -182,7 +182,7 @@ export function getAssistantTurnStartPreflight(conversationId: string, providerP
   };
 }
 
-export type AssistantTurnStartReady = Extract<
+type AssistantTurnStartReady = Extract<
   ReturnType<typeof getAssistantTurnStartPreflight>,
   { ok: true }
 >;
@@ -788,30 +788,26 @@ async function runClaimedTurn(
   }
 }
 
-export async function runExistingMessageTurn(
+async function runExistingMessageTurn(
   manager: ConversationManager,
   conversationId: string,
   messageId: string,
+  control: ChatTurnControl,
   personaId?: string,
   options?: {
-    control?: ChatTurnControl;
     preflight?: AssistantTurnStartReady;
     research?: ChatResearchOptions;
   }
 ): Promise<ChatTurnResult> {
   const message = getMessage(messageId);
   if (!message || message.role !== "user" || message.conversationId !== conversationId) {
-    if (options?.control) {
-      releaseChatTurnStart(conversationId, options.control);
-    }
+    releaseChatTurnStart(conversationId, control);
     return { status: "skipped", errorMessage: "User message not found" };
   }
 
   const preflight = options?.preflight ?? getAssistantTurnStartPreflight(conversationId);
   if (!preflight.ok) {
-    if (options?.control) {
-      releaseChatTurnStart(conversationId, options.control);
-    }
+    releaseChatTurnStart(conversationId, control);
     if (preflight.status === "failed") {
       manager.broadcast(conversationId, {
         type: "error",
@@ -822,18 +818,7 @@ export async function runExistingMessageTurn(
     return { status: preflight.status, errorMessage: preflight.errorMessage };
   }
 
-  const claimed = options?.control
-    ? { ok: true as const, control: options.control }
-    : claimChatTurnStart(conversationId);
-  if (!claimed.ok) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: ACTIVE_TURN_ERROR_MESSAGE
-    });
-    return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
-  }
-
-  return runClaimedTurn(manager, conversationId, preflight, claimed.control, personaId, {
+  return runClaimedTurn(manager, conversationId, preflight, control, personaId, {
     research: options?.research
   });
 }
@@ -963,8 +948,7 @@ export function claimExistingMessageTurn(input: {
   const { manager, conversationId, messageId, personaId, research } = input;
   return {
     ok: true,
-    run: () => runExistingMessageTurn(manager, conversationId, messageId, personaId, {
-      control: claimed.control,
+    run: () => runExistingMessageTurn(manager, conversationId, messageId, claimed.control, personaId, {
       research
     })
   };
@@ -994,8 +978,9 @@ export function restartTurnAfterMutation<T>(input: {
       getConversationManager(),
       input.conversationId,
       input.userMessageId,
+      claimed.control,
       undefined,
-      { control: claimed.control, preflight }
+      { preflight }
     ).catch((error) => {
       releaseChatTurnStart(input.conversationId, claimed.control);
       console.error(`[${input.logTag}] continuation failed:`, error);

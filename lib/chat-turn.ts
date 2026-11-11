@@ -1,17 +1,7 @@
-import { claimChatTurnStart, releaseChatTurnStart, requestStop, type ChatTurnControl } from "@/lib/chat-turn-control";
+import { requestStop } from "@/lib/chat-turn-control";
 import { getConversationManager } from "@/lib/ws-singleton";
-import {
-  getAssistantTurnStartPreflight,
-  getChatEmitter,
-  runExistingMessageTurn,
-  runTurnFromContent,
-  type AssistantTurnStartReady,
-  type ChatTurnOptions,
-  type ChatTurnResult
-} from "@/lib/turn-session";
-import { getConversationSnapshot } from "@/lib/conversations";
-import { badRequest } from "@/lib/http";
-import { NextResponse } from "next/server";
+import { getChatEmitter, runTurnFromContent } from "@/lib/turn-session";
+import type { ChatTurnOptions, ChatTurnResult, StartChatTurn } from "@/lib/turn-session";
 import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
 
 export type { ChatTurnOptions, ChatTurnResult, StartChatTurn } from "@/lib/turn-session";
@@ -93,7 +83,7 @@ export async function* runAssistantTurn(input: {
 }
 
 export async function startChatTurn(
-  manager: Parameters<import("@/lib/turn-session").StartChatTurn>[0],
+  manager: Parameters<StartChatTurn>[0],
   conversationId: string,
   content: string,
   attachmentIds: string[],
@@ -101,73 +91,4 @@ export async function startChatTurn(
   options?: ChatTurnOptions
 ): Promise<ChatTurnResult> {
   return runTurnFromContent(manager, conversationId, content, attachmentIds, personaId, options);
-}
-
-export type ClaimedTurnContext = {
-  snapshot: import("@/lib/types").ConversationSnapshot;
-  preflight: AssistantTurnStartReady;
-  control: ChatTurnControl;
-};
-
-export function prepareMessageManipulationTurn(params: {
-  conversationId: string;
-  userId: string;
-  busyErrorMessage: string;
-}): ClaimedTurnContext | NextResponse {
-  const { conversationId, userId, busyErrorMessage } = params;
-
-  const snapshot = getConversationSnapshot(conversationId, userId);
-  if (!snapshot) return badRequest("Conversation not found", 404);
-  if (snapshot.conversation.isActive) return badRequest(busyErrorMessage, 409);
-
-  const preflight = getAssistantTurnStartPreflight(conversationId);
-  if (!preflight.ok) return badRequest(preflight.errorMessage, preflight.statusCode);
-
-  const claimed = claimChatTurnStart(conversationId);
-  if (!claimed.ok) return badRequest(busyErrorMessage, 409);
-
-  return { snapshot, preflight, control: claimed.control };
-}
-
-export function startManipulationTurn(params: {
-  conversationId: string;
-  userMessageId: string;
-  preflight: AssistantTurnStartReady;
-  control: ChatTurnControl;
-  logTag: string;
-}) {
-  const { conversationId, userMessageId, preflight, control, logTag } = params;
-  void runExistingMessageTurn(
-    getConversationManager(),
-    conversationId,
-    userMessageId,
-    undefined,
-    { control, preflight }
-  ).catch((error) => {
-    releaseChatTurnStart(conversationId, control);
-    console.error(`[${logTag}] continuation failed:`, error);
-  });
-}
-
-export function restartAssistantTurnAfterMutation<T>(params: {
-  conversationId: string;
-  userMessageId: string;
-  turn: ClaimedTurnContext;
-  logTag: string;
-  mutate: () => T;
-}) {
-  try {
-    const result = params.mutate();
-    startManipulationTurn({
-      conversationId: params.conversationId,
-      userMessageId: params.userMessageId,
-      preflight: params.turn.preflight,
-      control: params.turn.control,
-      logTag: params.logTag
-    });
-    return result;
-  } catch (error) {
-    releaseChatTurnStart(params.conversationId, params.turn.control);
-    throw error;
-  }
 }

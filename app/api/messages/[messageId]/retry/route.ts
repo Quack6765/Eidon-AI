@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import {
-  prepareMessageManipulationTurn,
-  restartAssistantTurnAfterMutation
-} from "@/lib/chat-turn";
+import { restartTurnAfterMutation } from "@/lib/turn-session";
 import {
   deleteAssistantMessageAndChildren,
   getMessage,
@@ -51,18 +48,13 @@ export async function POST(
     return badRequest("No user message found before this assistant message", 400);
   }
 
-  const turn = prepareMessageManipulationTurn({
+  const restarted = restartTurnAfterMutation({
     conversationId: message.conversationId,
     userId: user.id,
-    busyErrorMessage: "Wait for the current assistant response to finish before retrying"
-  });
-  if (turn instanceof Response) return turn;
-
-  return ok(restartAssistantTurnAfterMutation({
-    conversationId: message.conversationId,
     userMessageId,
-    turn,
+    busyErrorMessage: "Wait for the current assistant response to finish before retrying",
     logTag: "message-retry-route",
     mutate: () => deleteAssistantMessageAndChildren(message.id, user.id)
-  }));
+  });
+  return restarted instanceof Response ? restarted : ok(restarted);
 }

@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import {
-  prepareMessageManipulationTurn,
-  restartAssistantTurnAfterMutation
-} from "@/lib/chat-turn";
+import { restartTurnAfterMutation } from "@/lib/turn-session";
 import {
   deleteAssistantMessagesAndChildren,
   getMessage,
@@ -39,19 +36,13 @@ export async function POST(
     return badRequest("Only the latest user message can be regenerated", 409);
   }
 
-  const turn = prepareMessageManipulationTurn({
+  const restarted = restartTurnAfterMutation({
     conversationId: message.conversationId,
     userId: user.id,
-    busyErrorMessage: "Wait for the current assistant response to finish before regenerating"
-  });
-  if (turn instanceof Response) return turn;
-
-  const rewritten = restartAssistantTurnAfterMutation({
-    conversationId: message.conversationId,
     userMessageId: message.id,
-    turn,
+    busyErrorMessage: "Wait for the current assistant response to finish before regenerating",
     logTag: "message-regenerate-route",
-    mutate: () => {
+    mutate: ({ snapshot }) => {
       const targetIndex = allMessages.findIndex((m) => m.id === message.id);
       const trailingAssistantIds = allMessages
         .slice(targetIndex + 1)
@@ -59,11 +50,11 @@ export async function POST(
         .map((m) => m.id);
 
       if (trailingAssistantIds.length === 0) {
-        return turn.snapshot;
+        return snapshot;
       }
 
       return deleteAssistantMessagesAndChildren(trailingAssistantIds, user.id);
     }
   });
-  return ok(rewritten);
+  return restarted instanceof Response ? restarted : ok(restarted);
 }

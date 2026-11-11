@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import {
-  prepareMessageManipulationTurn,
-  restartAssistantTurnAfterMutation
-} from "@/lib/chat-turn";
+import { restartTurnAfterMutation } from "@/lib/turn-session";
 import {
   getMessage,
   rewriteConversationFromEditedUserMessage
@@ -48,22 +45,17 @@ export async function POST(
     return badRequest("Only user messages can be edited", 400);
   }
 
-  const turn = prepareMessageManipulationTurn({
+  const restarted = restartTurnAfterMutation({
     conversationId: message.conversationId,
     userId: user.id,
-    busyErrorMessage: "Wait for the current assistant response to finish before editing this conversation"
-  });
-  if (turn instanceof Response) return turn;
-
-  return ok(restartAssistantTurnAfterMutation({
-    conversationId: message.conversationId,
     userMessageId: message.id,
-    turn,
+    busyErrorMessage: "Wait for the current assistant response to finish before editing this conversation",
     logTag: "message-edit-restart-route",
     mutate: () => rewriteConversationFromEditedUserMessage(
       message.id,
       { content: body.data.content },
       user.id
     )
-  }));
+  });
+  return restarted instanceof Response ? restarted : ok(restarted);
 }
