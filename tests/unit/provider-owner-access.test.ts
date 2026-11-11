@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { POST as postMobileRoute } from "@/app/api/v1/[...path]/route";
 import { createMobileSession } from "@/lib/auth";
-import { getAssistantTurnStartPreflight } from "@/lib/chat-turn";
+import { getAssistantTurnStartPreflight } from "@/lib/turn-session";
 import { createConversation, getConversation } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";

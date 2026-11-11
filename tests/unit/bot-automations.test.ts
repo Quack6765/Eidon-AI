@@ -18,7 +18,7 @@ import {
 } from "@/lib/turn-activity";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import { updateProviderCatalog } from "@/lib/settings";
-import { ACTIVE_TURN_ERROR_MESSAGE, getAssistantTurnStartPreflight } from "@/lib/chat-turn";
+import { ACTIVE_TURN_ERROR_MESSAGE, getAssistantTurnStartPreflight } from "@/lib/turn-session";
 import type { StartChatTurn } from "@/lib/chat-turn";
 
 type TurnOptions = Parameters<StartChatTurn>[5];
