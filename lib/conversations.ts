@@ -77,7 +77,7 @@ type ConversationRow = {
   reasoning_effort: string | null;
   automation_id: string | null;
   automation_run_id: string | null;
-  conversation_origin: "manual" | "automation";
+  conversation_origin: "manual" | "automation" | "bot";
   sort_order: number;
   created_at: string;
   updated_at: string;
