@@ -5,7 +5,7 @@ import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { rememberSecretForRedaction } from "@/lib/secret-redaction";
 import { settleUserGate, waitForUserGate } from "@/lib/user-gate";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type { SecretRequestProposalPayload, SecretRequestResolution } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 import {

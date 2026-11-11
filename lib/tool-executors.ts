@@ -62,13 +62,23 @@ import { join } from "node:path";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import {
+  type RuntimeAction,
+  type SuccessfulReadOnlyToolResult,
+  type ToolActionCallbacks,
+  type ToolExecutionContext,
+  type ToolExecutionResult,
+  buildToolResultMessage,
+  emitDeniedAction,
+  resolveActionHandle,
+  toolCallResult
+} from "./tool-lifecycle";
+import {
   classifyShellCommand,
   mcpToolApprovalFamily,
   requestToolExecutionApproval
 } from "@/lib/tool-approvals";
 import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
 import { buildMessageDraftFields, supersedeMessageDraft } from "@/lib/message-drafts";
-import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool, executeUpdateOwnInstructionsTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import {
@@ -97,58 +107,15 @@ import type {
   McpServer,
   McpTool,
   McpToolCallResult,
-  MessageActionStatus,
-  MemoryProposalState,
-  MessageActionKind,
   MessageDraftProposalPayload,
-  ProposalPayload,
-  DelegationChain,
+  PromptMessage,
+  Skill,
   ToolApprovalContext,
   ToolApprovalProposalPayload,
-  RuntimeAppSettings,
-  RuntimeProviderProfile,
-  ProviderToolCall,
-  PromptMessage,
-  PromptImageContentPart,
-  Skill
+  PromptImageContentPart
 } from "@/lib/types";
 
-type RuntimeAction = {
-  kind: MessageActionKind;
-  status?: MessageActionStatus;
-  label: string;
-  detail?: string;
-  serverId?: string | null;
-  skillId?: string | null;
-  toolName?: string | null;
-  arguments?: Record<string, unknown> | null;
-  proposalState?: MemoryProposalState | null;
-  proposalPayload?: ProposalPayload | null;
-};
-
-type SuccessfulReadOnlyToolResult = {
-  promptResult: string;
-};
-
-export type { RuntimeAction, SuccessfulReadOnlyToolResult };
-
-export function buildToolResultMessage(toolCallId: string, content: PromptMessage["content"]): PromptMessage {
-  return {
-    role: "tool",
-    toolCallId,
-    content
-  };
-}
-
-export function isProposalToolCall(name: string) {
-  return (
-    name === "create_memory" ||
-    name === "update_memory" ||
-    name === "delete_memory" ||
-    name === "create_automation" ||
-    name === "draft_message"
-  );
-}
+export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-lifecycle";
 
 function buildShellResultForPrompt(input: { heading: string[]; resultSummary: string; isError: boolean }) {
   return [
@@ -162,21 +129,7 @@ function buildShellResultForPrompt(input: { heading: string[]; resultSummary: st
 export async function executeWebSearch(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      settings?: RuntimeProviderProfile;
-      appSettings?: RuntimeAppSettings;
-      mcpTimeout?: number;
-      conversationId?: string;
-      assistantMessageId?: string;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
@@ -193,13 +146,11 @@ export async function executeWebSearch(
       : undefined;
 
   if (!context.input.appSettings) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: Web search is not configured.");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: Web search is not configured.", sortOrder);
   }
 
   if (!query && !queries.length) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: query is required", sortOrder);
   }
 
   const pipeline = getWebSearchPipeline(context.input.appSettings.webSearch.configuration);
@@ -220,7 +171,7 @@ export async function executeWebSearch(
       ...(maxResults !== undefined ? { max_results: maxResults } : {})
     }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const result = await runWebSearchPipeline({
@@ -245,12 +196,13 @@ export async function executeWebSearch(
       resultSummary: result.resultSummary
     });
 
-    const resultMsg = buildToolResultMessage(toolCallId, result.resultSummary);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: !result.resultSummary.startsWith("Error:")
-    };
+    return toolCallResult(
+      context,
+      toolCallId,
+      result.resultSummary,
+      sortOrder,
+      !result.resultSummary.startsWith("Error:")
+    );
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Web search failed";
@@ -258,29 +210,14 @@ export async function executeWebSearch(
       detail,
       resultSummary: message
     });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder, false);
   }
 }
 
 export async function executeReadPage(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      appSettings?: RuntimeAppSettings;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
@@ -289,8 +226,7 @@ export async function executeReadPage(
     typeof args.max_chars === "number" && Number.isFinite(args.max_chars) ? args.max_chars : undefined;
 
   if (!url) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: url is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(context, toolCallId, "Error: url is required", sortOrder, false);
   }
 
   const detail = truncateText(url, 300);
@@ -302,7 +238,7 @@ export async function executeReadPage(
     toolName: "read_page",
     arguments: { url, ...(maxChars !== undefined ? { max_chars: maxChars } : {}) }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const content = await readWebPage({
@@ -320,35 +256,19 @@ export async function executeReadPage(
       resultSummary: `${title || "Page"} (${content.length.toLocaleString("en-US")} chars)`
     });
 
-    const resultMsg = buildToolResultMessage(toolCallId, content);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
+    return toolCallResult(context, toolCallId, content, sortOrder, true);
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Page could not be read";
     await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder, false);
   }
 }
 
 export async function executeImageGeneration(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      settings?: RuntimeProviderProfile;
-      appSettings?: RuntimeAppSettings;
-      mcpTimeout?: number;
-      conversationId?: string;
-      assistantMessageId?: string;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
@@ -362,8 +282,7 @@ export async function executeImageGeneration(
   const requestText = getLatestUserRequestText(context.promptMessages);
 
   if (!context.input.settings || !appSettings || !conversationId || !assistantMessageId) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(context, toolCallId, "Error: image generation is not configured", sortOrder, false);
   }
 
   try {
@@ -373,7 +292,7 @@ export async function executeImageGeneration(
       label: "Generate image",
       detail: initialDetail
     });
-    actionHandle = typeof handle === "string" ? handle : undefined;
+    actionHandle = resolveActionHandle(handle);
 
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateImages } = await import("@/lib/image-generation/provider");
@@ -453,11 +372,13 @@ export async function executeImageGeneration(
     });
     throwIfAborted(context.input.abortSignal);
 
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      `Successfully ${editedImageCount ? "edited" : "generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`
+      `Successfully ${editedImageCount ? "edited" : "generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`,
+      sortOrder,
+      true
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
   } catch (error) {
     if (createdAttachmentIds.length) {
       const { deleteAttachmentById } = await import("@/lib/attachments");
@@ -474,8 +395,7 @@ export async function executeImageGeneration(
       detail: prompt,
       resultSummary: message
     });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder, false);
   }
 }
 
@@ -541,54 +461,35 @@ export async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      mcpToolSets: ToolSet[];
-      mcpTimeout?: number;
-      conversationId?: string;
-      assistantMessageId?: string;
-      abortSignal?: AbortSignal;
-      toolApproval?: ToolApprovalContext;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const { server: resolvedServer, tool: resolvedTool } =
-    resolveMcpToolFunction(functionName, context.input.mcpToolSets) ?? {};
+    resolveMcpToolFunction(functionName, context.input.mcpToolSets ?? []) ?? {};
 
   if (!resolvedServer || !resolvedTool) {
-    const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "The requested MCP tool does not exist.", sortOrder);
   }
 
   const successfulReadOnlyToolKey = `${resolvedServer.id}:${resolvedTool.name}`;
   const repeatedReadOnlyToolResult =
     resolvedTool.annotations?.readOnlyHint === true
-      ? context.successfulReadOnlyToolResults.get(successfulReadOnlyToolKey)
+      ? context.successfulReadOnlyToolResults?.get(successfulReadOnlyToolKey)
       : undefined;
 
   if (repeatedReadOnlyToolResult) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
       [
         "Repeated read-only tool call suppressed.",
         "Reuse the previous successful result already available for this tool.",
         "",
         repeatedReadOnlyToolResult.promptResult
-      ].join("\n")
+      ].join("\n"),
+      sortOrder
     );
-
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg]
-    };
   }
 
   const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
@@ -617,22 +518,20 @@ export async function executeMcpToolCall(
 
   if (!approval.approved) {
     if (!approval.promptActionId) {
-      const denialHandle = await context.input.onActionStart?.({
-        kind: "mcp_tool_call",
-        label: getToolLabel(resolvedTool),
-        detail: buildArgumentsSummary(correctedArgs),
-        serverId: resolvedServer.id,
-        toolName: resolvedTool.name,
-        arguments: correctedArgs
-      });
-      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
-      await context.input.onActionError?.(denialActionHandle, {
-        detail: buildArgumentsSummary(correctedArgs),
-        resultSummary: approval.message
-      });
+      await emitDeniedAction(
+        context.input,
+        {
+          kind: "mcp_tool_call",
+          label: getToolLabel(resolvedTool),
+          detail: buildArgumentsSummary(correctedArgs),
+          serverId: resolvedServer.id,
+          toolName: resolvedTool.name,
+          arguments: correctedArgs
+        },
+        { detail: buildArgumentsSummary(correctedArgs), resultSummary: approval.message }
+      );
     }
-    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, approval.message, sortOrder);
   }
 
   const handle = await context.input.onActionStart?.({
@@ -643,7 +542,7 @@ export async function executeMcpToolCall(
     toolName: resolvedTool.name,
     arguments: correctedArgs
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   const result = context.input.abortSignal
     ? await callMcpTool(
@@ -671,40 +570,25 @@ export async function executeMcpToolCall(
   }
 
   if (!result.isError && resolvedTool.annotations?.readOnlyHint === true) {
-    context.successfulReadOnlyToolResults.set(successfulReadOnlyToolKey, {
+    context.successfulReadOnlyToolResults?.set(successfulReadOnlyToolKey, {
       promptResult: resultText
     });
   }
 
-  const resultMsg = buildToolResultMessage(toolCallId, resultText);
-
-  return {
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, resultMsg]
-  };
+  return toolCallResult(context, toolCallId, resultText, sortOrder);
 }
 
 export async function executeLoadSkill(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      abortSignal?: AbortSignal;
-      skills: Skill[];
-      conversationId?: string;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    loadedSkillIds: Set<string>;
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const skillName = String(args.skill_name ?? "").trim().toLowerCase();
+  const loadedSkillIds = context.loadedSkillIds ?? new Set<string>();
 
-  let skill = context.input.skills.find(
+  let skill = context.input.skills?.find(
     (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
   );
 
@@ -719,37 +603,32 @@ export async function executeLoadSkill(
     );
   }
 
-  if (!skill || context.loadedSkillIds.has(skill.id)) {
+  if (!skill || loadedSkillIds.has(skill.id)) {
     const availableNames = [
       ...new Set(
-        [...context.input.skills, ...workspaceSkills]
+        [...(context.input.skills ?? []), ...workspaceSkills]
           .map((s) => getSkillResolvedName(s))
           .filter(Boolean)
       )
     ].join(", ");
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${availableNames}`
+      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${availableNames}`,
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const skillContent = await loadSkillIntoTurn(skill, context.input, context.loadedSkillIds);
+  const skillContent = await loadSkillIntoTurn(skill, context.input, loadedSkillIds);
   sortOrder += 1;
 
-  const resultMsg = buildToolResultMessage(toolCallId, skillContent);
-  return {
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, resultMsg]
-  };
+  return toolCallResult(context, toolCallId, skillContent, sortOrder);
 }
 
 export async function loadSkillIntoTurn(
   skill: Skill,
-  input: {
+  input: ToolActionCallbacks & {
     abortSignal?: AbortSignal;
-    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
   },
   loadedSkillIds: Set<string>
 ) {
@@ -763,7 +642,7 @@ export async function loadSkillIntoTurn(
       skillId: skill.id
     });
     throwIfAborted(input.abortSignal);
-    await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+    await input.onActionComplete?.(resolveActionHandle(handle), {
       detail: getSkillResolvedName(skill),
       resultSummary: "Skill instructions loaded."
     });
@@ -784,39 +663,12 @@ export async function loadSkillIntoTurn(
 export async function executeSkillManage(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      abortSignal?: AbortSignal;
-      conversationId?: string;
-      memoryUserId?: string | null;
-      skills?: Skill[];
-      skillWriteOrigin?: SkillWriteOrigin;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (
-        handle: string | undefined,
-        patch: { detail?: string; resultSummary?: string }
-      ) => Promise<void> | void;
-      onActionError?: (
-        handle: string | undefined,
-        patch: { detail?: string; resultSummary?: string }
-      ) => Promise<void> | void;
-    };
-    loadedSkillIds: Set<string>;
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
-): Promise<{
-  nextSortOrder: number;
-  promptMessages: PromptMessage[];
-  toolSucceeded?: boolean;
-}> {
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
-  const errorResult = (message: string) => ({
-    nextSortOrder: sortOrder + 1,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)],
-    toolSucceeded: false
-  });
+  const errorResult = (message: string) =>
+    toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder + 1, false);
 
   const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
   const origin: SkillWriteOrigin = context.input.skillWriteOrigin ?? "foreground";
@@ -852,7 +704,7 @@ export async function executeSkillManage(
   }
 
   const loadedRefs = new Set(
-    [...context.loadedSkillIds].map((id) => parseSkillId(id)).filter((ref): ref is string => Boolean(ref))
+    [...(context.loadedSkillIds ?? new Set<string>())].map((id) => parseSkillId(id)).filter((ref): ref is string => Boolean(ref))
   );
 
   const results: string[] = [];
@@ -1011,7 +863,7 @@ export async function executeSkillManage(
       label: "Skill manage",
       detail: message.split("\n")[0]
     });
-    await context.input.onActionError?.(typeof handle === "string" ? handle : undefined, {
+    await context.input.onActionError?.(resolveActionHandle(handle), {
       resultSummary: message
     });
     return errorResult(message);
@@ -1025,7 +877,7 @@ export async function executeSkillManage(
     detail,
     toolName: "skill_manage"
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
   await context.input.onActionComplete?.(actionHandle, {
     detail,
     resultSummary: results.join(" ")
@@ -1042,26 +894,8 @@ export async function executeSkillManage(
     }
   }
 
-  return {
-    nextSortOrder: sortOrder + 1,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, results.join("\n"))],
-    toolSucceeded: true
-  };
+  return toolCallResult(context, toolCallId, results.join("\n"), sortOrder + 1, true);
 }
-
-type ShellToolContext = {
-  input: {
-    conversationId?: string;
-    assistantMessageId?: string;
-    abortSignal?: AbortSignal;
-    toolApproval?: ToolApprovalContext;
-    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-  };
-  timelineSortOrder: number;
-  promptMessages: PromptMessage[];
-};
 
 type ShellToolRequest = {
   command: string;
@@ -1073,18 +907,15 @@ type ShellToolRequest = {
   resultHeading: string[];
 };
 
-function toolErrorResult(toolCallId: string, context: ShellToolContext, message: string) {
-  return {
-    nextSortOrder: context.timelineSortOrder,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, message)]
-  };
+function toolErrorResult(toolCallId: string, context: ToolExecutionContext, message: string) {
+  return toolCallResult(context, toolCallId, message, context.timelineSortOrder);
 }
 
 function listResolvedSecrets(vaultEnv: ShellToolRequest["vaultEnv"]) {
   return vaultEnv.resolved.map(({ entry, variable }) => ({ name: entry.name, variable }));
 }
 
-export async function executeShellCommand(toolCallId: string, args: Record<string, unknown>, context: ShellToolContext) {
+export async function executeShellCommand(toolCallId: string, args: Record<string, unknown>, context: ToolExecutionContext) {
   throwIfAborted(context.input.abortSignal);
   const command = String(args.command ?? "").trim();
   const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
@@ -1136,7 +967,7 @@ function parsePythonPackages(value: unknown): string[] | null {
   return packages.every((item) => PYTHON_PACKAGE_PATTERN.test(item)) ? packages : null;
 }
 
-export async function executePythonCode(toolCallId: string, args: Record<string, unknown>, context: ShellToolContext) {
+export async function executePythonCode(toolCallId: string, args: Record<string, unknown>, context: ToolExecutionContext) {
   throwIfAborted(context.input.abortSignal);
   const code = typeof args.code === "string" ? args.code : "";
   const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
@@ -1184,7 +1015,7 @@ export async function executePythonCode(toolCallId: string, args: Record<string,
   });
 }
 
-async function runShellTool(toolCallId: string, context: ShellToolContext, request: ShellToolRequest) {
+async function runShellTool(toolCallId: string, context: ToolExecutionContext, request: ShellToolRequest) {
   let sortOrder = context.timelineSortOrder;
   const { command, action } = request;
   const secrets = listResolvedSecrets(request.vaultEnv);
@@ -1219,18 +1050,13 @@ async function runShellTool(toolCallId: string, context: ShellToolContext, reque
 
   if (!approval.approved) {
     if (!approval.promptActionId) {
-      const denialHandle = await context.input.onActionStart?.(runtimeAction);
-      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
-      await context.input.onActionError?.(denialActionHandle, {
-        detail: action.detail,
-        resultSummary: approval.message
-      });
+      await emitDeniedAction(context.input, runtimeAction, { detail: action.detail, resultSummary: approval.message });
     }
     return toolErrorResult(toolCallId, context, approval.message);
   }
 
   const handle = await context.input.onActionStart?.(runtimeAction);
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
   const screenshotCandidate = prepareScreenshotArtifact(command);
 
   const bot = context.input.conversationId
@@ -1293,11 +1119,12 @@ async function runShellTool(toolCallId: string, context: ShellToolContext, reque
       resultSummary,
       isError: !executionSucceeded
     });
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      screenshot?.image ? [{ type: "text", text: resultText }, screenshot.image] : resultText
+      screenshot?.image ? [{ type: "text", text: resultText }, screenshot.image] : resultText,
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = redactSecrets(
@@ -1305,8 +1132,7 @@ async function runShellTool(toolCallId: string, context: ShellToolContext, reque
       error instanceof Error ? error.message : "Shell command execution failed"
     );
     await context.input.onActionError?.(actionHandle, { detail: action.detail, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder);
   } finally {
     if (usesBrowser) setComputerCaption(browserTarget, null);
   }
@@ -1367,23 +1193,10 @@ function describeVaultEntry(entry: VaultEntry) {
     .join(" · ");
 }
 
-async function executeListSecrets(
-  toolCallId: string,
-  context: {
-    input: VaultContextInput & {
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
-) {
+export async function executeListSecrets(toolCallId: string, context: ToolExecutionContext) {
   const owner = vaultOwner(context.input);
   if (!owner) {
-    return {
-      nextSortOrder: context.timelineSortOrder,
-      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${VAULT_UNAVAILABLE}`)]
-    };
+    return toolCallResult(context, toolCallId, `Error: ${VAULT_UNAVAILABLE}`, context.timelineSortOrder);
   }
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
@@ -1395,41 +1208,28 @@ async function executeListSecrets(
   });
   const entries = listVaultEntries(owner.userId);
   const summary = entries.length === 1 ? "1 secret" : `${entries.length} secrets`;
-  await context.input.onActionComplete?.(typeof handle === "string" ? handle : undefined, { resultSummary: summary });
+  await context.input.onActionComplete?.(resolveActionHandle(handle), { resultSummary: summary });
   const resultText = entries.length
     ? `The user's vault (values are never shown):\n${entries.map(describeVaultEntry).join("\n")}`
     : "The user's vault is empty.";
-  return {
-    nextSortOrder: context.timelineSortOrder + 1,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
-  };
+  return toolCallResult(context, toolCallId, resultText, context.timelineSortOrder + 1);
 }
 
 function optionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
-async function executeSaveSecret(
+export async function executeSaveSecret(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: VaultContextInput & {
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   const owner = vaultOwner(context.input);
   const name = optionalString(args.name)?.trim() ?? "";
   const secret = optionalString(args.secret) || undefined;
   if (secret && owner) rememberSecretForRedaction(owner.conversationId, secret);
-  const fail = (message: string) => ({
-    nextSortOrder: context.timelineSortOrder,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
-  });
+  const fail = (message: string) =>
+    toolCallResult(context, toolCallId, `Error: ${message}`, context.timelineSortOrder);
   if (!owner) return fail(VAULT_UNAVAILABLE);
   if (!name) return fail("save_secret needs a name.");
 
@@ -1447,27 +1247,25 @@ async function executeSaveSecret(
     toolName: "save_secret",
     arguments: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
   const result = saveVaultSecretForAgent(owner.userId, { ...input, secret });
   if ("error" in result) {
     await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: result.error });
-    return {
-      nextSortOrder: context.timelineSortOrder + 1,
-      promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${result.error}`)]
-    };
+    return toolCallResult(
+      context,
+      toolCallId,
+      `Error: ${result.error}`,
+      context.timelineSortOrder + 1
+    );
   }
   const verb = result.created ? "Saved" : "Updated";
   await context.input.onActionComplete?.(actionHandle, { detail: result.entry.name, resultSummary: `${verb} in your vault` });
-  return {
-    nextSortOrder: context.timelineSortOrder + 1,
-    promptMessages: [
-      ...context.promptMessages,
-      buildToolResultMessage(
-        toolCallId,
-        `${verb} "${result.entry.name}" in the user's vault${result.entry.origin ? ` for ${result.entry.origin}` : ""}. Refer to it by that name; never repeat the value.`
-      )
-    ]
-  };
+  return toolCallResult(
+    context,
+    toolCallId,
+    `${verb} "${result.entry.name}" in the user's vault${result.entry.origin ? ` for ${result.entry.origin}` : ""}. Refer to it by that name; never repeat the value.`,
+    context.timelineSortOrder + 1
+  );
 }
 
 async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessionTarget, conversationId?: string) {
@@ -1485,19 +1283,10 @@ async function botShellSandbox(sandbox: BotSandbox, browserTarget: BrowserSessio
   };
 }
 
-async function executeRequestTakeover(
+export async function executeRequestTakeover(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      conversationId?: string;
-      abortSignal?: AbortSignal;
-      toolApproval?: ToolApprovalContext;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const reason = String(args.reason ?? "").trim().slice(0, 500) || "Finish a step in the browser";
@@ -1509,27 +1298,13 @@ async function executeRequestTakeover(
     onWaitChange: context.input.toolApproval?.onWaitChange
   });
   throwIfAborted(context.input.abortSignal);
-  return {
-    nextSortOrder: context.timelineSortOrder + 1,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
-  };
+  return toolCallResult(context, toolCallId, resultText, context.timelineSortOrder + 1);
 }
 
-async function executeRequestSecret(
+export async function executeRequestSecret(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      conversationId?: string;
-      abortSignal?: AbortSignal;
-      toolApproval?: ToolApprovalContext;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const replaceSaved = args.replace_saved === true;
@@ -1548,10 +1323,7 @@ async function executeRequestSecret(
     onWaitChange: context.input.toolApproval?.onWaitChange
   });
   throwIfAborted(context.input.abortSignal);
-  return {
-    nextSortOrder: context.timelineSortOrder + 1,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, resultText)]
-  };
+  return toolCallResult(context, toolCallId, resultText, context.timelineSortOrder + 1);
 }
 
 function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
@@ -1560,37 +1332,17 @@ function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
   return bot ? { botId: bot.id } : undefined;
 }
 
-type MemoryToolExecutionContext = {
-  memoryUserId?: string | null;
-  input: {
-    conversationId?: string;
-    abortSignal?: AbortSignal;
-    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    onActionComplete?: (
-      handle: string | undefined,
-      patch: { detail?: string; resultSummary?: string }
-    ) => Promise<void> | void;
-    onActionError?: (
-      handle: string | undefined,
-      patch: { detail?: string; resultSummary?: string }
-    ) => Promise<void> | void;
-  };
-  timelineSortOrder: number;
-  promptMessages: PromptMessage[];
-};
-
 export async function executeCreateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: MemoryToolExecutionContext
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const content = String(args.content ?? "").trim();
 
   if (!content) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: content is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: content is required", sortOrder);
   }
 
   const normalizedCategory = normalizeMemoryCategory(args.category);
@@ -1606,8 +1358,7 @@ export async function executeCreateMemory(
 
   if (currentCount >= maxCount) {
     const errorMsg = `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
-    const resultMsg = buildToolResultMessage(toolCallId, errorMsg);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, errorMsg, sortOrder);
   }
 
   throwIfAborted(context.input.abortSignal);
@@ -1622,17 +1373,18 @@ export async function executeCreateMemory(
   });
   throwIfAborted(context.input.abortSignal);
 
-  const resultMsg = buildToolResultMessage(
+  return toolCallResult(
+    context,
     toolCallId,
-    `Memory change proposed for approval: create [${normalizedCategory}] ${content}`
+    `Memory change proposed for approval: create [${normalizedCategory}] ${content}`,
+    sortOrder + 1
   );
-  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
 export async function executeUpdateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: MemoryToolExecutionContext
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
@@ -1641,8 +1393,7 @@ export async function executeUpdateMemory(
   const category = args.category ? String(args.category).trim() : undefined;
 
   if (!id || !content) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: id and content are required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: id and content are required", sortOrder);
   }
 
   const memoryScope = resolveMemoryScope(context.input.conversationId);
@@ -1652,8 +1403,7 @@ export async function executeUpdateMemory(
     const notFoundMsg = memoryScope
       ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots; if this fact lives there, save an updated copy to your own memory instead.`
       : `Error: Memory ${id} not found`;
-    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, notFoundMsg, sortOrder);
   }
 
   const proposalPayload = buildUpdateMemoryProposal({
@@ -1679,25 +1429,25 @@ export async function executeUpdateMemory(
   });
   throwIfAborted(context.input.abortSignal);
 
-  const resultMsg = buildToolResultMessage(
+  return toolCallResult(
+    context,
     toolCallId,
-    `Memory change proposed for approval: update ${id} -> ${content} [${proposalPayload.proposedMemory?.category ?? existing.category}]`
+    `Memory change proposed for approval: update ${id} -> ${content} [${proposalPayload.proposedMemory?.category ?? existing.category}]`,
+    sortOrder + 1
   );
-  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
 export async function executeDeleteMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: MemoryToolExecutionContext
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const id = String(args.id ?? "").trim();
 
   if (!id) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: id is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: id is required", sortOrder);
   }
 
   const memoryScope = resolveMemoryScope(context.input.conversationId);
@@ -1707,8 +1457,7 @@ export async function executeDeleteMemory(
     const notFoundMsg = memoryScope
       ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots.`
       : `Error: Memory ${id} not found`;
-    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, notFoundMsg, sortOrder);
   }
 
   throwIfAborted(context.input.abortSignal);
@@ -1723,23 +1472,13 @@ export async function executeDeleteMemory(
   });
   throwIfAborted(context.input.abortSignal);
 
-  const resultMsg = buildToolResultMessage(
+  return toolCallResult(
+    context,
     toolCallId,
-    `Memory change proposed for approval: delete ${id}`
+    `Memory change proposed for approval: delete ${id}`,
+    sortOrder + 1
   );
-  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
-
-type AutomationToolExecutionContext = {
-  input: {
-    settings?: RuntimeProviderProfile;
-    conversationId?: string;
-    abortSignal?: AbortSignal;
-    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-  };
-  timelineSortOrder: number;
-  promptMessages: PromptMessage[];
-};
 
 function parseAutomationScheduleArgs(args: Record<string, unknown>): {
   scheduleKind: AutomationScheduleKind;
@@ -1780,7 +1519,7 @@ function parseAutomationScheduleArgs(args: Record<string, unknown>): {
 export async function executeCreateAutomationProposal(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: AutomationToolExecutionContext
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
@@ -1789,13 +1528,11 @@ export async function executeCreateAutomationProposal(
   const continuePreviousConversation = args.continue_previous_conversation === true;
 
   if (!name) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: name is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: name is required", sortOrder);
   }
 
   if (!prompt) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: prompt is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, "Error: prompt is required", sortOrder);
   }
 
   const schedule = parseAutomationScheduleArgs(args);
@@ -1805,17 +1542,17 @@ export async function executeCreateAutomationProposal(
     assertFutureRunAt(schedule.scheduleKind, schedule.runAt);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid automation schedule";
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder);
   }
 
   const providerProfileId = context.input.settings?.id ?? "";
   if (!providerProfileId) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      "Error: no provider profile is configured for this conversation"
+      "Error: no provider profile is configured for this conversation",
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const bot = context.input.conversationId ? getBotByConversationId(context.input.conversationId) : null;
@@ -1852,33 +1589,23 @@ export async function executeCreateAutomationProposal(
       ? " It runs a single time and then deletes itself."
       : "";
 
-  const resultMsg = buildToolResultMessage(
+  return toolCallResult(
+    context,
     toolCallId,
-    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card.${onceNote} Tell the user you have proposed the automation and that they can review and approve it.`
+    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card.${onceNote} Tell the user you have proposed the automation and that they can review and approve it.`,
+    sortOrder + 1
   );
-  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
 export async function executeDraftMessage(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      mcpToolSets: ToolSet[];
-      conversationId?: string;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
-  const fail = (message: string) => ({
-    nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, buildToolResultMessage(toolCallId, `Error: ${message}`)]
-  });
+  const fail = (message: string) =>
+    toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder);
   const functionName = typeof args.tool === "string" ? args.tool.trim() : "";
   const rawArguments = args.arguments;
 
@@ -1890,7 +1617,7 @@ export async function executeDraftMessage(
     return fail("arguments must be an object with the arguments for the sending tool");
   }
 
-  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets);
+  const resolved = resolveMcpToolFunction(functionName, context.input.mcpToolSets ?? []);
   if (!resolved) {
     return fail(`${functionName} is not a connected tool. Use the exact name of a tool from your tool list, such as mcp_<server>_<tool>.`);
   }
@@ -1942,7 +1669,8 @@ export async function executeDraftMessage(
   throwIfAborted(context.input.abortSignal);
   const draftId = typeof handle === "string" && handle ? handle : null;
 
-  const resultMsg = buildToolResultMessage(
+  return toolCallResult(
+    context,
     toolCallId,
     [
       `Draft${draftId ? ` ${draftId}` : ""} is ready for the user to review, edit, and send with ${server.name}. Nothing has been sent.`,
@@ -1954,9 +1682,9 @@ export async function executeDraftMessage(
       "Tell the user the draft is ready below without repeating its full text, and never claim it was sent."
     ]
       .filter(Boolean)
-      .join(" ")
+      .join(" "),
+    sortOrder + 1
   );
-  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
 const VISION_ANALYSIS_SYSTEM_PROMPT =
@@ -1965,45 +1693,37 @@ const VISION_ANALYSIS_SYSTEM_PROMPT =
 export async function executeAnalyzeImage(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      visionProfile?: RuntimeProviderProfile;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      conversationId?: string;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
 
   const rawPaths = args.file_paths;
   if (!Array.isArray(rawPaths) || rawPaths.length === 0) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      "Error: file_paths must be a non-empty array of absolute image paths"
+      "Error: file_paths must be a non-empty array of absolute image paths",
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
   if (rawPaths.length > 10) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      "Error: file_paths accepts at most 10 image paths"
+      "Error: file_paths accepts at most 10 image paths",
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const conversationId = context.input.conversationId;
   if (!conversationId) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      "Error: conversation context is required for image analysis"
+      "Error: conversation context is required for image analysis",
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const question = typeof args.question === "string" ? args.question.trim() : "";
@@ -2015,16 +1735,16 @@ export async function executeAnalyzeImage(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid image path";
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder);
   }
 
   if (!context.input.visionProfile) {
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      "Error: vision analysis is not configured for this conversation"
+      "Error: vision analysis is not configured for this conversation",
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const detail = question || `${imageParts.length} image${imageParts.length === 1 ? "" : "s"}`;
@@ -2039,7 +1759,7 @@ export async function executeAnalyzeImage(
       ...(question ? { question } : {})
     }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const promptMessages: PromptMessage[] = [
@@ -2080,11 +1800,12 @@ export async function executeAnalyzeImage(
       resultSummary: truncateText(answer, MAX_RUNTIME_TOOL_RESULT_CHARS)
     });
 
-    const resultMsg = buildToolResultMessage(
+    return toolCallResult(
+      context,
       toolCallId,
-      truncateText(answer, MAX_RUNTIME_TOOL_RESULT_CHARS)
+      truncateText(answer, MAX_RUNTIME_TOOL_RESULT_CHARS),
+      sortOrder
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Vision analysis failed";
@@ -2099,19 +1820,7 @@ export async function executeAnalyzeImage(
 export async function executeSearchWorkspace(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    input: {
-      memoryUserId?: string | null;
-      conversationId?: string;
-      abortSignal?: AbortSignal;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-    memoryUserId?: string | null;
-  }
+  context: ToolExecutionContext
 ) {
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
@@ -2121,12 +1830,16 @@ export async function executeSearchWorkspace(
   const userId = context.input.memoryUserId ?? context.memoryUserId ?? null;
 
   if (!query) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(context, toolCallId, "Error: query is required", sortOrder, false);
   }
   if (!userId) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: workspace search is only available in owned conversations");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+    return toolCallResult(
+      context,
+      toolCallId,
+      "Error: workspace search is only available in owned conversations",
+      sortOrder,
+      false
+    );
   }
 
   const detail = query.length > 140 ? `${query.slice(0, 137)}...` : query;
@@ -2138,7 +1851,7 @@ export async function executeSearchWorkspace(
     detail,
     arguments: { query, limit }
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
+  const actionHandle = resolveActionHandle(handle);
 
   try {
     const results = await searchWorkspace({
@@ -2166,163 +1879,11 @@ export async function executeSearchWorkspace(
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, { detail, resultSummary });
-    const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: true
-    };
+    return toolCallResult(context, toolCallId, resultSummary, sortOrder, true);
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Workspace search failed";
     await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return {
-      nextSortOrder: sortOrder,
-      promptMessages: [...context.promptMessages, resultMsg],
-      toolSucceeded: false
-    };
+    return toolCallResult(context, toolCallId, `Error: ${message}`, sortOrder, false);
   }
-}
-
-export async function executeToolCall(
-  toolCall: ProviderToolCall,
-  context: {
-    input: {
-      settings?: RuntimeProviderProfile;
-      visionProfile?: RuntimeProviderProfile;
-      skills: Skill[];
-      skillWriteOrigin?: SkillWriteOrigin;
-      mcpToolSets: ToolSet[];
-      memoryUserId?: string | null;
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      appSettings?: RuntimeAppSettings;
-      mcpTimeout?: number;
-      conversationId?: string;
-      assistantMessageId?: string;
-      delegationChain?: DelegationChain;
-      abortSignal?: AbortSignal;
-      toolApproval?: ToolApprovalContext;
-    };
-    mcpServers: McpServer[];
-    loadedSkillIds: Set<string>;
-    successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-    memoryUserId?: string | null;
-  }
-): Promise<{
-  nextSortOrder: number;
-  promptMessages: PromptMessage[];
-  toolSucceeded?: boolean;
-}> {
-  const { id: toolCallId, name, arguments: argsJson } = toolCall;
-  let args: Record<string, unknown>;
-  try {
-    args = JSON.parse(argsJson);
-  } catch {
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: Invalid JSON arguments for tool ${name}`);
-    return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
-  }
-
-  if (name === "load_skill") {
-    return executeLoadSkill(toolCallId, args, context);
-  }
-
-  if (name === "skill_manage") {
-    return executeSkillManage(toolCallId, args, context);
-  }
-
-  if (name === "execute_shell_command") {
-    return executeShellCommand(toolCallId, args, context);
-  }
-
-  if (name === "run_python") {
-    return executePythonCode(toolCallId, args, context);
-  }
-
-  if (name === "request_takeover") {
-    return executeRequestTakeover(toolCallId, args, context);
-  }
-
-  if (name === "request_secret") {
-    return executeRequestSecret(toolCallId, args, context);
-  }
-
-  if (name === "list_secrets") {
-    return executeListSecrets(toolCallId, context);
-  }
-
-  if (name === "save_secret") {
-    return executeSaveSecret(toolCallId, args, context);
-  }
-
-  if (name === "message_bot") {
-    return executeMessageBot(toolCallId, args, context);
-  }
-
-  if (name === "check_bot") {
-    return executeCheckBot(toolCallId, args, context);
-  }
-
-  if (name === "create_bot") {
-    return executeCreateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_bot") {
-    return executeUpdateBotTool(toolCallId, args, context);
-  }
-
-  if (name === "update_own_instructions") {
-    return executeUpdateOwnInstructionsTool(toolCallId, args, context);
-  }
-
-  if (name === "create_memory") {
-    return executeCreateMemory(toolCallId, args, context);
-  }
-
-  if (name === "update_memory") {
-    return executeUpdateMemory(toolCallId, args, context);
-  }
-
-  if (name === "delete_memory") {
-    return executeDeleteMemory(toolCallId, args, context);
-  }
-
-  if (name === "create_automation") {
-    return executeCreateAutomationProposal(toolCallId, args, context);
-  }
-
-  if (name === "draft_message") {
-    return executeDraftMessage(toolCallId, args, context);
-  }
-
-  if (name === "web_search") {
-    return executeWebSearch(toolCallId, args, context);
-  }
-
-  if (name === "read_page") {
-    return executeReadPage(toolCallId, args, context);
-  }
-
-  if (name === "search_workspace") {
-    return executeSearchWorkspace(toolCallId, args, context);
-  }
-
-  if (name === "generate_image") {
-    return executeImageGeneration(toolCallId, args, context);
-  }
-
-  if (name === "analyze_image") {
-    return executeAnalyzeImage(toolCallId, args, context);
-  }
-
-  if (name.startsWith("mcp_")) {
-    return executeMcpToolCall(toolCallId, name, args, context);
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Unknown tool: ${name}`);
-  return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
 }

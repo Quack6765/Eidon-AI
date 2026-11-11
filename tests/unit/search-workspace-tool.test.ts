@@ -8,9 +8,10 @@ vi.mock("@/lib/semantic-index", () => ({
 }));
 
 import { createBot } from "@/lib/bots";
-import { buildToolDefinitions } from "@/lib/tool-definitions";
+import { buildToolDefinitions } from "@/lib/tool-registry";
 import { createLocalUser } from "@/lib/users";
-import { executeSearchWorkspace, executeToolCall } from "@/lib/tool-executors";
+import { executeSearchWorkspace } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
 
 function definitionInput(overrides: Partial<Parameters<typeof buildToolDefinitions>[0]> = {}) {
   return {
@@ -68,7 +69,6 @@ describe("search_workspace tool", () => {
       { id: "call_1", name: "search_workspace", arguments: JSON.stringify({ query: "backend stack", limit: 50 }) },
       {
         input: { skills: [], mcpToolSets: [], memoryUserId: "user_a", onActionStart, onActionComplete },
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: 3,

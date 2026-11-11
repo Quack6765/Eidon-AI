@@ -10,7 +10,7 @@ import {
   runWebSearchFanOut,
   runWebSearchPipeline
 } from "@/lib/web-search-pipeline";
-import { executeToolCall } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
 import type { ToolSet } from "@/lib/tool-definitions";
 import type {
   PromptMessage,
@@ -671,7 +671,6 @@ describe("executeWebSearch pipeline integration", () => {
       { id: "call_1", name: "web_search", arguments: JSON.stringify(args) },
       {
         input: context.input,
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: context.timelineSortOrder,

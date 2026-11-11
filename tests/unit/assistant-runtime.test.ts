@@ -728,7 +728,7 @@ ${JSON.stringify({
   }, 15_000);
 
   it("exposes the parallel queries tool schema while the pipeline is active", async () => {
-    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+    const { buildToolDefinitions } = await import("@/lib/tool-registry");
 
     const tools = buildToolDefinitions({
       mcpToolSets: [],
@@ -752,7 +752,7 @@ ${JSON.stringify({
   });
 
   it("keeps the legacy tool schema when the pipeline is off", async () => {
-    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+    const { buildToolDefinitions } = await import("@/lib/tool-registry");
 
     const tools = buildToolDefinitions({
       mcpToolSets: [],

@@ -4,7 +4,7 @@ import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { tokenizeShellCommand } from "@/lib/shell-tokenizer";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { getUserAllowAllTools } from "@/lib/user-preferences";
 import type {
   MessageAction,

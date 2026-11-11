@@ -1,5 +1,5 @@
 import type { ToolSet } from "@/lib/tool-definitions";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type {
   PromptMessage,
   RuntimeAppSettings,

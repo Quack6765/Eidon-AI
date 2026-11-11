@@ -90,14 +90,29 @@ copy_data_dir() {
     echo "copied: $dest_dir <- $src_dir"
 }
 
+install_deps() {
+    local package_dir="$1"
+    local install_marker="$package_dir/node_modules/.package-lock.json"
+
+    if [ -e "$install_marker" ]; then
+        echo "already installed: $package_dir/node_modules"
+        return 0
+    fi
+
+    if [ -d "$package_dir/node_modules" ]; then
+        echo "repairing incomplete install: $package_dir/node_modules"
+        rm -rf "$package_dir/node_modules"
+    fi
+
+    echo "installing dependencies: $package_dir"
+    npm ci --prefix "$package_dir"
+}
+
 echo "Setting up worktree from $SOURCE_LABEL: $SOURCE_WT"
 
 copy_file_replace "$SOURCE_WT/.env" "$WORKTREE_DIR/.env"
 copy_data_dir "$MAIN_WT/.data" "$WORKTREE_DIR/.data"
 
-if [ ! -e "$WORKTREE_DIR/node_modules" ]; then
-    echo "Installing npm dependencies..."
-    npm install --prefix "$WORKTREE_DIR"
-fi
+install_deps "$WORKTREE_DIR"
 
 echo "Worktree setup complete."

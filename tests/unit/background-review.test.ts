@@ -348,7 +348,7 @@ describe("the review turn is restricted to skill tools", () => {
   });
 
   it("still builds the skill tools for a review turn that has no bot", async () => {
-    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+    const { buildToolDefinitions } = await import("@/lib/tool-registry");
 
     // A background review runs in a scratch conversation with no bot, so the
     // usual `skillsEnabled && Boolean(bot)` gate is false and no skills are
@@ -369,7 +369,7 @@ describe("the review turn is restricted to skill tools", () => {
   });
 
   it("drops every other tool from the definition list", async () => {
-    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+    const { buildToolDefinitions } = await import("@/lib/tool-registry");
     const input = {
       mcpToolSets: [],
       skills: [{ id: "s1", name: "a-skill", description: "d", content: "c", enabled: true, createdAt: "", updatedAt: "" }],

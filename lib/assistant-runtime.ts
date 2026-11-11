@@ -17,8 +17,11 @@ import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 import { isLibrarySkillId } from "./skill-library";
-import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall, loadSkillIntoTurn } from "./tool-executors";
+import { type ToolSet, mcpToolFunctionName } from "./tool-definitions";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage } from "./tool-lifecycle";
+import { buildToolDefinitions, executeToolCall } from "./tool-registry";
+import { loadSkillIntoTurn } from "./tool-executors";
+import { getToolTraits, isProposalToolCall, toolNamesWithTrait } from "./tool-traits";
 import { findReferencedNames } from "./reference-tokens";
 import type {
   ChatStreamEvent,
@@ -34,9 +37,7 @@ import type {
 } from "@/lib/types";
 
 export type { ToolSet } from "./tool-definitions";
-export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
-export { mcpToolFunctionName, buildToolDefinitions } from "./tool-definitions";
-export { buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
+export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-lifecycle";
 export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent } from "./prompt-analysis";
 
 type Usage = {
@@ -473,15 +474,7 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>([
-    "web_search",
-    "read_page",
-    "search_workspace",
-    "analyze_image",
-    "load_skill",
-    "message_bot",
-    "check_bot"
-  ]);
+  const parallelizableToolNames = toolNamesWithTrait("parallelizable");
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -792,7 +785,6 @@ export async function resolveAssistantTurn(input: {
     const runToolCall = (toolCall: ProviderToolCall, sortOrder: number) =>
       executeToolCall(toolCall, {
         input: toolRuntimeInput,
-        mcpServers,
         loadedSkillIds,
         successfulReadOnlyToolResults,
         timelineSortOrder: sortOrder,
@@ -814,7 +806,7 @@ export async function resolveAssistantTurn(input: {
       assertRunning();
       const [firstToolCall] = group;
 
-      if (firstToolCall.name === "generate_image") {
+      if (getToolTraits(firstToolCall.name).oncePerTurn) {
         if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
           promptMessages = [
             ...promptMessages,
@@ -851,14 +843,16 @@ export async function resolveAssistantTurn(input: {
       timelineSortOrder = group.length === 1 ? results[0].nextSortOrder : baseSortOrder + group.length;
 
       const anyWebSearchSucceeded = group.some(
-        (toolCall, index) => toolCall.name === "web_search" && Boolean(results[index].toolSucceeded)
+        (toolCall, index) =>
+          getToolTraits(toolCall.name).postSuccessGuidance === "web-search" &&
+          Boolean(results[index].toolSucceeded)
       );
       if (anyWebSearchSucceeded && !webSearchDirectiveAdded && !input.research) {
         webSearchDirectiveAdded = true;
         turnGuidance.push(WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
       }
 
-      if (firstToolCall.name === "generate_image" && results[0].toolSucceeded) {
+      if (getToolTraits(firstToolCall.name).postSuccessGuidance === "image-generation" && results[0].toolSucceeded) {
         imageGenerationToolConsumed = true;
         turnGuidance.push(IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
       }

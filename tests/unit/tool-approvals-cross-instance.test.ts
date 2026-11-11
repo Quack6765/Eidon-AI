@@ -6,7 +6,7 @@ import {
   createMessageAction
 } from "@/lib/conversations";
 import type { ToolApprovalProposalPayload } from "@/lib/types";
-import type { RuntimeAction } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import { createLocalUser } from "@/lib/users";
 
 describe("tool approval waiter registry", () => {

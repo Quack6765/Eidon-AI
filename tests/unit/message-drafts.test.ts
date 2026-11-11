@@ -26,8 +26,9 @@ import {
   assertOpenApiResponse,
   assertWebSocketMessage
 } from "@/tests/fixtures/mobile-contract-validator";
-import { buildToolDefinitions } from "@/lib/tool-definitions";
-import { executeDraftMessage, isProposalToolCall } from "@/lib/tool-executors";
+import { buildToolDefinitions } from "@/lib/tool-registry";
+import { executeDraftMessage } from "@/lib/tool-executors";
+import { isProposalToolCall } from "@/lib/tool-traits";
 import { isToolActivityAction } from "@/lib/tool-activity-summary";
 import { createLocalUser } from "@/lib/users";
 import type { McpServer, McpTool, MessageAction, MessageDraftProposalPayload, PromptMessage } from "@/lib/types";

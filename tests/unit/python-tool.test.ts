@@ -6,7 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 import { executeLocalShellCommand, resolveShellWorkspaceDir, resolveToolOutputDir } from "@/lib/local-shell";
 import { approveToolApproval, createToolApprovalRules } from "@/lib/tool-approvals";
-import { executePythonCode, executeToolCall, type RuntimeAction } from "@/lib/tool-executors";
+import { executePythonCode } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type { Bot, PromptMessage, ToolApprovalProposalPayload } from "@/lib/types";
 import { createLocalUser } from "@/lib/users";
 import { createVaultEntry } from "@/lib/vault";
@@ -94,7 +96,6 @@ describe("run_python executor", () => {
       {
         ...context,
         input: { ...context.input, skills: [], mcpToolSets: [] },
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map()
       }

@@ -4,8 +4,8 @@ import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot } from "@/lib/bots";
 import { createBotRunRecord, updateBotRunStatus } from "@/lib/bot-runs";
 import { createMessage, createMessageAction, setConversationActive } from "@/lib/conversations";
-import { buildToolDefinitions } from "@/lib/tool-definitions";
-import { executeToolCall } from "@/lib/tool-executors";
+import { buildToolDefinitions } from "@/lib/tool-registry";
+import { executeToolCall } from "@/lib/tool-registry";
 import { beginTurnActivity, resetTurnActivityForTests, startTurnAction } from "@/lib/turn-activity";
 
 function toolNames(botTeam?: { isChief: boolean; roster: [] }) {

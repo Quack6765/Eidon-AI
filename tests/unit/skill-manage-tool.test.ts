@@ -15,7 +15,8 @@ import {
 } from "@/lib/skill-library";
 import { normalizeSkillOperation, SKILL_MANAGE_BATCH_MAX_OPS } from "@/lib/skill-operation";
 import { recordCreated, setPinned } from "@/lib/skill-usage";
-import { executeSkillManage, type RuntimeAction } from "@/lib/tool-executors";
+import { executeSkillManage } from "@/lib/tool-executors";
+import type { RuntimeAction } from "@/lib/tool-lifecycle";
 import type { PromptMessage, Skill } from "@/lib/types";
 
 type Ctx = ReturnType<typeof buildContext>["context"];
@@ -98,7 +99,7 @@ describe("skill_manage tool", () => {
   });
 
   it("writes the skill through the tool dispatch path", async () => {
-    const { executeToolCall } = await import("@/lib/tool-executors");
+    const { executeToolCall } = await import("@/lib/tool-registry");
     const { context } = buildContext(conversationId);
     const result = await executeToolCall(
       {

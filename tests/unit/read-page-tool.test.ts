@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
-import { executeToolCall } from "@/lib/tool-executors";
+import { executeToolCall } from "@/lib/tool-registry";
 import type { ToolSet } from "@/lib/tool-definitions";
 import type { PromptMessage, RuntimeAppSettings, RuntimeProviderProfile, Skill } from "@/lib/types";
 import { createRuntimeAppSettings, createRuntimeProviderProfile } from "@/tests/provider-fixtures";
@@ -58,7 +58,6 @@ describe("read_page tool executor", () => {
       { id: "call_1", name: "read_page", arguments: JSON.stringify(args) },
       {
         input: context.input,
-        mcpServers: [],
         loadedSkillIds: new Set(),
         successfulReadOnlyToolResults: new Map(),
         timelineSortOrder: context.timelineSortOrder,
