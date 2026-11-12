@@ -6,7 +6,6 @@ import {
   getProviderApiMode,
   resolveProviderProfileCapabilities
 } from "@/lib/provider-profile";
-import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import {
   buildOpenAIChatCompletionMessages,
@@ -14,18 +13,14 @@ import {
   buildOpenAIResponsesTools,
   createOpenAIClient
 } from "@/lib/provider-adapters/openai-message-formatting";
-import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
+import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import { getResponseText } from "@/lib/provider-response-parsing";
 import { createTextToolCallInterceptor } from "@/lib/tool-call-text-parsing";
-import {
-  createThinkingDelimiterInterceptor,
-  stripThinkingDelimiters
-} from "@/lib/thinking-delimiter-parsing";
+import { createThinkingDelimiterInterceptor } from "@/lib/thinking-delimiter-parsing";
 import type {
   ChatStreamEvent,
   ProviderProfile,
   ProviderToolCall,
-  ReasoningEffort,
   RuntimeProviderProfile
 } from "@/lib/types";
 import type {
@@ -34,7 +29,7 @@ import type {
   ProviderTextInput,
   ProviderUsage
 } from "@/lib/provider-adapters/types";
-import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
+import { adapterStream, runAdapterText } from "@/lib/provider-adapters/kit";
 import { streamOpenAIResponses } from "@/lib/provider-adapters/openai-responses-stream";
 
 function normalizeReasoningEffort(
@@ -159,65 +154,45 @@ function buildPromptCacheParameters(settings: ProviderProfile, conversationId?: 
     : {};
 }
 
-export async function callOpenAiCompatibleText(input: ProviderTextInput) {
-  const { settings } = input;
-  const profile = LOW_EFFORT_PURPOSES.has(input.purpose)
-    ? {
-        ...settings,
-        reasoningEffort: (settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,
-        reasoningSummaryEnabled: false
-      }
-    : settings;
-  const contextualPrompt = withDateContextUserMessage([{ role: "user", content: input.prompt }]);
+export function callOpenAiCompatibleText(input: ProviderTextInput) {
+  return runAdapterText(input, async (settings) => {
+    const contextualPrompt = withDateContextUserMessage([{ role: "user", content: input.prompt }]);
 
-  const client = createOpenAIClient(profile, getProviderApiKey(profile), input.conversationId);
+    const client = createOpenAIClient(settings, getProviderApiKey(settings), input.conversationId);
 
-  if (getProviderApiMode(profile) === "responses") {
-    const reasoning = buildReasoningConfig(profile);
-    const request = {
-      model: profile.model,
-      input: buildOpenAIResponsesInput(contextualPrompt),
-      max_output_tokens: Math.min(profile.maxOutputTokens, 4000),
-      reasoning,
-      ...buildRequestParameters(profile)
-    };
-    const response = input.abortSignal
-      ? await client.responses.create(request as any, { signal: input.abortSignal })
-      : await client.responses.create(request as any);
+    if (getProviderApiMode(settings) === "responses") {
+      const reasoning = buildReasoningConfig(settings);
+      const request = {
+        model: settings.model,
+        input: buildOpenAIResponsesInput(contextualPrompt),
+        max_output_tokens: Math.min(settings.maxOutputTokens, 4000),
+        reasoning,
+        ...buildRequestParameters(settings)
+      };
+      const response = input.abortSignal
+        ? await client.responses.create(request as any, { signal: input.abortSignal })
+        : await client.responses.create(request as any);
 
-    const text = stripThinkingDelimiters(normalizeLineBreaks(getResponseText(response)));
-
-    if (!text.trim()) {
-      throw new Error("Provider returned an empty response");
+      return normalizeLineBreaks(getResponseText(response));
     }
 
-    return text;
-  }
+    const request = {
+      model: settings.model,
+      messages: buildOpenAIChatCompletionMessages(contextualPrompt, settings),
+      max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
+      ...buildChatCompletionsOptions(settings),
+      ...buildRequestParameters(settings)
+    } as any;
+    const response = input.abortSignal
+      ? await client.chat.completions.create(request, { signal: input.abortSignal })
+      : await client.chat.completions.create(request);
 
-  const request = {
-    model: profile.model,
-    messages: buildOpenAIChatCompletionMessages(contextualPrompt, profile),
-    max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
-    ...buildChatCompletionsOptions(profile),
-    ...buildRequestParameters(profile)
-  } as any;
-  const response = input.abortSignal
-    ? await client.chat.completions.create(request, { signal: input.abortSignal })
-    : await client.chat.completions.create(request);
-
-  const text = stripThinkingDelimiters(
-    normalizeLineBreaks(
+    return normalizeLineBreaks(
       typeof response.choices[0]?.message?.content === "string"
         ? response.choices[0]?.message?.content
         : ""
-    )
-  );
-
-  if (!text.trim()) {
-    throw new Error("Provider returned an empty response");
-  }
-
-  return text;
+    );
+  });
 }
 
 export async function discoverOpenAiCompatibleModels(settings: RuntimeProviderProfile) {
@@ -230,12 +205,10 @@ export async function discoverOpenAiCompatibleModels(settings: RuntimeProviderPr
   }));
 }
 
-export async function* streamOpenAiCompatibleResponse(
+async function* streamOpenAiCompatibleWire(
   input: ProviderStreamInput
 ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
-  const { settings, promptMessages } = input;
-  const contextualPromptMessages = withDateContextUserMessage(withToolResultImagesAsUserMessages(promptMessages));
-  setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
+  const { settings, promptMessages: contextualPromptMessages } = input;
 
   const client = createOpenAIClient(settings, getProviderApiKey(settings), input.conversationId);
 
@@ -379,15 +352,6 @@ export async function* streamOpenAiCompatibleResponse(
   }
   answer = answerInterceptor.answer;
 
-  usage.inputTokens ||= estimatePromptTokens(contextualPromptMessages);
-
-  yield {
-    type: "usage",
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cacheReadTokens: usage.cacheReadTokens
-  };
-
   const toolCalls: ProviderToolCall[] = [];
   for (const [, call] of toolCallChunks) {
     toolCalls.push({ id: `call_${toolCalls.length}`, name: call.name, arguments: call.arguments });
@@ -397,5 +361,9 @@ export async function* streamOpenAiCompatibleResponse(
   }
 
   return { answer, thinking, toolCalls: toolCalls.length ? toolCalls : undefined, usage };
-
 }
+
+export const streamOpenAiCompatibleResponse = adapterStream(
+  { normalizePromptMessages: true, usageEvents: "kit" },
+  streamOpenAiCompatibleWire
+);

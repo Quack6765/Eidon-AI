@@ -5,7 +5,6 @@ import {
   mergeRecoveredStreamText
 } from "@/lib/provider-response-parsing";
 import { normalizeLineBreaks } from "@/lib/text-utils";
-import { estimatePromptTokens } from "@/lib/tokenization";
 import type { ProviderStreamResult, ProviderUsage } from "@/lib/provider-adapters/types";
 import type { ChatStreamEvent, PromptMessage, ProviderResponseItem } from "@/lib/types";
 
@@ -107,16 +106,6 @@ export async function* streamOpenAIResponses(input: {
   } finally {
     if (!abortController.signal.aborted) abortController.abort();
   }
-
-  usage.inputTokens ||= estimatePromptTokens(input.promptMessages);
-
-  yield {
-    type: "usage",
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    reasoningTokens: usage.reasoningTokens,
-    cacheReadTokens: usage.cacheReadTokens
-  };
 
   const toolCalls = [...pendingToolCalls].map(([id, call]) => ({
     id,

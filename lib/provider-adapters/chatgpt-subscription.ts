@@ -11,26 +11,22 @@ import {
 } from "@/lib/chatgpt-subscription";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { providerHttpOptions } from "@/lib/provider-http";
-import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
 import { ensureFreshOAuthAccessToken } from "@/lib/provider-oauth-refresh";
 import {
   buildOpenAIResponsesInput,
   buildOpenAIResponsesTools
 } from "@/lib/provider-adapters/openai-message-formatting";
 import { streamOpenAIResponses } from "@/lib/provider-adapters/openai-responses-stream";
-import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
+import { adapterStream, runAdapterText } from "@/lib/provider-adapters/kit";
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
   ProviderTextInput
 } from "@/lib/provider-adapters/types";
-import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import { normalizeLineBreaks } from "@/lib/text-utils";
-import { setActiveTokenizer } from "@/lib/tokenization";
 import type {
   ChatStreamEvent,
   PromptMessage,
-  ReasoningEffort,
   RuntimeProviderProfile
 } from "@/lib/types";
 
@@ -85,13 +81,11 @@ function buildChatgptReasoning(settings: RuntimeProviderProfile) {
   };
 }
 
-export async function* streamChatgptSubscriptionResponse(
+async function* streamChatgptSubscriptionWire(
   input: ProviderStreamInput
 ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const settings = await ensureFreshChatgptAccessToken(input.settings, input.abortSignal);
-  setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
-  const promptMessages = withDateContextUserMessage(withToolResultImagesAsUserMessages(input.promptMessages));
-  const { instructions, input: responsesInput } = buildChatgptInput(promptMessages);
+  const { instructions, input: responsesInput } = buildChatgptInput(input.promptMessages);
 
   return yield* streamOpenAIResponses({
     client: createChatgptClient(settings, input.conversationId),
@@ -107,31 +101,29 @@ export async function* streamChatgptSubscriptionResponse(
         ? { tools: buildOpenAIResponsesTools(input.tools), tool_choice: "auto" }
         : {})
     },
-    promptMessages,
+    promptMessages: input.promptMessages,
     abortSignal: input.abortSignal
   });
 }
 
-export async function callChatgptSubscriptionText(input: ProviderTextInput) {
-  const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
-    ? {
-        ...input.settings,
-        reasoningEffort: (input.settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,
-        reasoningSummaryEnabled: false
-      }
-    : input.settings;
-  const stream = streamChatgptSubscriptionResponse({
-    settings,
-    promptMessages: [{ role: "user", content: input.prompt }],
-    abortSignal: input.abortSignal,
-    conversationId: input.conversationId
-  });
-  let step = await stream.next();
-  while (!step.done) step = await stream.next();
+export const streamChatgptSubscriptionResponse = adapterStream(
+  { normalizePromptMessages: true, usageEvents: "kit" },
+  streamChatgptSubscriptionWire
+);
 
-  const text = stripThinkingDelimiters(normalizeLineBreaks(step.value.answer));
-  if (!text.trim()) throw new Error("Provider returned an empty response");
-  return text;
+export function callChatgptSubscriptionText(input: ProviderTextInput) {
+  return runAdapterText(input, async (settings) => {
+    const stream = streamChatgptSubscriptionResponse({
+      settings,
+      promptMessages: [{ role: "user", content: input.prompt }],
+      abortSignal: input.abortSignal,
+      conversationId: input.conversationId
+    });
+    let step = await stream.next();
+    while (!step.done) step = await stream.next();
+
+    return normalizeLineBreaks(step.value.answer);
+  });
 }
 
 export async function discoverChatgptSubscriptionModels(profile: RuntimeProviderProfile) {
