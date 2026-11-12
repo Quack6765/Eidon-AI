@@ -1,6 +1,6 @@
 import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
+import { publishConversationEvent } from "@/lib/conversation-event-bus";
 import { getMessage } from "@/lib/conversations";
-import { getConversationManager } from "@/lib/ws-singleton";
 import type { MessageAction } from "@/lib/types";
 
 export function broadcastActionUpdate(action: MessageAction) {
@@ -8,8 +8,5 @@ export function broadcastActionUpdate(action: MessageAction) {
   const conversationId = getMessage(action.messageId)?.conversationId;
   if (!conversationId) return;
   const event = { type: "action_complete" as const, action };
-  getConversationManager().broadcast(conversationId, { type: "delta", conversationId, event });
-  void import("@/lib/turn-session")
-    .then(({ getChatEmitter }) => getChatEmitter().emit("delta", conversationId, event))
-    .catch(() => undefined);
+  publishConversationEvent({ kind: "delta", conversationId, event });
 }
