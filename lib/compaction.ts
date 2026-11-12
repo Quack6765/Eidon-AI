@@ -1,16 +1,10 @@
-import { appendDeliveredFileLinks } from "@/lib/assistant-local-attachments";
-import { MAX_ATTACHMENT_TEXT_RATIO, MAX_BASELINE_IMAGES, MAX_PROMPT_IMAGES } from "@/lib/constants";
-import { listMemoriesForPrompt } from "@/lib/memories";
+import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
-import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
-import { buildAutomationProposalGuidance } from "@/lib/automation-guidance";
-import { env } from "@/lib/env";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
   getConversation,
   getConversationOwnerId,
-  isVisibleMessage,
   listMessages
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
@@ -20,28 +14,20 @@ import {
   extractOpenTasks,
   selectCompactionMemoryNodes
 } from "@/lib/compaction-summary";
-import {
-  groupCompletedTurns,
-  isEmptyStreamingAssistantPlaceholder,
-  renderCompletedTurns
-} from "@/lib/compaction-turns";
-import { buildToolResultMessage } from "@/lib/tool-lifecycle";
-import { describeMessageDraftForPrompt } from "@/lib/message-draft-display";
+import { groupCompletedTurns, renderCompletedTurns } from "@/lib/compaction-turns";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { computeCompactionLimit, estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
 import { getVisibleConversationMessages, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
-import { buildSummaryPrompt, summarizeBlocks, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
+import { buildSummaryPrompt, summarizeBlocks } from "./compaction-prompt-building";
+import { buildPromptMessages } from "@/lib/prompt-assembly";
 import type {
   EnsureCompactedContextResult,
-  MessageAction,
   MemoryNode,
   MemoryRigor,
   Message,
-  MessageAttachment,
   PromptMessage,
   RuntimeProviderProfile,
-  ProviderToolCall,
   UserMemory
 } from "@/lib/types";
 
@@ -216,209 +202,6 @@ async function condenseMemoryNodes(
     });
     created = true;
   }
-}
-
-export const MAX_TOOL_RESULT_CHARS = 8000;
-const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command", "image_generation"]);
-
-function collectReplayableActions(actions: MessageAction[] | undefined): MessageAction[] {
-  return (actions ?? [])
-    .filter(
-      (action) =>
-        action.kind === "draft_message" ||
-        (REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
-          action.status === "completed" &&
-          action.resultSummary.trim().length > 0)
-    )
-    .sort((a, b) => a.sortOrder - b.sortOrder);
-}
-
-function getReplayedToolResult(action: MessageAction) {
-  return action.kind === "draft_message" ? describeMessageDraftForPrompt(action) : action.resultSummary;
-}
-
-function toProviderToolCall(action: MessageAction): ProviderToolCall {
-  return {
-    id: action.id,
-    name: action.toolName ??
-      (action.kind === "shell_command"
-        ? "execute_shell_command"
-        : action.kind === "image_generation"
-          ? "generate_image"
-          : action.label),
-    arguments: JSON.stringify(action.arguments ?? {})
-  };
-}
-
-function truncateToolResult(text: string): string {
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
-  return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n[…truncated]`;
-}
-
-function getStoredAssistantImageAttachments(
-  conversationId: string,
-  conversationMessages?: Message[]
-): MessageAttachment[] {
-  try {
-    const messages = conversationMessages ?? listMessages(conversationId);
-    return getMostRecentAssistantImageAttachments(messages, getLatestUserMessageIndex(messages));
-  } catch {
-    return [];
-  }
-}
-
-function resolveBaselineImages(
-  input: { messages: Message[]; conversationId?: string; conversationMessages?: Message[] },
-  latestUserMessageIndex: number
-): MessageAttachment[] {
-  const fromPrompt = getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex);
-  const baseline = fromPrompt.length
-    ? fromPrompt
-    : input.conversationId
-      ? getStoredAssistantImageAttachments(input.conversationId, input.conversationMessages)
-      : [];
-  return baseline.slice(0, MAX_BASELINE_IMAGES);
-}
-
-function selectPromptImageIds(
-  messages: Message[],
-  baselineImages: MessageAttachment[]
-): Set<string> {
-  const included = new Set<string>(baselineImages.map((attachment) => attachment.id));
-
-  for (let index = messages.length - 1; index >= 0 && included.size < MAX_PROMPT_IMAGES; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "user") continue;
-
-    for (const attachment of message.attachments ?? []) {
-      if (attachment.kind !== "image") continue;
-      included.add(attachment.id);
-      if (included.size >= MAX_PROMPT_IMAGES) break;
-    }
-  }
-
-  return included;
-}
-
-export function buildPromptMessages(input: {
-  systemPrompt: string;
-  personaContent?: string;
-  conversationId?: string;
-  messages: Message[];
-  conversationMessages?: Message[];
-  activeMemoryNodes: MemoryNode[];
-  userInput?: string;
-  maxAttachmentTextTokens?: number;
-  memoriesEnabled?: boolean;
-  memoryUserId?: string | null;
-  memoryBotId?: string | null;
-  memoriesRigor?: MemoryRigor;
-  selectedMemories?: UserMemory[];
-}): PromptMessage[] {
-  const remainingAttachmentTextTokens = {
-    value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
-  };
-
-  const systemParts: string[] = [input.systemPrompt];
-  let recalledMemoriesBlock = "";
-
-  if (input.personaContent?.trim()) {
-    systemParts.push(input.personaContent.trim());
-  }
-
-  if (input.memoriesEnabled) {
-    const memories = input.selectedMemories ?? (input.memoryUserId
-      ? listMemoriesForPrompt(input.memoryUserId, input.memoryBotId ? { botId: input.memoryBotId } : undefined)
-      : []);
-    if (memories.length > 0) {
-      recalledMemoriesBlock =
-        "<memory>\n" +
-        memories.map((m) => `${m.id}: [${m.category}] ${m.content}`).join("\n") +
-        "\n</memory>";
-    }
-    systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
-  }
-
-  systemParts.push(buildAutomationProposalGuidance(env.TZ));
-
-  if (input.activeMemoryNodes.length) {
-    systemParts.push(
-      "## Compacted Memory\n" + input.activeMemoryNodes
-        .map((node) => renderMemoryNode(node.content))
-        .join("\n\n")
-    );
-  }
-
-  const visibleSystemMessages = input.messages.filter(
-    (m) => m.role === "system" && m.systemKind !== "compaction_notice" && isVisibleMessage(m)
-  );
-  for (const msg of visibleSystemMessages) {
-    systemParts.push(msg.content);
-  }
-
-  const promptMessages: PromptMessage[] = [
-    { role: "system", content: systemParts.join("\n\n") }
-  ];
-  const latestUserMessageIndex = getLatestUserMessageIndex(input.messages);
-  const baselineImages = resolveBaselineImages(input, latestUserMessageIndex);
-  const includedImageIds = selectPromptImageIds(input.messages, baselineImages);
-
-  input.messages.forEach((message, index) => {
-    if (message.role === "system") return;
-
-    if (message.role === "assistant") {
-      if (message.status === "error" || isEmptyStreamingAssistantPlaceholder(message)) {
-        return;
-      }
-
-      const replayableActions = collectReplayableActions(message.actions);
-      const content = appendDeliveredFileLinks(message.content, message.attachments);
-
-      if (!content.trim() && replayableActions.length === 0) {
-        return;
-      }
-
-      promptMessages.push({
-        role: "assistant",
-        content,
-        ...(replayableActions.length
-          ? { toolCalls: replayableActions.map(toProviderToolCall) }
-          : {})
-      });
-
-      for (const action of replayableActions) {
-        promptMessages.push(
-          buildToolResultMessage(action.id, truncateToolResult(getReplayedToolResult(action)))
-        );
-      }
-      return;
-    }
-
-    promptMessages.push({
-      role: "user",
-      content: buildUserPromptContent(
-        message,
-        remainingAttachmentTextTokens,
-        {
-          baselineImages: index === latestUserMessageIndex ? baselineImages : [],
-          includedImageIds
-        }
-      )
-    });
-  });
-
-  if (input.userInput) {
-    promptMessages.push({
-      role: "user",
-      content: input.userInput
-    });
-  }
-
-  if (recalledMemoriesBlock) {
-    promptMessages.push({ role: "system", content: recalledMemoriesBlock });
-  }
-
-  return promptMessages;
 }
 
 function computeFirstPassContext(

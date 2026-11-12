@@ -10,7 +10,8 @@ vi.mock("@/lib/provider", () => ({
   callProviderText: vi.fn(async () => "- summary")
 }));
 
-import { buildPromptMessages, ensureCompactedContext } from "@/lib/compaction";
+import { ensureCompactedContext } from "@/lib/compaction";
+import { buildPromptMessages } from "@/lib/prompt-assembly";
 import { createConversation, createMessage } from "@/lib/conversations";
 import { createMemory } from "@/lib/memories";
 import type { UserMemory } from "@/lib/types";

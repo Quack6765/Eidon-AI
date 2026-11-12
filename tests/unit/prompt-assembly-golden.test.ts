@@ -224,7 +224,9 @@ function visionProfile(): RuntimeProviderProfile {
   });
 }
 
-async function runScenario(name: string, responses: ScriptedResponse[], input: Record<string, unknown>) {
+type AssistantTurnInput = Parameters<(typeof import("@/lib/assistant-runtime"))["resolveAssistantTurn"]>[0];
+
+async function runScenario(name: string, responses: ScriptedResponse[], input: AssistantTurnInput) {
   const recorded: PromptMessage[][] = [];
   const queue = [...responses];
   streamProviderResponse.mockImplementation((call: { promptMessages: PromptMessage[] }) => {
@@ -235,14 +237,7 @@ async function runScenario(name: string, responses: ScriptedResponse[], input: R
   });
 
   const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-  await resolveAssistantTurn({
-    onEvent: () => {},
-    onActionStart: () => "act_golden",
-    onActionComplete: () => {},
-    mcpToolSets: [],
-    skills: [],
-    ...input
-  });
+  await resolveAssistantTurn(input);
 
   expect(streamProviderResponse).toHaveBeenCalledTimes(responses.length);
   expectGolden(name, recorded);
@@ -330,7 +325,9 @@ ${JSON.stringify({
   it("matches the golden capture for a plain chat turn", async () => {
     await runScenario("plain-chat", [{ answer: "It is rainy." }], {
       settings: createSettings(),
-      promptMessages: [{ role: "user", content: "What's the weather in Montreal right now?" }]
+      promptMessages: [{ role: "user", content: "What's the weather in Montreal right now?" }],
+      skills: [],
+      mcpToolSets: []
     });
   });
 
@@ -339,6 +336,7 @@ ${JSON.stringify({
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Use /release notes for the v2 launch, then ask @Writer to polish it." }],
       skills: [createSkill()],
+      mcpToolSets: [],
       skillManageEnabled: true,
       botTeam: { isChief: false, roster },
       appSettings: createAppSettings({
@@ -368,6 +366,7 @@ ${JSON.stringify({
         { server: mcpServer({ id: "mcp_composio", slug: "composio", name: "Composio", url: "https://connect.composio.dev/mcp" }), tools: [], authRequired: true }
       ],
       memoriesEnabled: true,
+      skills: [],
       appSettings: createAppSettings({
         webSearch: {
           providerId: "searxng",
@@ -386,6 +385,7 @@ ${JSON.stringify({
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Draft the launch post" }],
       skills: [createSkill()],
+      mcpToolSets: [],
       botTeam: { isChief: true, roster },
       appSettings: createAppSettings({ skillsEnabled: true, maxAssistantToolSteps: 4 }),
       takeRedirect: async () => redirects.shift() ?? null
@@ -403,6 +403,7 @@ ${JSON.stringify({
     await runScenario("vision-mcp", [{ answer: "I inspected the image." }], {
       settings: { ...createSettings(), visionMode: "mcp" as const },
       promptMessages: [imageMessage()],
+      skills: [],
       mcpToolSets: [{ server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] }],
       visionMcpServers: [visionServer]
     });
@@ -412,7 +413,9 @@ ${JSON.stringify({
     await runScenario("vision-provider", [{ answer: "Analyzed." }], {
       settings: { ...createSettings(), visionMode: "provider" as const, visionProviderProfileId: "profile_vision" },
       visionProfile: visionProfile(),
-      promptMessages: [imageMessage()]
+      promptMessages: [imageMessage()],
+      skills: [],
+      mcpToolSets: []
     });
   });
 
@@ -427,6 +430,7 @@ ${JSON.stringify({
     await runScenario("vision-native", [{ answer: "A shopping cart icon." }], {
       settings: { ...createSettings(), visionMode: "native" as const },
       promptMessages: [imageMessage()],
+      skills: [],
       mcpToolSets: [
         { server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] },
         { server: plainServer, tools: [{ name: "do_thing", description: "do", inputSchema: { type: "object", properties: {} } }] }
@@ -442,6 +446,8 @@ ${JSON.stringify({
     ], {
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "news?" }],
+      skills: [],
+      mcpToolSets: [],
       appSettings: createAppSettings({
         webSearch: {
           providerId: "searxng",
@@ -460,6 +466,8 @@ ${JSON.stringify({
     ], {
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
+      skills: [],
+      mcpToolSets: [],
       appSettings: createAppSettings(),
       conversationId: "conv_golden_image",
       assistantMessageId: "msg_golden_image"
@@ -473,6 +481,8 @@ ${JSON.stringify({
     ], {
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Compare EU heat pump subsidies" }],
+      skills: [],
+      mcpToolSets: [],
       appSettings: createAppSettings({
         skillsEnabled: true,
         webSearch: {
@@ -506,13 +516,15 @@ ${JSON.stringify({
       { answer: "Connected.", usage: { inputTokens: 3 } }
     ], {
       settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Reply with connected." }]
+      promptMessages: [{ role: "user", content: "Reply with connected." }],
+      skills: [],
+      mcpToolSets: []
     });
   });
 
   it("matches the golden capture for the conversation base prompt with persona, memories, and compacted history", async () => {
     vi.stubEnv("TZ", "UTC");
-    const { buildPromptMessages } = await import("@/lib/compaction");
+    const { buildPromptMessages } = await import("@/lib/prompt-assembly");
     const createdAt = "2026-04-10T10:00:00.000Z";
     const prompt = buildPromptMessages({
       systemPrompt: "Stay concise.",
@@ -642,7 +654,7 @@ ${JSON.stringify({
       memoriesRigor: "high",
       memoryUserId: "user_golden",
       selectedMemories: [
-        { id: "mem_tea", userId: "user_golden", content: "Likes tea", category: "work" as const, createdAt, updatedAt: createdAt }
+        { id: "mem_tea", content: "Likes tea", category: "work" as const, pinned: false, createdAt, updatedAt: createdAt }
       ]
     });
     expectGolden("conversation-base", prompt);

@@ -71,7 +71,7 @@ describe("bot-scoped memories", () => {
   });
 
   it("builds bot prompts with main + bot memories merged", async () => {
-    const { buildPromptMessages } = await import("@/lib/compaction");
+    const { buildPromptMessages } = await import("@/lib/prompt-assembly");
     const user = await makeUser("memscope5");
     const bot = createBot({ name: "Prompt Build" }, user.id);
 
