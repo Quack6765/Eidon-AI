@@ -4,7 +4,6 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { forkConversationFromMessage } from "@/lib/conversations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
-import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
   messageId: z.string().min(1)
@@ -20,22 +19,6 @@ export async function POST(
 
   try {
     const { conversation, draft } = forkConversationFromMessage(params.messageId, user.id);
-
-    try {
-      getConversationManager().broadcastAll({
-        type: "conversation_created",
-        conversation: {
-          id: conversation.id,
-          title: conversation.title,
-          folderId: conversation.folderId,
-          createdAt: conversation.createdAt,
-          updatedAt: conversation.updatedAt,
-          isActive: conversation.isActive,
-          isTemporary: conversation.isTemporary
-        }
-      }, user.id);
-    } catch {}
-
     return ok({ conversation, draft }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {

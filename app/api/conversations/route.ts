@@ -5,12 +5,12 @@ import {
   createConversation,
   DEFAULT_CONVERSATION_PAGE_SIZE,
   listConversationsPage,
+  publishConversationCreated,
   reorderConversations
 } from "@/lib/conversations";
 import { getFolder } from "@/lib/folders";
 import { badRequest, ok } from "@/lib/http";
 import { getSelectableProviderProfile } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-singleton";
 
 const listSchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -71,20 +71,7 @@ export async function POST(request: Request) {
     isTemporary: body.success ? body.data.isTemporary : undefined
   }, user.id);
 
-  try {
-    getConversationManager().broadcastAll({
-      type: "conversation_created",
-      conversation: {
-        id: conversation.id,
-        title: conversation.title,
-        folderId: conversation.folderId,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        isActive: conversation.isActive,
-        isTemporary: conversation.isTemporary
-      }
-    }, user.id);
-  } catch { /* WS server may not be running */ }
+  publishConversationCreated(conversation, user.id);
 
   return ok({ conversation }, { status: 201 });
 }
