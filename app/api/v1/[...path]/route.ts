@@ -12,6 +12,7 @@ import {
   deleteQueuedMessage,
   getConversationSnapshot,
   listQueuedMessages,
+  publishQueueUpdated,
   reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
@@ -24,7 +25,6 @@ import {
   mobileApiError,
   normalizeMobileApiResponse
 } from "@/lib/mobile-api";
-import { getConversationManager } from "@/lib/ws-singleton";
 
 function matchPattern(pattern: string[], path: string[]) {
   if (pattern.length !== path.length) return null;
@@ -41,14 +41,6 @@ function matchPattern(pattern: string[], path: string[]) {
   }
 
   return params;
-}
-
-function broadcastQueue(conversationId: string) {
-  getConversationManager().broadcast(conversationId, {
-    type: "queue_updated",
-    conversationId,
-    queuedMessages: listQueuedMessages(conversationId)
-  });
 }
 
 async function readJsonBody(request: Request): Promise<{ payload: unknown; error?: Response }> {
@@ -99,7 +91,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
         content: body.content,
         mode: body.mode
       });
-      broadcastQueue(conversationId);
+      publishQueueUpdated(conversationId);
       return Response.json({ queuedMessage }, { status: 201 });
     }
   }
@@ -115,7 +107,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
     ) {
       return Response.json({ error: "Invalid queue order" }, { status: 400 });
     }
-    broadcastQueue(conversationId);
+    publishQueueUpdated(conversationId);
     return Response.json({ queuedMessages: listQueuedMessages(conversationId) });
   }
 
@@ -130,14 +122,14 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
       }
       const queuedMessage = updateQueuedMessage({ conversationId, queuedMessageId, content: body.content });
       if (!queuedMessage) return Response.json({ error: "Queued message not found" }, { status: 404 });
-      broadcastQueue(conversationId);
+      publishQueueUpdated(conversationId);
       return Response.json({ queuedMessage });
     }
     if (request.method === "DELETE") {
       if (!deleteQueuedMessage({ conversationId, queuedMessageId })) {
         return Response.json({ error: "Queued message not found" }, { status: 404 });
       }
-      broadcastQueue(conversationId);
+      publishQueueUpdated(conversationId);
       return Response.json({ success: true });
     }
   }
@@ -151,7 +143,7 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
     if (!sendQueuedMessageNow({ conversationId, queuedMessageId })) {
       return Response.json({ error: "Queued message not found" }, { status: 404 });
     }
-    broadcastQueue(conversationId);
+    publishQueueUpdated(conversationId);
     return Response.json({ success: true });
   }
 

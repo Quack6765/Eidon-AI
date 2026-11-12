@@ -15,6 +15,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/conversations", () => {
   const getConversationSnapshot = vi.fn();
+  const listQueuedMessages = vi.fn();
   return {
     getConversationSnapshot,
     getConversation: vi.fn((...args: unknown[]) =>
@@ -24,7 +25,25 @@ vi.mock("@/lib/conversations", () => {
     getMessage: vi.fn(),
     listActiveConversations: vi.fn(),
     createQueuedMessage: vi.fn(),
-    listQueuedMessages: vi.fn(),
+    listQueuedMessages,
+    publishQueueUpdated: vi.fn((conversationId: string, manager?: { broadcast: ReturnType<typeof vi.fn> }) => {
+      manager?.broadcast(conversationId, {
+        type: "queue_updated",
+        conversationId,
+        queuedMessages: listQueuedMessages(conversationId)
+      });
+    }),
+    publishUserMessagePersisted: vi.fn((
+      conversationId: string,
+      message: unknown,
+      manager?: { broadcast: ReturnType<typeof vi.fn> }
+    ) => {
+      manager?.broadcast(conversationId, {
+        type: "user_message_persisted",
+        conversationId,
+        message
+      });
+    }),
     updateQueuedMessage: vi.fn(),
     deleteQueuedMessage: vi.fn(),
     moveQueuedMessageToFront: vi.fn(),

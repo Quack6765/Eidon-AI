@@ -51,6 +51,7 @@ import { nowIso } from "@/lib/utils";
 
 export {
   listQueuedMessages,
+  publishQueueUpdated,
   createQueuedMessage,
   updateQueuedMessage,
   deleteQueuedMessage,
@@ -63,8 +64,63 @@ export {
   claimQueuedRedirectMessage
 } from "@/lib/conversation-queued-messages";
 import { listQueuedMessages } from "@/lib/conversation-queued-messages";
+import { publishConversationEvent } from "@/lib/conversation-event-bus";
+import type { ConversationManager } from "@/lib/conversation-manager";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
+
+export function publishUserMessagePersisted(
+  conversationId: string,
+  message: Message,
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: { type: "user_message_persisted", conversationId, message }
+    },
+    manager
+  );
+}
+
+export function publishMessagesDeleted(
+  conversationId: string,
+  messageIds: string[],
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: { type: "messages_deleted", conversationId, messageIds }
+    },
+    manager
+  );
+}
+
+export function publishContextUsage(
+  conversationId: string,
+  usage: { contextTokens?: number | null; compactionLimit: number },
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: {
+        type: "delta",
+        conversationId,
+        event: {
+          type: "context_usage",
+          contextTokens: usage.contextTokens ?? 0,
+          compactionLimit: usage.compactionLimit
+        }
+      }
+    },
+    manager
+  );
+}
 
 const MANUAL_CONVERSATION_ORIGIN: ConversationOrigin = "manual";
 

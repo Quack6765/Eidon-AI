@@ -9,6 +9,7 @@ import {
   deleteConversation,
   getConversation,
   listMessageActionsForMessageIds,
+  publishQueueUpdated,
   renameConversation,
   updateConversationProviderProfile
 } from "@/lib/conversations";
@@ -480,11 +481,7 @@ export async function clearBotContext(botId: string, userId?: string): Promise<B
   const { stopBotWork } = await import("@/lib/bot-runs");
   const manager = getConversationManager();
   getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(bot.homeConversationId);
-  manager.broadcast(bot.homeConversationId, {
-    type: "queue_updated",
-    conversationId: bot.homeConversationId,
-    queuedMessages: []
-  });
+  publishQueueUpdated(bot.homeConversationId, manager);
 
   stopBotWork(bot);
 

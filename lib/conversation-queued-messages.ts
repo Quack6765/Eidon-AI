@@ -1,3 +1,5 @@
+import { publishConversationEvent } from "@/lib/conversation-event-bus";
+import type { ConversationManager } from "@/lib/conversation-manager";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import type {
@@ -65,6 +67,21 @@ export function listQueuedMessages(conversationId: string) {
   }>;
 
   return rows.map(rowToQueuedMessage);
+}
+
+export function publishQueueUpdated(conversationId: string, manager?: ConversationManager | null) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: {
+        type: "queue_updated",
+        conversationId,
+        queuedMessages: listQueuedMessages(conversationId)
+      }
+    },
+    manager
+  );
 }
 
 export function createQueuedMessage({

@@ -5,9 +5,9 @@ import {
   failQueuedMessage,
   getConversation,
   getConversationOwnerId,
-  listQueuedMessages,
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
+  publishQueueUpdated,
   requeueQueuedMessage
 } from "@/lib/conversations";
 import { getGlobalPreferences } from "@/lib/global-preferences";
@@ -21,14 +21,6 @@ const dispatchLocks = new Set<string>();
 
 function isBusyTurnFailure(errorMessage: string | undefined) {
   return /already has an active/i.test(errorMessage ?? "");
-}
-
-function broadcastQueueUpdated(manager: ConversationManager, conversationId: string) {
-  manager.broadcast(conversationId, {
-    type: "queue_updated",
-    conversationId,
-    queuedMessages: listQueuedMessages(conversationId)
-  });
 }
 
 function resolveFollowUpBehavior(conversationId: string): FollowUpBehavior {
@@ -83,7 +75,7 @@ export async function ensureQueuedDispatch({
       if (!manager.isActive(conversationId)) {
         const recoveredCount = markOrphanedQueuedMessagesFailed(conversationId);
         if (recoveredCount > 0) {
-          broadcastQueueUpdated(manager, conversationId);
+          publishQueueUpdated(conversationId, manager);
         }
       }
 
@@ -91,7 +83,7 @@ export async function ensureQueuedDispatch({
       if (!queued) {
         return;
       }
-      broadcastQueueUpdated(manager, conversationId);
+      publishQueueUpdated(conversationId, manager);
 
       let messagesCreated = false;
       const result = await startChatTurn(
@@ -109,7 +101,7 @@ export async function ensureQueuedDispatch({
               conversationId,
               queuedMessageId: queued.id
             });
-            broadcastQueueUpdated(manager, conversationId);
+            publishQueueUpdated(conversationId, manager);
           }
         }
       );
@@ -120,7 +112,7 @@ export async function ensureQueuedDispatch({
             conversationId,
             queuedMessageId: queued.id
           });
-          broadcastQueueUpdated(manager, conversationId);
+          publishQueueUpdated(conversationId, manager);
           return;
         }
         failQueuedMessage({
@@ -128,7 +120,7 @@ export async function ensureQueuedDispatch({
           queuedMessageId: queued.id,
           failureMessage: result.errorMessage ?? "Unable to dispatch queued follow-up"
         });
-        broadcastQueueUpdated(manager, conversationId);
+        publishQueueUpdated(conversationId, manager);
       }
     }
   } finally {

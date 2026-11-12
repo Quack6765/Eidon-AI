@@ -18,7 +18,8 @@ import {
   getConversationSnapshot,
   getMessage,
   getConversationOwnerId,
-  listQueuedMessages,
+  publishQueueUpdated,
+  publishUserMessagePersisted,
   setConversationActive,
   updateMessage,
   updateMessageAction
@@ -367,18 +368,7 @@ async function runClaimedTurn(
       const queued = claimQueuedRedirectMessage(conversationId, control.redirectIds);
       if (!queued) return null;
       control.redirectIds.delete(queued.id);
-      publishConversationEvent(
-        {
-          kind: "room",
-          conversationId,
-          message: {
-            type: "queue_updated",
-            conversationId,
-            queuedMessages: listQueuedMessages(conversationId)
-          }
-        },
-        manager
-      );
+      publishQueueUpdated(conversationId, manager);
 
       await flushAnswerBuffer();
       const content = await contentPersistence.finalize("");
@@ -393,10 +383,7 @@ async function runClaimedTurn(
       const next = createChatTurnMessages({ conversationId, content: queued.content, attachmentIds: [] });
       const userMessage = getMessage(next.userMessage.id);
       if (userMessage) {
-        publishConversationEvent(
-          { kind: "room", conversationId, message: { type: "user_message_persisted", conversationId, message: userMessage } },
-          manager
-        );
+        publishUserMessagePersisted(conversationId, userMessage, manager);
       }
       options?.onMessagesCreated?.({ userMessageId: next.userMessage.id, assistantMessageId: next.assistantMessage.id });
 
