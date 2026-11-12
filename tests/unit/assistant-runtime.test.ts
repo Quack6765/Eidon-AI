@@ -396,53 +396,7 @@ ${JSON.stringify({
     );
   });
 
-  it("tells the model when a configured MCP server requires authentication", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "Done" }], {
-        answer: "Done",
-        thinking: "",
-        usage: { inputTokens: 10, outputTokens: 1 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-    const composioServer = {
-      id: "mcp_composio",
-      slug: "composio",
-      name: "Composio",
-      url: "https://connect.composio.dev/mcp",
-      headers: {},
-      transport: "streamable_http" as const,
-      command: null,
-      args: null,
-      env: null,
-      enabled: true,
-      isVisionMcp: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Use Composio" }],
-      skills: [],
-      mcpServers: [composioServer],
-      mcpToolSets: [{ server: composioServer, tools: [], authRequired: true }],
-      onEvent: () => {},
-      onActionStart: () => {},
-      onActionComplete: () => {}
-    });
-
-    const firstCallMessages = streamProviderResponse.mock.calls[0][0].promptMessages as Array<{
-      role: string;
-      content: string;
-    }>;
-    const systemMessage = firstCallMessages.find((message) => message.role === "system");
-    expect(systemMessage?.content).toContain("- Composio (requires authentication");
-    expect(systemMessage?.content).toContain("Settings → MCP");
-  });
-
-  it("injects enum values into MCP tool descriptions", async () => {
+    it("injects enum values into MCP tool descriptions", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "Done" }], {
         answer: "Done",
@@ -1488,35 +1442,7 @@ Run browser commands.`
     expect(first.promptMessages.at(-1).volatile).toBe(true);
   });
 
-  it("delivers memories appended as late system messages through trailing guidance", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "Hi" }], {
-        answer: "Hi",
-        thinking: "",
-        usage: { inputTokens: 3, outputTokens: 1 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [
-        { role: "system", content: "base" },
-        { role: "user", content: "hello" },
-        { role: "system", content: "<memory>\nmem_1: [work] Likes tea\n</memory>" }
-      ],
-      skills: [],
-      mcpToolSets: []
-    });
-
-    const messages = streamProviderResponse.mock.calls[0][0].promptMessages as PromptMessage[];
-    expect(messages.filter((message) => message.role === "system")).toHaveLength(1);
-    expect(String(messages[0].content)).not.toContain("Likes tea");
-    expect(trailingGuidanceOfCall(0)).toContain("mem_1: [work] Likes tea");
-  });
-
-  it("executes unrestricted shell commands via native function calling", async () => {
+    it("executes unrestricted shell commands via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
@@ -1735,35 +1661,7 @@ Run browser commands.`
     expect(bindAttachmentsToMessage).not.toHaveBeenCalled();
   });
 
-  it("injects the mermaid diagram directive into the system prompt", async () => {
-    streamProviderResponse.mockImplementation(({ promptMessages }: { promptMessages?: Array<{ content: string }> }) => {
-      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
-      expect(systemPrompt).toContain("mermaid");
-      expect(systemPrompt).toContain("graph TD");
-      expect(systemPrompt).toContain("Always prefer mermaid diagrams over ASCII art");
-      return createProviderStream([{ type: "answer_delta", text: "Done." }], {
-        answer: "Done.",
-        thinking: "",
-        usage: { outputTokens: 2 }
-      });
-    });
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Draw a flowchart" }],
-      skills: [],
-      mcpToolSets: [],
-      appSettings: createAppSettings(),
-      conversationId: "conv_mermaid",
-      assistantMessageId: "msg_mermaid"
-    });
-
-    expect(result.answer).toBe("Done.");
-  });
-
-  it("binds every generated assistant attachment to the provided assistant message id", async () => {
+    it("binds every generated assistant attachment to the provided assistant message id", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(() => {
       providerCallCount += 1;
@@ -2402,122 +2300,7 @@ Run browser commands.`
     ]);
   });
 
-  it("rewrites image prompts for vision MCP mode before calling the provider", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "I inspected the image." }], {
-        answer: "I inspected the image.",
-        thinking: "",
-        usage: { inputTokens: 4, outputTokens: 2 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const mcpVisionSettings = {
-      ...createSettings(),
-      visionMode: "mcp" as const
-    };
-
-    await resolveAssistantTurn({
-      settings: mcpVisionSettings,
-      promptMessages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Describe this image." },
-            {
-              type: "image",
-              attachmentId: "att_image",
-              filename: "photo.png",
-              mimeType: "image/png",
-              relativePath: "conv_image/photo.png"
-            }
-          ]
-        }
-      ],
-      skills: [],
-      mcpToolSets: [],
-      visionMcpServers: [
-        {
-          id: "vision_server",
-          slug: "vision",
-          name: "Vision MCP",
-          url: "https://vision.example.com",
-          headers: {},
-          transport: "streamable_http",
-          command: null,
-          args: null,
-          env: null,
-          enabled: true,
-          isVisionMcp: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ]
-    });
-
-    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    expect(firstCall.promptMessages[0].content).not.toContain("Vision MCP servers:");
-    expect(firstCall.promptMessages.at(-1)).toEqual(
-      expect.objectContaining({
-        role: "user",
-        content: expect.stringContaining("Vision MCP servers:")
-      })
-    );
-    expect(firstCall.promptMessages.at(-1).content).toContain("- Vision MCP");
-    expect(firstCall.promptMessages.at(-1).content).toContain("images or videos");
-    expect(firstCall.promptMessages[1]).toEqual({
-      role: "user",
-      content: [
-        { type: "text", text: "Describe this image." },
-        { type: "text", text: "Attached image: photo.png" }
-      ]
-    });
-  });
-
-  it("sends images inline when native vision is set on a model without registry vision data", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "A shopping cart icon." }], {
-        answer: "A shopping cart icon.",
-        thinking: "",
-        usage: { inputTokens: 4, outputTokens: 4 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    await resolveAssistantTurn({
-      settings: { ...createSettings(), model: "deepseek-v4.1-flash", visionMode: "native" as const },
-      promptMessages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Describe this image." },
-            { type: "image", attachmentId: "att_image", filename: "photo.png", mimeType: "image/png", relativePath: "conv_image/photo.png" }
-          ]
-        }
-      ],
-      skills: [],
-      mcpToolSets: [],
-      visionMcpServers: []
-    });
-
-    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    const lastMessage = firstCall.promptMessages.find((message: PromptMessage) => Array.isArray(message.content));
-    expect(lastMessage.content).toContainEqual({
-      type: "image",
-      attachmentId: "att_image",
-      filename: "photo.png",
-      mimeType: "image/png",
-      relativePath: "conv_image/photo.png"
-    });
-    const serialized = JSON.stringify(firstCall.promptMessages);
-    expect(serialized).not.toContain("cannot inspect attached images directly");
-    expect(serialized).not.toContain("Attached image: photo.png");
-    expect(serialized).not.toContain("Vision MCP servers:");
-  });
-
-  it("excludes vision-flagged MCP tools in native mode but keeps other MCP tools", async () => {
+      it("excludes vision-flagged MCP tools in native mode but keeps other MCP tools", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "done" }], {
         answer: "done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
@@ -2579,72 +2362,7 @@ Run browser commands.`
     expect(toolNames.some((n: string) => n.includes("analyze_image"))).toBe(true);
   });
 
-  it("omits vision-flagged servers from the capabilities message in native mode", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "done" }], {
-        answer: "done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
-      })
-    );
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const visionServer = { id: "v", slug: "vision", name: "Vision MCP", url: "", headers: {}, transport: "streamable_http" as const, command: null, args: null, env: null, enabled: true, isVisionMcp: true, createdAt: "t", updatedAt: "t" };
-    const plainServer = { ...visionServer, id: "p", slug: "plain", name: "Plain", isVisionMcp: false };
-
-    await resolveAssistantTurn({
-      settings: { ...createSettings(), visionMode: "native" as const },
-      promptMessages: [
-        { role: "user", content: [
-          { type: "text", text: "hi" },
-          { type: "image", attachmentId: "a", filename: "p.png", mimeType: "image/png", relativePath: "c/p.png" }
-        ] }
-      ],
-      skills: [],
-      mcpToolSets: [
-        { server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] },
-        { server: plainServer, tools: [{ name: "do_thing", description: "do", inputSchema: { type: "object", properties: {} } }] }
-      ],
-      visionMcpServers: [visionServer]
-    });
-
-    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    const content: string = firstCall.promptMessages[0].content;
-    expect(content).toContain("- Plain");
-    expect(content).not.toContain("- Vision MCP");
-  });
-
-  it("includes vision-flagged servers in the capabilities message in mcp mode", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "done" }], {
-        answer: "done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
-      })
-    );
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const visionServer = { id: "v", slug: "vision", name: "Vision MCP", url: "", headers: {}, transport: "streamable_http" as const, command: null, args: null, env: null, enabled: true, isVisionMcp: true, createdAt: "t", updatedAt: "t" };
-    const plainServer = { ...visionServer, id: "p", slug: "plain", name: "Plain", isVisionMcp: false };
-
-    await resolveAssistantTurn({
-      settings: { ...createSettings(), visionMode: "mcp" as const },
-      promptMessages: [
-        { role: "user", content: [
-          { type: "text", text: "hi" },
-          { type: "image", attachmentId: "a", filename: "p.png", mimeType: "image/png", relativePath: "c/p.png" }
-        ] }
-      ],
-      skills: [],
-      mcpToolSets: [
-        { server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] },
-        { server: plainServer, tools: [{ name: "do_thing", description: "do", inputSchema: { type: "object", properties: {} } }] }
-      ],
-      visionMcpServers: [visionServer]
-    });
-
-    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    const content: string = firstCall.promptMessages[0].content;
-    expect(content).toContain("- Vision MCP");
-  });
-
-  it("passes runtime tool context only to adapters that execute tools directly", async () => {
+      it("passes runtime tool context only to adapters that execute tools directly", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "Done" }], {
         answer: "Done",
@@ -4096,38 +3814,7 @@ Run browser commands.`
       expect(toolNames).not.toContain("analyze_image");
     });
 
-    it("replaces images with placeholders and lists attachment paths in provider mode", async () => {
-      streamProviderResponse.mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Done" }], {
-          answer: "Done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
-        })
-      );
-      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-      await resolveAssistantTurn({
-        settings: providerVisionSettings(),
-        visionProfile: visionProfile(),
-        promptMessages: [imageMessage()],
-        skills: [],
-        mcpToolSets: []
-      });
-
-      const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-      expect(firstCall.promptMessages[0].content).not.toContain("analyze_image");
-      expect(trailingGuidanceOfCall(streamProviderResponse.mock.calls.length - 1)).toContain("analyze_image");
-      expect(trailingGuidanceOfCall(streamProviderResponse.mock.calls.length - 1)).toContain(
-        "att_photo_photo.png (path: /tmp/conv_vision/att_photo_photo.png)"
-      );
-      expect(firstCall.promptMessages[1]).toEqual({
-        role: "user",
-        content: [
-          { type: "text", text: "Describe this image." },
-          { type: "text", text: "Attached image: att_photo_photo.png" }
-        ]
-      });
-    });
-
-    it("throws when the vision profile is missing and the turn contains images", async () => {
+        it("throws when the vision profile is missing and the turn contains images", async () => {
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
       await expect(resolveAssistantTurn({

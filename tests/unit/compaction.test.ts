@@ -1,13 +1,12 @@
 import {
-  buildPromptMessages,
   commitLeafCompaction,
   ensureCompactedContext,
   estimateContextUsage,
   getConversationContextUsage,
   getConversationDebugStats,
-  MAX_TOOL_RESULT_CHARS,
   startBackgroundCompaction
 } from "@/lib/compaction";
+import { buildPromptMessages, MAX_TOOL_RESULT_CHARS } from "@/lib/prompt-assembly";
 import {
   buildOpenAIChatCompletionMessages,
   buildOpenAIResponsesInput

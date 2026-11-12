@@ -20,7 +20,7 @@ import {
   getMessageDraftFieldValue,
   isMessageDraftPayload
 } from "@/lib/message-draft-display";
-import { buildPromptMessages } from "@/lib/compaction";
+import { buildPromptMessages } from "@/lib/prompt-assembly";
 import {
   assertOpenApiRequestBody,
   assertOpenApiResponse,

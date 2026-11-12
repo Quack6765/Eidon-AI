@@ -8,7 +8,7 @@ import {
   getMemoryCount
 } from "@/lib/memories";
 import { normalizeMemoryRigor } from "@/lib/global-preferences";
-import { buildPromptMessages } from "@/lib/compaction";
+import { buildPromptMessages } from "@/lib/prompt-assembly";
 import { createLocalUser } from "@/lib/users";
 
 describe("normalizeMemoryRigor", () => {
