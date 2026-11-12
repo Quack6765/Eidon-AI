@@ -15,7 +15,7 @@ import {
   MAX_RESEARCH_PLAN_STEPS,
   MAX_RESEARCH_PLAN_STEP_CHARS
 } from "@/lib/constants";
-import { deletePendingUserMessage, getConversation, getMessage } from "@/lib/conversations";
+import { deletePendingUserMessage, getConversation, getMessage, publishUserMessagePersisted } from "@/lib/conversations";
 import { badRequest, ok, parseRouteParams, payloadTooLarge } from "@/lib/http";
 import { generateResearchPlan } from "@/lib/research-plan";
 import { getConversationManager } from "@/lib/ws-singleton";
@@ -73,11 +73,7 @@ export async function POST(request: Request, context: RouteContext) {
   });
   const message = getMessage(userMessage.id, resolved.user.id);
   if (!message) return badRequest("Unable to persist the research request", 500);
-  getConversationManager().broadcast(resolved.conversation.id, {
-    type: "user_message_persisted",
-    conversationId: resolved.conversation.id,
-    message
-  });
+  publishUserMessagePersisted(resolved.conversation.id, message);
 
   const preflight = getAssistantTurnStartPreflight(resolved.conversation.id);
   const plan = preflight.ok

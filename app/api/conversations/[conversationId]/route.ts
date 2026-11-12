@@ -10,6 +10,9 @@ import {
   listQueuedMessages,
   listVisibleMessages,
   moveConversationToFolder,
+  publishConversationDeleted,
+  publishConversationTitleUpdated,
+  publishConversationUpdated,
   renameConversation,
   setConversationActive,
   setConversationTemporary,
@@ -20,7 +23,6 @@ import { getConversationDebugStats } from "@/lib/compaction";
 import { getFolder } from "@/lib/folders";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { getSelectableProviderProfile } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -73,12 +75,7 @@ export async function DELETE(
     : deleteConversation(params.conversationId, user.id);
 
   if (deleted) {
-    try {
-      getConversationManager().broadcastAll({
-        type: "conversation_deleted",
-        conversationId: params.conversationId
-      }, user.id);
-    } catch { /* WS server may not be running */ }
+    publishConversationDeleted(params.conversationId, user.id);
   }
 
   return ok({ success: true, deleted });
@@ -160,32 +157,14 @@ export async function PATCH(
 
   if (body.data.title !== undefined) {
     renameConversation(conversation.id, body.data.title);
-    try {
-      getConversationManager().broadcastAll(
-        {
-          type: "conversation_title_updated",
-          conversationId: conversation.id,
-          title: body.data.title
-        },
-        user.id
-      );
-    } catch {}
+    publishConversationTitleUpdated(conversation.id, body.data.title, user.id);
   }
 
   const updated = getConversation(conversation.id, user.id);
 
-  try {
-    getConversationManager().broadcastAll({
-      type: "conversation_updated",
-      conversation: {
-        id: updated!.id,
-        title: updated!.title,
-        folderId: updated!.folderId,
-        updatedAt: updated!.updatedAt,
-        isActive: updated!.isActive
-      }
-    }, user.id);
-  } catch { /* WS server may not be running */ }
+  if (updated) {
+    publishConversationUpdated(updated, user.id);
+  }
 
   return ok({ conversation: updated });
 }

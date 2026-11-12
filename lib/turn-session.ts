@@ -18,7 +18,8 @@ import {
   getConversationSnapshot,
   getMessage,
   getConversationOwnerId,
-  listQueuedMessages,
+  publishQueueUpdated,
+  publishUserMessagePersisted,
   setConversationActive,
   updateMessage,
   updateMessageAction
@@ -41,7 +42,7 @@ import {
   getDefaultRuntimeProviderProfile,
   getRuntimeProviderProfile
 } from "@/lib/settings";
-import { createEmitter } from "@/lib/emitter";
+import { publishConversationEvent } from "@/lib/conversation-event-bus";
 import { nowIso } from "@/lib/utils";
 import {
   buildBotSystemPrompt,
@@ -80,10 +81,8 @@ import type {
 } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
-export type ChatEmitter = ReturnType<typeof createEmitter<{
-  delta: [string, unknown];
-  status: [string, string];
-}>>;
+export type { ChatEmitter } from "@/lib/conversation-event-bus";
+export { getChatEmitter } from "@/lib/conversation-event-bus";
 
 export type ChatTurnResult = {
   status: "completed" | "failed" | "stopped" | "skipped";
@@ -115,16 +114,7 @@ export type StartChatTurn = (
   options?: ChatTurnOptions
 ) => Promise<ChatTurnResult>;
 
-const globalEmitter = createEmitter<{
-  delta: [string, unknown];
-  status: [string, string];
-}>();
-
 export const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
-
-export function getChatEmitter(): ChatEmitter {
-  return globalEmitter;
-}
 
 export function getAssistantTurnStartPreflight(conversationId: string, providerProfileId?: string) {
   const conversation = getConversation(conversationId);
@@ -263,11 +253,13 @@ async function runClaimedTurn(
     if (!bot) return;
     const botOwnerUserId = bot.userId ?? conversationOwnerId ?? null;
     if (!botOwnerUserId) return;
-    manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(getBot(bot.id) ?? bot) }, botOwnerUserId);
+    publishConversationEvent(
+      { kind: "user", userId: botOwnerUserId, message: { type: "bot_updated", bot: toBotSummary(getBot(bot.id) ?? bot) } },
+      manager
+    );
   };
   const emitDelta = (event: ChatStreamEvent) => {
-    manager.broadcast(conversationId, { type: "delta", conversationId, event });
-    globalEmitter.emit("delta", conversationId, event);
+    publishConversationEvent({ kind: "delta", conversationId, event }, manager);
   };
   let memoryCounts: { memoriesUsed?: number; memoriesTotal?: number } = {};
   const broadcastContextUsage = (usage = getConversationContextUsage(conversationId)) => {
@@ -334,29 +326,24 @@ async function runClaimedTurn(
       });
     }
 
-    manager.broadcast(conversationId, {
-      type: "delta",
-      conversationId,
-      event: { type: "message_start", messageId: assistantMessage.id }
-    });
-    globalEmitter.emit("delta", conversationId, {
-      type: "message_start",
-      messageId: assistantMessage.id
-    });
+    emitDelta({ type: "message_start", messageId: assistantMessage.id });
 
     manager.setActive(conversationId, true);
-    globalEmitter.emit("status", conversationId, "streaming");
+    publishConversationEvent({ kind: "status", conversationId, status: "streaming" }, manager);
     setConversationActive(conversation.id, true);
-    manager.broadcastAll(
-      { type: "conversation_activity", conversationId, isActive: true },
-      conversationOwnerId ?? null
+    publishConversationEvent(
+      { kind: "user", userId: conversationOwnerId ?? null, message: { type: "conversation_activity", conversationId, isActive: true } },
+      manager
     );
     broadcastBotStatus();
     started = true;
     const activityOwnerId = bot ? bot.userId ?? conversationOwnerId ?? null : null;
     beginTurnActivity(conversationId, {
       onChange: activityOwnerId
-        ? (activity) => manager.broadcastAll({ type: "bot_activity", conversationId, activity }, activityOwnerId)
+        ? (activity) => publishConversationEvent(
+            { kind: "user", userId: activityOwnerId, message: { type: "bot_activity", conversationId, activity } },
+            manager
+          )
         : undefined
     });
 
@@ -381,11 +368,7 @@ async function runClaimedTurn(
       const queued = claimQueuedRedirectMessage(conversationId, control.redirectIds);
       if (!queued) return null;
       control.redirectIds.delete(queued.id);
-      manager.broadcast(conversationId, {
-        type: "queue_updated",
-        conversationId,
-        queuedMessages: listQueuedMessages(conversationId)
-      });
+      publishQueueUpdated(conversationId, manager);
 
       await flushAnswerBuffer();
       const content = await contentPersistence.finalize("");
@@ -400,7 +383,7 @@ async function runClaimedTurn(
       const next = createChatTurnMessages({ conversationId, content: queued.content, attachmentIds: [] });
       const userMessage = getMessage(next.userMessage.id);
       if (userMessage) {
-        manager.broadcast(conversationId, { type: "user_message_persisted", conversationId, message: userMessage });
+        publishUserMessagePersisted(conversationId, userMessage, manager);
       }
       options?.onMessagesCreated?.({ userMessageId: next.userMessage.id, assistantMessageId: next.assistantMessage.id });
 
@@ -427,19 +410,17 @@ async function runClaimedTurn(
       ensureCompactedContext(conversation.id, settings, {
         onCompactionStart() {
           touchTurnActivity(conversationId);
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "compaction_start" }
-          });
+          publishConversationEvent(
+            { kind: "room", conversationId, message: { type: "delta", conversationId, event: { type: "compaction_start" } } },
+            manager
+          );
         },
         onCompactionEnd() {
           touchTurnActivity(conversationId);
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "compaction_end" }
-          });
+          publishConversationEvent(
+            { kind: "room", conversationId, message: { type: "delta", conversationId, event: { type: "compaction_end" } } },
+            manager
+          );
         }
       }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id),
       mcpToolSetsPromise
@@ -490,12 +471,7 @@ async function runClaimedTurn(
       delegationChain: options?.delegationChain ?? { messagesSent: 0 },
       async onEvent(event: ChatStreamEvent) {
         touchTurnActivity(conversationId);
-        manager.broadcast(conversationId, {
-          type: "delta",
-          conversationId,
-          event
-        });
-        globalEmitter.emit("delta", conversationId, event);
+        emitDelta(event);
 
         if (event.type === "answer_delta") {
           sawStreamedAnswerSinceLastSegment = true;
@@ -552,12 +528,7 @@ async function runClaimedTurn(
           runningActionHandles.add(persisted.id);
           startTurnAction(conversationId, persisted.id, persisted.label);
         }
-        manager.broadcast(conversationId, {
-          type: "delta",
-          conversationId,
-          event: { type: "action_start", action: persisted }
-        });
-        globalEmitter.emit("delta", conversationId, { type: "action_start", action: persisted });
+        emitDelta({ type: "action_start", action: persisted });
         return persisted.id;
       },
       async onActionComplete(handle, patch) {
@@ -571,12 +542,7 @@ async function runClaimedTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "action_complete", action: updated }
-          });
-          globalEmitter.emit("delta", conversationId, { type: "action_complete", action: updated });
+          emitDelta({ type: "action_complete", action: updated });
         }
       },
       onActionError(handle, patch) {
@@ -590,12 +556,7 @@ async function runClaimedTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "action_error", action: updated }
-          });
-          globalEmitter.emit("delta", conversationId, { type: "action_error", action: updated });
+          emitDelta({ type: "action_error", action: updated });
         }
       }
     });
@@ -628,21 +589,15 @@ async function runClaimedTurn(
     }
 
     const completedMessage = getMessage(assistantMessageId);
-    manager.broadcast(conversationId, {
-      type: "delta",
-      conversationId,
-      event: { type: "done", messageId: assistantMessageId, message: completedMessage ?? undefined }
-    });
-    globalEmitter.emit("delta", conversationId, {
-      type: "done",
-      messageId: assistantMessageId,
-      message: completedMessage ?? undefined
-    });
+    emitDelta({ type: "done", messageId: assistantMessageId, message: completedMessage ?? undefined });
     afterTurnEnded = () => {
       const usage = broadcastContextUsage();
       if (!usage || usage.contextTokens <= usage.compactionLimit) return;
       const broadcastCompaction = (type: "compaction_start" | "compaction_end") =>
-        manager.broadcast(conversationId, { type: "delta", conversationId, event: { type } });
+        publishConversationEvent(
+          { kind: "room", conversationId, message: { type: "delta", conversationId, event: { type } } },
+          manager
+        );
       startBackgroundCompaction(
         conversation.id,
         settings,
@@ -704,16 +659,7 @@ async function runClaimedTurn(
         });
       }
 
-      manager.broadcast(conversationId, {
-        type: "delta",
-        conversationId,
-        event: { type: "done", messageId: assistantMessageId, message: getMessage(assistantMessageId) ?? undefined }
-      });
-      globalEmitter.emit("delta", conversationId, {
-        type: "done",
-        messageId: assistantMessageId,
-        message: getMessage(assistantMessageId) ?? undefined
-      });
+      emitDelta({ type: "done", messageId: assistantMessageId, message: getMessage(assistantMessageId) ?? undefined });
       return { status: "stopped" };
     } else {
       for (const handle of runningActionHandles) {
@@ -733,15 +679,7 @@ async function runClaimedTurn(
         });
       }
       if (bot) recordBotResult(bot.id);
-      manager.broadcast(conversationId, {
-        type: "delta",
-        conversationId,
-        event: {
-          type: "error",
-          message: error instanceof Error ? error.message : "Chat stream failed"
-        }
-      });
-      globalEmitter.emit("delta", conversationId, {
+      emitDelta({
         type: "error",
         message: error instanceof Error ? error.message : "Chat stream failed"
       });
@@ -757,12 +695,12 @@ async function runClaimedTurn(
       endTurnActivity(conversationId);
       setConversationActive(conversation.id, false);
       manager.setActive(conversationId, false);
-      manager.broadcastAll(
-        { type: "conversation_activity", conversationId, isActive: false },
-        conversationOwnerId ?? null
+      publishConversationEvent(
+        { kind: "user", userId: conversationOwnerId ?? null, message: { type: "conversation_activity", conversationId, isActive: false } },
+        manager
       );
       broadcastBotStatus();
-      globalEmitter.emit("status", conversationId, "completed");
+      publishConversationEvent({ kind: "status", conversationId, status: "completed" }, manager);
     }
     try {
       const [{ ensureQueuedDispatch }, { startChatTurn }] = await Promise.all([
@@ -809,10 +747,10 @@ async function runExistingMessageTurn(
   if (!preflight.ok) {
     releaseChatTurnStart(conversationId, control);
     if (preflight.status === "failed") {
-      manager.broadcast(conversationId, {
-        type: "error",
-        message: preflight.errorMessage
-      });
+      publishConversationEvent(
+        { kind: "room", conversationId, message: { type: "error", message: preflight.errorMessage } },
+        manager
+      );
     }
 
     return { status: preflight.status, errorMessage: preflight.errorMessage };
@@ -834,10 +772,10 @@ export async function runTurnFromContent(
   const preflight = getAssistantTurnStartPreflight(conversationId, options?.providerProfileId);
   if (!preflight.ok) {
     if (preflight.status === "failed") {
-      manager.broadcast(conversationId, {
-        type: "error",
-        message: preflight.errorMessage
-      });
+      publishConversationEvent(
+        { kind: "room", conversationId, message: { type: "error", message: preflight.errorMessage } },
+        manager
+      );
     }
 
     return { status: preflight.status, errorMessage: preflight.errorMessage };
@@ -846,10 +784,10 @@ export async function runTurnFromContent(
   const claimed = claimChatTurnStart(conversationId);
   if (!claimed.ok) {
     if (!options?.quietWhenBusy) {
-      manager.broadcast(conversationId, {
-        type: "error",
-        message: ACTIVE_TURN_ERROR_MESSAGE
-      });
+      publishConversationEvent(
+        { kind: "room", conversationId, message: { type: "error", message: ACTIVE_TURN_ERROR_MESSAGE } },
+        manager
+      );
     }
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }

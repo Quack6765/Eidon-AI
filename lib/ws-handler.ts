@@ -12,7 +12,8 @@ import {
   getConversationSnapshot,
   getMessage,
   listActiveConversations,
-  listQueuedMessages,
+  publishQueueUpdated,
+  publishUserMessagePersisted,
   reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
@@ -455,7 +456,7 @@ function handleMessage(
         conversationId: msg.conversationId,
         content: msg.content
       });
-      broadcastQueueUpdated(mgr, msg.conversationId);
+      publishQueueUpdated(msg.conversationId, mgr);
       break;
     }
     case "update_queued_message": {
@@ -474,7 +475,7 @@ function handleMessage(
         break;
       }
 
-      broadcastQueueUpdated(mgr, msg.conversationId);
+      publishQueueUpdated(msg.conversationId, mgr);
       break;
     }
     case "delete_queued_message": {
@@ -492,7 +493,7 @@ function handleMessage(
         break;
       }
 
-      broadcastQueueUpdated(mgr, msg.conversationId);
+      publishQueueUpdated(msg.conversationId, mgr);
       break;
     }
     case "send_queued_message_now": {
@@ -510,7 +511,7 @@ function handleMessage(
         break;
       }
 
-      broadcastQueueUpdated(mgr, msg.conversationId);
+      publishQueueUpdated(msg.conversationId, mgr);
       break;
     }
     case "reorder_queued_messages": {
@@ -526,7 +527,7 @@ function handleMessage(
         break;
       }
 
-      broadcastQueueUpdated(mgr, msg.conversationId);
+      publishQueueUpdated(msg.conversationId, mgr);
       break;
     }
   }
@@ -565,14 +566,6 @@ function sendError(ws: WebSocket, message: string, code = "request_failed", vers
   }, versioned);
 }
 
-function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string) {
-  mgr.broadcast(conversationId, {
-    type: "queue_updated",
-    conversationId,
-    queuedMessages: listQueuedMessages(conversationId)
-  });
-}
-
 async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
@@ -593,11 +586,7 @@ async function handleUserMessage(
     onMessagesCreated({ userMessageId }) {
       const userMessage = getMessage(userMessageId, currentUserId);
       if (userMessage) {
-        mgr.broadcast(msg.conversationId, {
-          type: "user_message_persisted",
-          conversationId: msg.conversationId,
-          message: userMessage
-        });
+        publishUserMessagePersisted(msg.conversationId, userMessage, mgr);
       }
     }
   });

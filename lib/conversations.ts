@@ -20,7 +20,6 @@ import { getDb } from "@/lib/db";
 import { removeToolOutputDir } from "@/lib/local-shell";
 import { createId } from "@/lib/ids";
 import { getDefaultRuntimeProviderProfile } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   AutomationProposalPayload,
@@ -51,6 +50,7 @@ import { nowIso } from "@/lib/utils";
 
 export {
   listQueuedMessages,
+  publishQueueUpdated,
   createQueuedMessage,
   updateQueuedMessage,
   deleteQueuedMessage,
@@ -63,8 +63,115 @@ export {
   claimQueuedRedirectMessage
 } from "@/lib/conversation-queued-messages";
 import { listQueuedMessages } from "@/lib/conversation-queued-messages";
+import { publishConversationEvent } from "@/lib/conversation-event-bus";
+import type { ConversationManager } from "@/lib/conversation-manager";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
+
+export function publishUserMessagePersisted(
+  conversationId: string,
+  message: Message,
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: { type: "user_message_persisted", conversationId, message }
+    },
+    manager
+  );
+}
+
+export function publishMessagesDeleted(
+  conversationId: string,
+  messageIds: string[],
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: { type: "messages_deleted", conversationId, messageIds }
+    },
+    manager
+  );
+}
+
+export function publishContextUsage(
+  conversationId: string,
+  usage: { contextTokens?: number | null; compactionLimit: number },
+  manager?: ConversationManager | null
+) {
+  publishConversationEvent(
+    {
+      kind: "room",
+      conversationId,
+      message: {
+        type: "delta",
+        conversationId,
+        event: {
+          type: "context_usage",
+          contextTokens: usage.contextTokens ?? 0,
+          compactionLimit: usage.compactionLimit
+        }
+      }
+    },
+    manager
+  );
+}
+
+export function publishConversationCreated(conversation: Conversation, userId: string | null) {
+  publishConversationEvent(
+    {
+      kind: "user",
+      userId,
+      message: {
+        type: "conversation_created",
+        conversation: {
+          id: conversation.id,
+          title: conversation.title,
+          folderId: conversation.folderId,
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          isActive: conversation.isActive,
+          isTemporary: conversation.isTemporary
+        }
+      }
+    }
+  );
+}
+
+export function publishConversationDeleted(conversationId: string, userId: string | null) {
+  publishConversationEvent(
+    { kind: "user", userId, message: { type: "conversation_deleted", conversationId } }
+  );
+}
+
+export function publishConversationTitleUpdated(conversationId: string, title: string, userId: string | null) {
+  publishConversationEvent(
+    { kind: "user", userId, message: { type: "conversation_title_updated", conversationId, title } }
+  );
+}
+
+export function publishConversationUpdated(conversation: Conversation, userId: string | null) {
+  publishConversationEvent(
+    {
+      kind: "user",
+      userId,
+      message: {
+        type: "conversation_updated",
+        conversation: {
+          id: conversation.id,
+          title: conversation.title,
+          folderId: conversation.folderId,
+          updatedAt: conversation.updatedAt,
+          isActive: conversation.isActive
+        }
+      }
+    }
+  );
+}
 
 const MANUAL_CONVERSATION_ORIGIN: ConversationOrigin = "manual";
 
@@ -1202,6 +1309,7 @@ export function getMessage(messageId: string, userId?: string) {
 export function forkConversationFromMessage(messageId: string, userId?: string) {
   const db = getDb();
   const attachmentPublications: AttachmentArtifactPublication[] = [];
+  let forkOwnerUserId: string | null = null;
 
   const cleanupCopiedAttachments = () => {
     attachmentPublications.forEach(rollbackAttachmentArtifactPublication);
@@ -1252,6 +1360,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       },
       sourceConversationOwnerId ?? userId
     );
+    forkOwnerUserId = sourceConversationOwnerId ?? userId ?? null;
 
     if (sourceConversation.providerProfileId === null) {
       db.prepare("UPDATE conversations SET provider_profile_id = NULL WHERE id = ?").run(
@@ -1384,7 +1493,9 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
   });
 
   try {
-    return transaction();
+    const forked = transaction();
+    publishConversationCreated(forked.conversation, forkOwnerUserId);
+    return forked;
   } catch (error) {
     cleanupCopiedAttachments();
     throw error;
@@ -2096,14 +2207,12 @@ export async function generateConversationTitleFromFirstUserMessage(
 
       const currentConversation = getConversation(conversationId);
       if (currentConversation) {
-        try {
-          const conversationOwnerId = getConversationOwnerId(conversationId);
-          getConversationManager().broadcastAll({
-            type: "conversation_title_updated",
-            conversationId,
-            title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
-          }, conversationOwnerId ?? null);
-        } catch { /* WS server may not be running */ }
+        const conversationOwnerId = getConversationOwnerId(conversationId);
+        publishConversationTitleUpdated(
+          conversationId,
+          DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE,
+          conversationOwnerId ?? null
+        );
       }
 
       return true;
@@ -2116,16 +2225,8 @@ export async function generateConversationTitleFromFirstUserMessage(
 
     completeConversationTitleGeneration(conversationId, title);
 
-    try {
-      const conversationOwnerId = getConversationOwnerId(conversationId);
-      getConversationManager().broadcastAll({
-        type: "conversation_title_updated",
-        conversationId,
-        title
-      }, conversationOwnerId ?? null);
-    } catch (err) {
-      console.error("[title-generation] Broadcast failed:", err);
-    }
+    const conversationOwnerId = getConversationOwnerId(conversationId);
+    publishConversationTitleUpdated(conversationId, title, conversationOwnerId ?? null);
 
     return true;
   } catch (err) {

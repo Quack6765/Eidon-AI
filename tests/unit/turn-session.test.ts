@@ -317,6 +317,48 @@ describe("turn session", () => {
     if (reclaimed.ok) releaseChatTurnStart(conversation.id, reclaimed.control);
   });
 
+  it("fans every turn delta out to both the websocket room and the sse emitter", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { runTurnFromContent, getChatEmitter } = await import("@/lib/turn-session");
+
+    const manager = createConversationManager();
+    const { conversation, send } = await setupReadyConversation(manager);
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Both sinks" };
+        return { answer: "Both sinks", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const emitterEvents: Array<{ conversationId: string; event: { type: string } }> = [];
+    getChatEmitter().on("delta", (conversationId, event) =>
+      emitterEvents.push({ conversationId, event: event as { type: string } })
+    );
+
+    await runTurnFromContent(manager, conversation.id, "Hi", []);
+
+    const wireDeltas = send.mock.calls
+      .map((call) => JSON.parse(String(call[0])))
+      .filter((message) => message.type === "delta" && message.conversationId === conversation.id);
+    const wireEventTypes = wireDeltas.map((message) => message.event.type);
+    const emitterEventTypes = emitterEvents
+      .filter((entry) => entry.conversationId === conversation.id)
+      .map((entry) => entry.event.type);
+
+    expect(wireEventTypes).toContain("message_start");
+    expect(wireEventTypes).toContain("answer_delta");
+    expect(wireEventTypes).toContain("done");
+    expect(emitterEventTypes).toEqual(wireEventTypes);
+    for (const [index, wire] of wireDeltas.entries()) {
+      expect(wire.event).toEqual(
+        emitterEvents.filter((entry) => entry.conversationId === conversation.id)[index].event
+      );
+    }
+  });
+
   it("restarts a turn after a mutation and releases the claim when the turn ends", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);

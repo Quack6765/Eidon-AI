@@ -4,9 +4,14 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import { getConversationContextUsage } from "@/lib/compaction";
-import { getConversation, getMessage, rewindConversationToMessage } from "@/lib/conversations";
+import {
+  getConversation,
+  getMessage,
+  publishContextUsage,
+  publishMessagesDeleted,
+  rewindConversationToMessage
+} from "@/lib/conversations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
-import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
   messageId: z.string().min(1)
@@ -47,24 +52,11 @@ export async function POST(
     const { snapshot, deletedMessageIds, draft } = rewindConversationToMessage(message.id, user.id);
 
     if (deletedMessageIds.length > 0) {
+      publishMessagesDeleted(conversation.id, deletedMessageIds);
       try {
-        const manager = getConversationManager();
-        manager.broadcast(conversation.id, {
-          type: "messages_deleted",
-          conversationId: conversation.id,
-          messageIds: deletedMessageIds
-        });
         const contextUsage = getConversationContextUsage(conversation.id, user.id);
         if (contextUsage) {
-          manager.broadcast(conversation.id, {
-            type: "delta",
-            conversationId: conversation.id,
-            event: {
-              type: "context_usage",
-              contextTokens: contextUsage.contextTokens ?? 0,
-              compactionLimit: contextUsage.compactionLimit
-            }
-          });
+          publishContextUsage(conversation.id, contextUsage);
         }
       } catch {}
     }
