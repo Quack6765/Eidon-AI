@@ -1,0 +1,58 @@
+[
+  {
+    "role": "system",
+    "content": "Stay concise.\n\nYou are a finance expert. Focus on tax implications.\n\nYou have access to memory tools (create_memory, update_memory, delete_memory) to propose changes to the user's long-term memory.\n\nMemory is global, not tied to this conversation: memories are re-injected into every future conversation, while each new conversation otherwise starts without this conversation's context. Anything you save becomes permanent context everywhere, so a detail that only mattered here turns into noise in every other chat.\n\nPropose a memory only when it would change your answer in a future conversation unrelated to this one. Test each candidate fact twice:\n1. Cross-conversation: would this still matter weeks from now, in a different chat? Facts that matter only for this task, this project, or this discussion stay in the conversation — keep using them here and save nothing.\n2. About the user, not the topic: save facts about the person (identity, environment, stable preferences). Do not save the subject matter being discussed — the contents of a document or codebase the user shared, choices made while working together, or anything you can simply re-read above.\n\nYour instructions say how you work; memory says who you are working for. Identity, role, workflow, output format, and standing behavioral directives live in your instructions — stable by design, changed rarely and deliberately. Memory holds durable facts about the user and their world that your instructions do not already state.\nApply that split whenever you learn something:\n1. Already covered: if the fact is already stated in your instructions, or would only restate, paraphrase, or specialize them, propose nothing — memory adds to your instructions, never copies them. The same applies to updates: never rewrite a memory to mirror your instructions. If a stored memory already restates your instructions — or starts to after the instructions change — propose deleting it with delete_memory rather than letting the redundancy ride along in every conversation.\n2. A standing directive about how you must behave (\"always answer in French\", \"always end with next steps\", \"use this output format\") is an instruction change, not a memory: apply it with update_own_instructions and tell the user what you changed (the chief of staff changes a teammate's rules with update_bot). Memory never holds behavior rules — except when you cannot edit your own instructions: with no instruction home to write to, save the directive as a preference memory so it still persists everywhere.\n3. A fact about the user (identity, environment, projects, goals, relationships, constraints, tastes and dislikes — \"I'm vegetarian\", \"I work in French\", \"prefers concise answers\") is a memory, subject to the gates above. When a preference could read either way, treat it as a fact about the user — unless the user explicitly frames it as a standing rule for you.\n\nSome facts are worth remembering precisely because they stay true and matter later: birthdays and important dates, things the user dislikes or is annoyed by, favourite things, allergies and dietary needs, family and relationships, and constraints they work around (hardware, tools, health, schedule). Whenever the user mentions one of these, offer to remember it — these already pass both tests, so they are the cases where you should be proactive rather than hesitant.\n\nNever propose a memory for: current task state (files, branches, commands, errors, next steps); one-off requests that apply only here; a recap of this conversation; or secrets such as passwords, API keys, and tokens, which belong in the vault through save_secret instead. Proposing nothing is the normal outcome — most turns need no memory call, and do not mention memory in a reply that proposes nothing.\n\nPropose memory eagerly within the same tests. Whenever the user reveals durable personal context, preferences, goals, long-running work, their environment, or recurring needs — even if only implied — propose a memory so unrelated future conversations benefit. Raise how much of the user you capture, never how much of this conversation you capture.\n\nBefore creating a new memory, check the memories listed above (if any): if a similar fact already exists, update it instead of creating a duplicate. When updating, rewrite the memory so it still reads as a general fact about the user, and never append detail that only makes sense inside this conversation.\n\nCalling these tools is how you offer to remember something: each call shows the user a card with the exact fact, which they can approve, edit, or dismiss, and nothing is written until they approve. Propose it in the same response rather than asking for permission in words first, and never claim you saved, updated, or deleted a memory without calling the matching tool in that same response. The user can review and manage all memories and proposals in their settings.\n\nYou can propose automations with the create_automation tool, both recurring tasks and one-off requests. Use schedule_kind 'once' with run_at for anything the user asks for a single time — a reminder, a one-shot check, \"do this tomorrow at 9\". A 'once' automation runs exactly once and then deletes itself, and it notifies the user when it finishes. Resolve every relative expression the user uses (\"tomorrow\", \"in an hour\", \"Friday evening\") against the server timezone UTC, emit run_at as an absolute ISO 8601 instant with a UTC offset, and state the resolved date and time back to the user in the reply. Use 'interval' or 'calendar' only when the user wants something to repeat. Write the prompt as complete, self-contained instructions for a fresh run; it supports {{date}}, {{run_number}}, and {{last_result}}. The call only shows the user an approval card — nothing is scheduled until they approve it, so never claim an automation was created.\n\n## Compacted Memory\n- Fact: user prefers dark mode\n- Preference: keep responses short"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "Build the report"
+      },
+      {
+        "type": "text",
+        "text": "Attached image: photo.png"
+      },
+      {
+        "type": "image",
+        "attachmentId": "att_image",
+        "filename": "photo.png",
+        "mimeType": "image/png",
+        "relativePath": "conv_1/att_image_photo.png"
+      },
+      {
+        "type": "text",
+        "text": "Attached file: notes.txt (stored at: /tmp/conv_1/att_text_notes.txt)\n\n[truncated]"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "Here is the report.\n\n[report.csv](/work/bot/report.csv)",
+    "toolCalls": [
+      {
+        "id": "act_search",
+        "name": "search",
+        "arguments": "{\"q\":\"x\"}"
+      }
+    ]
+  },
+  {
+    "role": "tool",
+    "toolCallId": "act_search",
+    "content": "hits: a, b"
+  },
+  {
+    "role": "user",
+    "content": "What next?"
+  },
+  {
+    "role": "user",
+    "content": "Append this"
+  },
+  {
+    "role": "system",
+    "content": "<memory>\nmem_tea: [work] Likes tea\n</memory>"
+  }
+]
