@@ -17,7 +17,9 @@ import { createHash } from "node:crypto";
 import { join, posix } from "node:path";
 
 import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
+import { evaluateSkillGuards, type SkillWriteOrigin } from "@/lib/skill-guards";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
+import type { SkillOperation } from "@/lib/skill-operation";
 import {
   getArchiveDir,
   getCuratorBackupsDir,
@@ -65,6 +67,8 @@ export const BODY_SOFT_BUDGET_CHARS = 24_000;
 
 const DISCOVERY_MAX_DEPTH = 4;
 const LOCK_STALE_MS = 30_000;
+
+const heldSkillLockKeys = new Set<string>();
 
 export const ESSENTIAL_SKILLS = new Set(["agent-browser"]);
 
@@ -275,6 +279,11 @@ function fileManifest(dir: string, prefix = ""): SkillManifestEntry[] {
 }
 
 export function withSkillLock<T>(ownerUserId: string | null, skillRef: string, run: () => T): T {
+  const lockKey = `${String(ownerUserId)}:${skillRef}`;
+  if (heldSkillLockKeys.has(lockKey)) {
+    return run();
+  }
+
   const locksDir = getLocksDir(ownerUserId);
   mkdirSync(locksDir, { recursive: true });
   const lockPath = join(locksDir, `${createHash("sha256").update(skillRef).digest("hex")}.lock`);
@@ -309,9 +318,11 @@ export function withSkillLock<T>(ownerUserId: string | null, skillRef: string, r
     }
   }
 
+  heldSkillLockKeys.add(lockKey);
   try {
     return run();
   } finally {
+    heldSkillLockKeys.delete(lockKey);
     try {
       unlinkSync(lockPath);
     } catch {
@@ -870,6 +881,192 @@ export function restoreLibrarySkill(
 
     return { ref };
   });
+}
+
+export type SkillOperationsResult = { results: string[] } | { error: string };
+
+function withSkillLocks<T>(ownerUserId: string | null, skillRefs: string[], run: () => T): T {
+  if (!skillRefs.length) {
+    return run();
+  }
+  const [first, ...rest] = skillRefs;
+  return withSkillLock(ownerUserId, first, () => withSkillLocks(ownerUserId, rest, run));
+}
+
+export function applySkillOperations(
+  ownerUserId: string | null,
+  input: {
+    operations: SkillOperation[];
+    origin: SkillWriteOrigin;
+    loadedRefs: ReadonlySet<string>;
+  }
+): SkillOperationsResult {
+  const actor: SkillMutationActor = input.origin === "background-review" ? "background-review" : "foreground";
+  const refs = [
+    ...new Set(
+      input.operations.map(
+        (operation) => findLibrarySkill(ownerUserId, operation.name)?.ref ?? normalizeSkillRef(operation.name) ?? operation.name
+      )
+    )
+  ].sort();
+
+  const undoStack: Array<() => void> = [];
+
+  const rollback = () => {
+    for (const undo of undoStack.reverse()) {
+      try {
+        undo();
+      } catch {
+        // best effort
+      }
+    }
+  };
+
+  const snapshotFile = (path: string) => {
+    const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+    undoStack.push(() => {
+      if (before === null) {
+        rmSync(path, { force: true });
+      } else {
+        writeFileSync(path, before, "utf8");
+      }
+    });
+  };
+
+  try {
+    return withSkillLocks(ownerUserId, refs, () => {
+      const results: string[] = [];
+
+      try {
+        for (const operation of input.operations) {
+          const guard = evaluateSkillGuards({
+            ownerUserId,
+            ref: operation.name,
+            name: operation.name,
+            action: operation.action,
+            origin: input.origin,
+            absorbedInto: operation.action === "delete" ? operation.absorbedInto ?? null : null,
+            loadedRefs: input.loadedRefs,
+            filePath: "filePath" in operation ? operation.filePath ?? null : null
+          });
+
+          if (!guard.ok) {
+            throw new Error(guard.error);
+          }
+
+          const found = findLibrarySkill(ownerUserId, operation.name);
+          const ref = found?.ref ?? normalizeSkillRef(operation.name) ?? operation.name;
+
+          switch (operation.action) {
+            case "create": {
+              snapshotFile(join(skillDirPath(ownerUserId, ref), SKILL_FILE_NAME));
+              const created = createLibrarySkill(ownerUserId, {
+                name: skillRefLeaf(ref),
+                category: skillRefCategory(ref),
+                content: operation.content,
+                actor,
+                agentAuthored: input.origin === "background-review"
+              });
+              if ("error" in created) {
+                throw new Error(created.error);
+              }
+              results.push(created.warning ? `Skill '${created.ref}' created. ${created.warning}` : `Skill '${created.ref}' created.`);
+              break;
+            }
+
+            case "patch": {
+              if (!found) {
+                throw new Error(`Skill '${operation.name}' not found in the active library.`);
+              }
+              snapshotFile(join(skillDirPath(ownerUserId, found.ref), SKILL_FILE_NAME));
+              if (operation.content !== undefined) {
+                const rewritten = rewriteLibrarySkill(ownerUserId, found.ref, {
+                  content: operation.content,
+                  actor
+                });
+                if ("error" in rewritten) {
+                  throw new Error(rewritten.error);
+                }
+                results.push(`Skill '${found.ref}' updated (full rewrite).`);
+              } else {
+                const patched = patchLibrarySkillFile(ownerUserId, found.ref, {
+                  oldString: operation.oldString ?? "",
+                  newString: operation.newString ?? "",
+                  replaceAll: operation.replaceAll,
+                  filePath: operation.filePath,
+                  actor
+                });
+                if ("error" in patched) {
+                  throw new Error(patched.error);
+                }
+                results.push(`Patched ${patched.filePath} in skill '${found.ref}' (${patched.replacements} replacement(s).)`);
+              }
+              break;
+            }
+
+            case "write_file": {
+              if (!found) {
+                throw new Error(`Skill '${operation.name}' not found in the active library. Create it first with action='create'.`);
+              }
+              snapshotFile(join(skillDirPath(ownerUserId, found.ref), ...(operation.filePath ?? "").split("/")));
+              const written = writeLibrarySupportFile(ownerUserId, found.ref, {
+                filePath: operation.filePath ?? "",
+                fileContent: operation.fileContent ?? "",
+                actor
+              });
+              if ("error" in written) {
+                throw new Error(written.error);
+              }
+              results.push(`File '${written.filePath}' written to skill '${found.ref}'.`);
+              break;
+            }
+
+            case "remove_file": {
+              if (!found) {
+                throw new Error(`Skill '${operation.name}' not found in the active library.`);
+              }
+              snapshotFile(join(skillDirPath(ownerUserId, found.ref), ...(operation.filePath ?? "").split("/")));
+              const removed = removeLibrarySupportFile(ownerUserId, found.ref, {
+                filePath: operation.filePath ?? "",
+                actor
+              });
+              if ("error" in removed) {
+                throw new Error(removed.error);
+              }
+              results.push(`File '${removed.filePath}' removed from skill '${found.ref}'.`);
+              break;
+            }
+
+            case "delete": {
+              if (!found) {
+                throw new Error(`Skill '${operation.name}' not found in the active library.`);
+              }
+              const deleted =
+                input.origin === "foreground"
+                  ? hardDeleteLibrarySkill(ownerUserId, found.ref, "foreground")
+                  : archiveLibrarySkill(ownerUserId, found.ref);
+              if ("error" in deleted) {
+                throw new Error(deleted.error);
+              }
+              results.push(
+                input.origin === "foreground"
+                  ? `Skill '${found.ref}' deleted.`
+                  : `Skill '${found.ref}' archived (recoverable under .archive/).`
+              );
+              break;
+            }
+          }
+        }
+
+        return { results };
+      } catch (error) {
+        rollback();
+        throw error;
+      }
+    });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "skill_manage failed" };
+  }
 }
 
 export function listArchivedSkills(ownerUserId: string | null) {
