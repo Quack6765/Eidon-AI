@@ -13,16 +13,14 @@ import {
   getProviderConnectionFlow
 } from "@/lib/provider-connection-flows";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
-import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
+import { estimatePromptTokens } from "@/lib/tokenization";
 import {
   withDateContextSystemPrompt
 } from "@/lib/provider-message-formatting";
-import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import type {
   ChatStreamEvent,
   MessageAction,
   MessageActionKind,
-  ReasoningEffort,
   RuntimeProviderProfile
 } from "@/lib/types";
 import type {
@@ -30,7 +28,7 @@ import type {
   ProviderStreamResult,
   ProviderTextInput
 } from "@/lib/provider-adapters/types";
-import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
+import { adapterStream, runAdapterText } from "@/lib/provider-adapters/kit";
 
 export const githubCopilotConnectionFlows = {
   create: createGithubProviderConnectionFlow,
@@ -38,26 +36,17 @@ export const githubCopilotConnectionFlows = {
   cancel: cancelProviderConnectionFlow
 };
 
-export async function callGithubCopilotText(input: ProviderTextInput) {
-  const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
-    ? {
-        ...input.settings,
-        reasoningEffort: (input.settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,
-        reasoningSummaryEnabled: false
-      }
-    : input.settings;
-  const freshSettings = await ensureFreshGithubAccessToken(settings, input.abortSignal);
-  const result = await runGithubCopilotChat({
-    ...freshSettings,
-    systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
-    messages: [{ role: "user", content: input.prompt }],
-    abortSignal: input.abortSignal
+export function callGithubCopilotText(input: ProviderTextInput) {
+  return runAdapterText(input, async (settings) => {
+    const freshSettings = await ensureFreshGithubAccessToken(settings, input.abortSignal);
+    const result = await runGithubCopilotChat({
+      ...freshSettings,
+      systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
+      messages: [{ role: "user", content: input.prompt }],
+      abortSignal: input.abortSignal
+    });
+    return typeof result === "string" ? result : JSON.stringify(result);
   });
-  const text = stripThinkingDelimiters(
-    typeof result === "string" ? result : JSON.stringify(result)
-  );
-  if (!text.trim()) throw new Error("Provider returned an empty response");
-  return text;
 }
 
 export async function discoverGithubCopilotModels(settings: RuntimeProviderProfile) {
@@ -70,11 +59,10 @@ export async function discoverGithubCopilotModels(settings: RuntimeProviderProfi
   }));
 }
 
-export async function* streamGithubCopilotResponse(
+async function* streamGithubCopilotWire(
   input: ProviderStreamInput
 ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const { settings, promptMessages } = input;
-  setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
   const freshSettings = await ensureFreshGithubAccessToken(settings, input.abortSignal);
   const messageAttachments = new Map<string, CopilotMessageAttachment>();
   const messageTexts = promptMessages.map((m) => {
@@ -281,3 +269,8 @@ export async function* streamGithubCopilotResponse(
 
   return { answer, thinking, usage: { inputTokens: estimatePromptTokens(promptMessages) } };
 }
+
+export const streamGithubCopilotResponse = adapterStream(
+  { normalizePromptMessages: false, usageEvents: "none" },
+  streamGithubCopilotWire
+);
