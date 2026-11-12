@@ -26,7 +26,7 @@ const FIXED_NOW = 1_763_000_000_000;
 
 function makeNow(start = FIXED_NOW) {
   let current = start;
-  return () => current;
+  return () => current++;
 }
 
 function makeMessage(overrides: Partial<Message> & { id: string }): Message {
@@ -495,7 +495,7 @@ describe("conversation document optimistic submission reconciliation", () => {
     expect(selectNeedsMessageSync(h.state())).toBe(true);
   });
 
-  it("reconciles a partial-attachment snapshot and completes it on the fuller snapshot", () => {
+  it("reconciles a multi-attachment optimistic message after partial then complete server snapshots", () => {
     const h = createHarness();
     const attachments = [
       { id: "att_1", conversationId: "conv_1", messageId: null, filename: "a.png", mimeType: "image/png", byteSize: 1, sha256: "h1", relativePath: "conv_1/a.png", kind: "image" as const, extractedText: "", createdAt: "2026-06-12T00:00:00.000Z" },
@@ -537,6 +537,105 @@ describe("conversation document optimistic submission reconciliation", () => {
 
     expect(h.state().pendingLocalSubmissions).toEqual([]);
     expect(h.state().messages.map((m) => m.id)).toEqual(["srv_1"]);
+  });
+
+  it("reconciles a multi-attachment optimistic message after an attachment-less then complete snapshot", () => {
+    const h = createHarness();
+    const attachments = [
+      { id: "att_1", conversationId: "conv_1", messageId: null, filename: "a.png", mimeType: "image/png", byteSize: 1, sha256: "h1", relativePath: "conv_1/a.png", kind: "image" as const, extractedText: "", createdAt: "2026-06-12T00:00:00.000Z" },
+      { id: "att_2", conversationId: "conv_1", messageId: null, filename: "b.png", mimeType: "image/png", byteSize: 1, sha256: "h2", relativePath: "conv_1/b.png", kind: "image" as const, extractedText: "", createdAt: "2026-06-12T00:00:00.000Z" }
+    ];
+    h.apply({ type: "submission_started", content: "with files", attachments });
+
+    h.server({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        makeMessage({ id: "srv_1", role: "user", content: "with files", attachments: [] })
+      ],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    });
+
+    expect(h.state().pendingLocalSubmissions).toHaveLength(1);
+    expect(h.state().pendingLocalSubmissions[0].serverMessageId).toBe("srv_1");
+    expect(
+      selectRenderableMessages(h.state(), new Set()).some((m) => m.id.startsWith("local_"))
+    ).toBe(false);
+
+    h.server({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        makeMessage({ id: "srv_1", role: "user", content: "with files", attachments })
+      ],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    });
+
+    expect(h.state().pendingLocalSubmissions).toEqual([]);
+    expect(h.state().messages.map((m) => m.id)).toEqual(["srv_1"]);
+  });
+
+  it("keeps a pending submission optimistic against a stale empty snapshot", () => {
+    const h = createHarness();
+    h.apply({ type: "submission_started", content: "hello", attachments: [] });
+    const localId = h.state().messages[0].id;
+
+    h.server({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    });
+
+    expect(h.state().messages.map((m) => m.id)).toEqual([localId]);
+    expect(h.state().pendingLocalSubmissions).toHaveLength(1);
+    expect(h.state().isSending).toBe(true);
+  });
+
+  it("keeps a later identical submission optimistic until its own server message arrives", () => {
+    const h = createHarness();
+    const attachments = [
+      { id: "att_1", conversationId: "conv_1", messageId: null, filename: "a.png", mimeType: "image/png", byteSize: 1, sha256: "h1", relativePath: "conv_1/a.png", kind: "image" as const, extractedText: "", createdAt: "2026-06-12T00:00:00.000Z" }
+    ];
+    h.apply({ type: "submission_started", content: "hello", attachments });
+    h.apply({ type: "submission_started", content: "hello", attachments });
+    expect(h.state().pendingLocalSubmissions).toHaveLength(2);
+
+    h.server({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        makeMessage({ id: "srv_1", role: "user", content: "hello", attachments })
+      ],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    });
+
+    expect(h.state().pendingLocalSubmissions).toHaveLength(1);
+    expect(h.state().pendingLocalSubmissions[0].serverMessageId).toBeNull();
+    expect(h.state().messages.filter((m) => m.id.startsWith("local_"))).toHaveLength(1);
+
+    h.server({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        makeMessage({ id: "srv_1", role: "user", content: "hello", attachments }),
+        makeMessage({ id: "srv_2", role: "user", content: "hello", attachments })
+      ],
+      actions: [],
+      segments: [],
+      queuedMessages: []
+    });
+
+    expect(h.state().pendingLocalSubmissions).toEqual([]);
+    expect(h.state().messages.map((m) => m.id)).toEqual(["srv_1", "srv_2"]);
   });
 
   it("restores the composer when a websocket error lands without an active stream", () => {
@@ -655,7 +754,7 @@ describe("conversation document turn lifecycle", () => {
     h.server({ type: "delta", conversationId: "conv_1", event: { type: "thinking_delta", text: "hmm" } });
     h.server({ type: "delta", conversationId: "conv_1", event: { type: "answer_delta", text: "a" } });
     const duration = h.state().thinkingDuration;
-    expect(duration).toBe(0);
+    expect(duration).toBeGreaterThan(0);
     h.server({ type: "delta", conversationId: "conv_1", event: { type: "answer_delta", text: "b" } });
     expect(h.state().thinkingDuration).toBe(duration);
   });
