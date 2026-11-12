@@ -232,7 +232,6 @@ async function* streamOpenAiCompatibleWire(
     return yield* streamOpenAIResponses({
       client,
       params: responseCreateParams,
-      promptMessages: contextualPromptMessages,
       abortSignal: input.abortSignal
     });
   }

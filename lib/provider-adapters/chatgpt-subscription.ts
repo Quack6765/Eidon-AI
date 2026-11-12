@@ -101,7 +101,6 @@ async function* streamChatgptSubscriptionWire(
         ? { tools: buildOpenAIResponsesTools(input.tools), tool_choice: "auto" }
         : {})
     },
-    promptMessages: input.promptMessages,
     abortSignal: input.abortSignal
   });
 }

@@ -6,12 +6,11 @@ import {
 } from "@/lib/provider-response-parsing";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { ProviderStreamResult, ProviderUsage } from "@/lib/provider-adapters/types";
-import type { ChatStreamEvent, PromptMessage, ProviderResponseItem } from "@/lib/types";
+import type { ChatStreamEvent, ProviderResponseItem } from "@/lib/types";
 
 export async function* streamOpenAIResponses(input: {
   client: OpenAI;
   params: Record<string, unknown>;
-  promptMessages: PromptMessage[];
   abortSignal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const abortController = new AbortController();
