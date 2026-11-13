@@ -30,7 +30,8 @@ vi.mock("@/lib/conversation-title-generator", () => ({
 import { createLocalUser } from "@/lib/users";
 import { createBot } from "@/lib/bots";
 import { listRecentBotRuns } from "@/lib/bot-runs";
-import { MAX_BOT_MESSAGES_PER_REQUEST, executeMessageBot } from "@/lib/bot-delegation";
+import { MAX_BOT_MESSAGES_PER_REQUEST } from "@/lib/bot-run-lifecycle";
+import { executeMessageBot } from "@/lib/bot-delegation";
 import { createConversationManager } from "@/lib/conversation-manager";
 import { startChatTurn } from "@/lib/chat-turn";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";

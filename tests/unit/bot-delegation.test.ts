@@ -31,14 +31,16 @@ import {
   scanTurnActivity
 } from "@/lib/turn-activity";
 import {
-  MAX_BOT_MESSAGES_PER_REQUEST,
-  buildDelegationWakeContent,
-  deliverWakeMessage,
   executeCreateBotTool,
   executeMessageBot,
   executeUpdateBotTool,
   executeUpdateOwnInstructionsTool
 } from "@/lib/bot-delegation";
+import {
+  MAX_BOT_MESSAGES_PER_REQUEST,
+  buildDelegationWakeContent,
+  deliverWakeMessage
+} from "@/lib/bot-run-lifecycle";
 import type { DelegationChain, PromptMessage } from "@/lib/types";
 
 function buildContext(memoryUserId: string | null, assistantMessageId?: string, conversationId = "conv_chief") {

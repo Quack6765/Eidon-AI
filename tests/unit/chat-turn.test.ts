@@ -1878,7 +1878,7 @@ describe("chat-turn", () => {
     const { updateProviderCatalog } = await import("@/lib/settings");
     const { getConversationManager } = await import("@/lib/ws-singleton");
     const { startChatTurn } = await import("@/lib/chat-turn");
-    const { buildDelegationWakeContent, deliverWakeMessage } = await import("@/lib/bot-delegation");
+    const { buildDelegationWakeContent, deliverWakeMessage } = await import("@/lib/bot-run-lifecycle");
 
     const { profileId, profile } = setupProviderProfile();
     updateProviderCatalog({

@@ -43,7 +43,6 @@ import {
   getRuntimeProviderProfile
 } from "@/lib/settings";
 import { publishConversationEvent } from "@/lib/conversation-event-bus";
-import { nowIso } from "@/lib/utils";
 import {
   buildBotSystemPrompt,
   buildBotRoster,
@@ -53,14 +52,8 @@ import {
   toBotSummary
 } from "@/lib/bots";
 import { getBotTeamWorkspacesDir } from "@/lib/bot-sandbox";
-import {
-  broadcastBotRunUpdate,
-  broadcastBotUpsert,
-  createBotRunRecord,
-  deleteBotRun,
-  setBotRunWaitingForUser,
-  updateBotRunStatus
-} from "@/lib/bot-runs";
+import { openBotRun, settleBotRun } from "@/lib/bot-run-lifecycle";
+import { setBotRunWaitingForUser } from "@/lib/bot-runs";
 import { UNATTENDED_TOOL_APPROVAL_TIMEOUT_MS } from "@/lib/tool-approvals";
 import { createAssistantContentPersistenceTracker } from "@/lib/content-persistence";
 import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
@@ -795,35 +788,13 @@ export async function runTurnFromContent(
   const bot = getBotByConversationId(conversationId);
   const botRun =
     bot && options?.botRun?.record !== false
-      ? createBotRunRecord({
+      ? openBotRun({
           botId: bot.id,
           conversationId,
           triggerSource: options?.botRun?.trigger ?? "dm"
         })
       : null;
-  if (botRun) {
-    const running = updateBotRunStatus(botRun.id, {
-      status: "running",
-      startedAt: nowIso()
-    });
-    if (running) broadcastBotRunUpdate(running);
-  }
   claimed.control.botRunId = botRun?.id ?? options?.botRun?.runId ?? null;
-
-  const finalizeBotRun = (result: ChatTurnResult) => {
-    if (!botRun) return;
-    if (result.status === "skipped") {
-      deleteBotRun(botRun.id);
-      if (bot) broadcastBotUpsert(bot);
-      return;
-    }
-    const finished = updateBotRunStatus(botRun.id, {
-      status: result.status,
-      finishedAt: nowIso(),
-      errorMessage: result.status === "failed" ? result.errorMessage ?? "Bot run failed" : null
-    });
-    if (finished) broadcastBotRunUpdate(finished);
-  };
 
   try {
     const { userMessage, assistantMessage } = createChatTurnMessages({
@@ -848,17 +819,19 @@ export async function runTurnFromContent(
         await options?.onUserWait?.(waiting);
       }
     });
-    finalizeBotRun(result);
+    if (botRun) settleBotRun({ runId: botRun.id, result, bot });
     return result;
   } catch (error) {
     releaseChatTurnStart(conversationId, claimed.control);
     if (botRun) {
-      const finished = updateBotRunStatus(botRun.id, {
-        status: "failed",
-        finishedAt: nowIso(),
-        errorMessage: error instanceof Error ? error.message : "Bot run failed"
+      settleBotRun({
+        runId: botRun.id,
+        bot: null,
+        result: {
+          status: "failed",
+          errorMessage: error instanceof Error ? error.message : "Bot run failed"
+        }
       });
-      if (finished) broadcastBotRunUpdate(finished);
     }
     throw error;
   }
