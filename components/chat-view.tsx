@@ -16,6 +16,17 @@ import {
   AttachmentPreviewModal,
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
+import {
+  applyConversationDocumentEvent,
+  createConversationDocument,
+  selectHasActiveTurn,
+  selectNeedsMessageSync,
+  selectRedirectingIds,
+  selectRenderableMessages,
+  type ConversationDocument,
+  type ConversationDocumentEffect,
+  type ConversationDocumentEvent
+} from "@/components/conversation-document";
 import { ChatComposer } from "@/components/chat-composer";
 import { FileDropOverlay } from "@/components/file-drop-overlay";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
@@ -25,21 +36,6 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { usePendingAttachments } from "@/hooks/use-pending-attachments";
 import { usePersonas } from "@/hooks/use-personas";
 import { useComposerReferences } from "@/hooks/use-composer-references";
-import {
-  type PendingLocalSubmission,
-  adoptStreamingSnapshotState,
-  appendStreamingAction,
-  completeStreamingThinkingPhase,
-  ensureStreamingThinkingPhase,
-  getAttachmentIdSignature,
-  isQueuedMessageOperationError,
-  matchesPendingLocalSubmission,
-  mergeStreamingSnapshotTimeline,
-  reconcileSnapshotMessages,
-  replaceMessageAction,
-  sanitizeMessages,
-  updateStreamingAction
-} from "@/components/chat-snapshot-helpers";
 import {
   clearChatBootstrap,
   consumeComposerDraft,
@@ -69,7 +65,6 @@ import { matchDelegationReplies } from "@/lib/delegation-marker";
 import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type {
   ChatResearchOptions,
-  ChatStreamEvent,
   ComposerDraft,
   Conversation,
   MemoryCategory,
@@ -77,7 +72,6 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageTimelineItem,
-  QueuedMessage,
   ProviderProfileSummary,
   ReasoningEffort
 } from "@/lib/types";
@@ -86,6 +80,23 @@ const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
 const VISIBLE_MESSAGE_INCREMENT = 100;
 const PINNED_TURN_TOP_INSET_PX = 12;
 const EMPTY_TIMELINE: MessageTimelineItem[] = [];
+const WS_UNAVAILABLE_MESSAGE =
+  "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled.";
+
+function resolveProviderProfileId(
+  conversationProviderId: string | null,
+  profiles: ProviderProfileSummary[],
+  defaultId: string | null
+) {
+  const profileIds = new Set(profiles.map((p) => p.id));
+  if (conversationProviderId && profileIds.has(conversationProviderId)) {
+    return conversationProviderId;
+  }
+  if (defaultId && profileIds.has(defaultId)) {
+    return defaultId;
+  }
+  return profiles[0]?.id ?? "";
+}
 
 function StickToBottomBridge({
   scrollToBottomRef,
@@ -130,28 +141,9 @@ export function ChatView({
   const { canShare, openShareModal } = useShareConversation();
   const previewController = useAttachmentPreviewController();
   const { closeAttachmentPreview } = previewController;
-  const activeConversationIdRef = useRef(payload.conversation.id);
-  const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
-  const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
-  const [sendNowIds, setSendNowIds] = useState<ReadonlySet<string>>(() => new Set());
   const redirectsWhileBusy = payload.settings.followUpBehavior === "steer";
-  const redirectingIds = useMemo(
-    () =>
-      new Set(
-        queuedMessages
-          .filter((item) => item.status === "pending" && (redirectsWhileBusy || sendNowIds.has(item.id)))
-          .map((item) => item.id)
-      ),
-    [queuedMessages, redirectsWhileBusy, sendNowIds]
-  );
-  const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
-  const [titleGenerationStatus, setTitleGenerationStatus] = useState(
-    payload.conversation.titleGenerationStatus
-  );
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
   const [isResearchToggled, setIsResearchToggled] = useState(false);
   const researchPlan = useResearchPlanDraft();
@@ -159,54 +151,22 @@ export function ChatView({
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
   streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
-  const [streamMessageId, setStreamMessageIdState] = useState<string | null>(null);
-  const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
-  const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
-  const [compactionInProgress, setCompactionInProgress] = useState(false);
-  const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
-  const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
-  const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number } | null>(null);
-  const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
-  useEffect(() => {
-    if (!hasInitializedTokensRef.current) {
-      hasInitializedTokensRef.current = true;
-      if (payload.contextTokens === null) {
-        const tokens = getTokenUsage(payload.conversation.id);
-        if (tokens !== null) {
-          setUsedTokens(tokens);
-        }
-      }
-    }
-  }, [payload.conversation.id, payload.contextTokens, getTokenUsage]);
-
-  useEffect(() => {
-    if (activeConversationIdRef.current === payload.conversation.id) {
-      return;
-    }
-
-    activeConversationIdRef.current = payload.conversation.id;
-    closeAttachmentPreview();
-  }, [payload.conversation.id, closeAttachmentPreview]);
-
-  const compactionInProgressRef = useRef(false);
-  const thinkingStartTimeRef = useRef<number | null>(null);
-  const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
-  function resolveProviderProfileId(
-    conversationProviderId: string | null,
-    profiles: ProviderProfileSummary[],
-    defaultId: string | null
-  ) {
-    const profileIds = new Set(profiles.map((p) => p.id));
-    if (conversationProviderId && profileIds.has(conversationProviderId)) {
-      return conversationProviderId;
-    }
-    if (defaultId && profileIds.has(defaultId)) {
-      return defaultId;
-    }
-    return profiles[0]?.id ?? "";
+  const docRef = useRef<ConversationDocument | null>(null);
+  if (docRef.current === null) {
+    docRef.current = createConversationDocument({
+      conversationId: payload.conversation.id,
+      messages: payload.messages,
+      queuedMessages: payload.queuedMessages,
+      title: payload.conversation.title,
+      titleGenerationStatus: payload.conversation.titleGenerationStatus,
+      isActive: payload.conversation.isActive,
+      contextTokens: payload.contextTokens,
+      compactionLimit: payload.compactionLimit
+    });
   }
+  const [doc, setDoc] = useState(docRef.current);
 
   const [providerProfileId, setProviderProfileId] = useState(
     () => resolveProviderProfileId(
@@ -245,7 +205,6 @@ export function ChatView({
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
   const composerAreaHeightRef = useRef(160);
   const absorbComposerGrowthRef = useRef(false);
-  const finalizePendingRef = useRef(false);
 
   const { speechSnapshot, onStartSpeech, onStopSpeech } = useComposerSpeech({
     selection: payload.settings.speechTranscription,
@@ -254,52 +213,28 @@ export function ChatView({
     clearError: () => setError(""),
     resetKey: payload.conversation.id
   });
-  const hasEmptyAssistantShell = useMemo(
-    () =>
-      messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          !message.content &&
-          !(message.timeline?.length ?? 0) &&
-          (message.status === "streaming" || message.status === "completed")
-      ),
-    [messages]
-  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const messagesRef = useRef<Message[]>(payload.messages);
-  const streamMessageIdRef = useRef<string | null>(null);
-  const finishedStreamMessageIdsRef = useRef<Set<string>>(new Set());
-  const setStreamMessageId = useCallback((messageId: string | null) => {
-    const wasStreaming = streamMessageIdRef.current !== null;
-    streamMessageIdRef.current = messageId;
-    if (wasStreaming && messageId === null) {
-      void maybeNotifyTurnReady();
-    }
-    setStreamMessageIdState(messageId);
-  }, []);
-  const renderKeyByMessageIdRef = useRef(new Map<string, string>());
-  const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
-  const isSendingRef = useRef(false);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
+  const titlePollHaltedRef = useRef(false);
   const messageSyncTimeoutRef = useRef<number | null>(null);
-  const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
+  const messageSyncHaltedRef = useRef(false);
   const initialMessageIdsRef = useRef<Set<string> | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const expandAnchorMessageIdRef = useRef<string | null>(null);
   const earlierMessagesSentinelRef = useRef<HTMLDivElement | null>(null);
   const firstVisibleMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<ChatBootstrapPayload | null>(null);
   const bootstrapSubmittedRef = useRef(false);
+
   const rewind = usePendingRewind({
     conversationId: payload.conversation.id,
-    getMessages: () => messagesRef.current,
+    getMessages: () => docRef.current!.messages,
     composer: {
       getInput: () => input,
       setInput,
@@ -307,30 +242,131 @@ export function ChatView({
       setAttachments: setPendingAttachments
     },
     onCommitted: (result) => {
-      setMessages(sanitizeMessages(result.messages));
-      setQueuedMessages(result.queuedMessages);
+      dispatch({ type: "rewind_committed", messages: result.messages, queuedMessages: result.queuedMessages });
     },
     onError: setError
   });
 
-  const restorePendingSubmissions = useCallback(() => {
-    if (pendingLocalSubmissionsRef.current.length === 0) {
+  function stopTitlePolling() {
+    if (titlePollTimeoutRef.current !== null) {
+      window.clearTimeout(titlePollTimeoutRef.current);
+      titlePollTimeoutRef.current = null;
+    }
+  }
+
+  function stopMessageSyncPolling() {
+    if (messageSyncTimeoutRef.current !== null) {
+      window.clearTimeout(messageSyncTimeoutRef.current);
+      messageSyncTimeoutRef.current = null;
+    }
+  }
+
+  function startTitlePolling() {
+    if (titlePollTimeoutRef.current !== null || docRef.current!.titleGenerationStatus !== "pending") {
       return;
     }
 
-    const failedIds = new Set(
-      pendingLocalSubmissionsRef.current.map((submission) => submission.localMessageId)
-    );
-    const latestSubmission =
-      pendingLocalSubmissionsRef.current[pendingLocalSubmissionsRef.current.length - 1];
+    titlePollAttemptsRef.current = 0;
+    titlePollTimeoutRef.current = window.setTimeout(() => {
+      void pollConversationTitle();
+    }, 400);
+  }
 
-    setMessages((current) => current.filter((message) => !failedIds.has(message.id)));
-    setInput((current) => current || latestSubmission?.content || "");
-    setPendingAttachments((current) =>
-      current.length > 0 ? current : (latestSubmission?.attachments ?? [])
-    );
-    pendingLocalSubmissionsRef.current = [];
-  }, [setPendingAttachments]);
+  function runEffects(effects: ConversationDocumentEffect[]) {
+    for (const effect of effects) {
+      switch (effect.kind) {
+        case "stream_buffer_reset":
+          streamBuffer.reset();
+          break;
+        case "stream_buffer_append_thinking":
+          streamBuffer.appendThinking(effect.text);
+          break;
+        case "stream_buffer_append_answer":
+          streamBuffer.appendAnswer(effect.text);
+          break;
+        case "stream_buffer_set_answer":
+          streamBuffer.setAnswer(effect.text, { immediate: effect.immediate });
+          break;
+        case "stream_buffer_set_thinking":
+          streamBuffer.setThinking(effect.text, { immediate: effect.immediate });
+          break;
+        case "stream_buffer_finalize":
+          streamBuffer.finalize();
+          break;
+        case "stream_buffer_drain_awaited":
+          streamBuffer.whenDrained(() => dispatch({ type: "stream_drained" }));
+          break;
+        case "turn_ready_notification":
+          void maybeNotifyTurnReady();
+          break;
+        case "conversation_activity_broadcast":
+          dispatchConversationActivityUpdated({
+            conversationId: payload.conversation.id,
+            isActive: effect.isActive
+          });
+          break;
+        case "conversation_title_broadcast":
+          dispatchConversationTitleUpdated({
+            conversationId: payload.conversation.id,
+            title: effect.title
+          });
+          break;
+        case "token_usage_stored":
+          setTokenUsage(payload.conversation.id, effect.tokens);
+          break;
+        case "composer_restored":
+          setInput((current) => current || effect.submission.content || "");
+          setPendingAttachments((current) =>
+            current.length > 0 ? current : (effect.submission.attachments ?? [])
+          );
+          break;
+        case "error_shown":
+          setError(effect.message);
+          break;
+        case "error_cleared":
+          setError("");
+          break;
+        case "rewind_cancelled":
+          rewind.cancel(effect.reason);
+          break;
+        case "title_polling_stopped":
+          stopTitlePolling();
+          if (effect.haltsPollLoop) {
+            titlePollHaltedRef.current = true;
+          }
+          break;
+        case "message_sync_stopped":
+          stopMessageSyncPolling();
+          messageSyncHaltedRef.current = true;
+          break;
+      }
+    }
+  }
+
+  const runEffectsStable = useStableHandler(runEffects);
+
+  const dispatch = useCallback(
+    (event: ConversationDocumentEvent) => {
+      const transition = applyConversationDocumentEvent(docRef.current!, event);
+      docRef.current = transition.state;
+      setDoc(transition.state);
+      runEffectsStable(transition.effects);
+    },
+    [runEffectsStable]
+  );
+
+  useEffect(() => {
+    if (!hasInitializedTokensRef.current) {
+      hasInitializedTokensRef.current = true;
+      if (payload.contextTokens === null) {
+        const tokens = getTokenUsage(payload.conversation.id);
+        if (tokens !== null) {
+          dispatch({ type: "payload_changed", usedTokens: tokens });
+        }
+      }
+    }
+  }, [payload.conversation.id, payload.contextTokens, getTokenUsage, dispatch]);
+
   const submitRef = useRef<
     (
       nextInput?: string,
@@ -339,46 +375,10 @@ export function ChatView({
       nextResearch?: boolean | ChatResearchOptions
     ) => Promise<void>
   >(async () => {});
-  const renderableMessages = useMemo(() => {
-    const pendingById = new Map(
-      pendingLocalSubmissionsRef.current.map((submission) => [
-        submission.localMessageId,
-        submission
-      ] as const)
-    );
-    const serverUserSignatures = new Set(
-      messages
-        .filter((message) => !message.id.startsWith("local_") && message.role === "user")
-        .map(
-          (message) =>
-            `${message.content} ${getAttachmentIdSignature(message.attachments)}`
-        )
-    );
-
-    return messages.filter((message) => {
-      if (rewind.removedMessageIds.has(message.id)) {
-        return false;
-      }
-
-      if (!message.id.startsWith("local_")) {
-        return true;
-      }
-
-      const pendingSubmission = pendingById.get(message.id);
-
-      if (pendingSubmission) {
-        return pendingSubmission.serverMessageId === null;
-      }
-
-      if (message.role !== "user") {
-        return true;
-      }
-
-      return !serverUserSignatures.has(
-        `${message.content} ${getAttachmentIdSignature(message.attachments)}`
-      );
-    });
-  }, [messages, rewind.removedMessageIds]);
+  const renderableMessages = useMemo(
+    () => selectRenderableMessages(doc, rewind.removedMessageIds),
+    [doc, rewind.removedMessageIds]
+  );
   const delegationReplies = useMemo(() => matchDelegationReplies(renderableMessages), [renderableMessages]);
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(INITIAL_VISIBLE_MESSAGE_COUNT);
   const hiddenMessageCount = Math.max(renderableMessages.length - visibleMessageLimit, 0);
@@ -387,171 +387,46 @@ export function ChatView({
     [renderableMessages, hiddenMessageCount]
   );
   firstVisibleMessageIdRef.current = visibleMessages[0]?.id ?? null;
-  const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
   const lastUserMsgIndex = useMemo(() => {
     for (let i = visibleMessages.length - 1; i >= 0; i--) {
       if (visibleMessages[i].role === "user") return i;
     }
     return -1;
   }, [visibleMessages]);
-  const needsMessageSync =
-    isSending ||
-    hasPendingLocalSubmission ||
-    streamMessageId !== null ||
-    messages.some((message) => message.role === "assistant" && message.status === "streaming") ||
-    hasEmptyAssistantShell;
+  const needsMessageSync = useMemo(() => selectNeedsMessageSync(doc), [doc]);
+  const redirectingIds = useMemo(
+    () => selectRedirectingIds(doc, redirectsWhileBusy),
+    [doc, redirectsWhileBusy]
+  );
 
-  const updateStreamTimeline = useCallback((
-    nextTimeline:
-      | MessageTimelineItem[]
-      | ((previous: MessageTimelineItem[]) => MessageTimelineItem[])
-  ) => {
-    const resolvedTimeline =
-      typeof nextTimeline === "function"
-        ? nextTimeline(streamTimelineRef.current)
-        : nextTimeline;
-    streamTimelineRef.current = resolvedTimeline;
-    setStreamTimeline(resolvedTimeline);
-  }, []);
-
-  const syncActiveStreamingMessageFromSnapshot = useCallback((
-    snapshotMessage: Message,
-    options?: { adopt?: boolean }
-  ) => {
-    if (finishedStreamMessageIdsRef.current.has(snapshotMessage.id)) {
+  useEffect(() => {
+    if (docRef.current!.conversationId === payload.conversation.id) {
       return;
     }
-    const adopt = options?.adopt ?? false;
-    const adoptedStream = adoptStreamingSnapshotState(snapshotMessage.timeline);
-    const bufferSnapshot = streamBuffer.getSnapshot();
-    const nextAnswer =
-      bufferSnapshot.answerTarget.length >= adoptedStream.answer.length
-        ? bufferSnapshot.answerTarget
-        : adoptedStream.answer;
-    const nextThinkingCandidate = snapshotMessage.thinkingContent ?? "";
-    const nextThinking =
-      bufferSnapshot.thinkingTarget.length >= nextThinkingCandidate.length
-        ? bufferSnapshot.thinkingTarget
-        : nextThinkingCandidate;
-    const mergedTimeline = adopt
-      ? adoptedStream.timeline
-      : mergeStreamingSnapshotTimeline(streamTimelineRef.current, adoptedStream.timeline);
-    const nextTimeline =
-      mergedTimeline.at(-1)?.timelineKind === "action"
-        ? completeStreamingThinkingPhase(
-            mergedTimeline,
-            nextThinking.length,
-            "completed",
-            new Date().toISOString()
-          )
-        : mergedTimeline;
 
-    streamBuffer.setAnswer(nextAnswer, { immediate: adopt });
-    streamBuffer.setThinking(nextThinking, { immediate: adopt });
-    setStreamMessageId(snapshotMessage.id);
-    updateStreamTimeline(nextTimeline);
-    setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || nextTimeline.length));
-    setIsSending(true);
-    setIsConversationActive(true);
-  }, [setStreamMessageId, streamBuffer, updateStreamTimeline]);
+    dispatch({ type: "payload_changed", conversationId: payload.conversation.id });
+    closeAttachmentPreview();
+  }, [payload.conversation.id, closeAttachmentPreview, dispatch]);
 
   useEffect(() => {
-    setMessages((current) => {
-      const incoming = sanitizeMessages(payload.messages);
-      if (!current.length) return incoming;
-      const activeStreamId = streamMessageIdRef.current;
-      return incoming.map((msg) => {
-        const local = current.find((m) => m.id === msg.id);
-        if (activeStreamId && msg.id === activeStreamId && local?.status === "streaming") {
-          return local;
-        }
-        if (msg.status !== "error" || msg.content) return msg;
-        return local?.content ? { ...msg, content: local.content } : msg;
-      });
-    });
-  }, [payload.messages]);
+    dispatch({ type: "payload_changed", messages: payload.messages });
+  }, [payload.messages, dispatch]);
 
   useEffect(() => {
-    setQueuedMessages(payload.queuedMessages);
-  }, [payload.queuedMessages]);
+    dispatch({ type: "payload_changed", queuedMessages: payload.queuedMessages });
+  }, [payload.queuedMessages, dispatch]);
 
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+    dispatch({ type: "payload_changed", title: payload.conversation.title });
+  }, [payload.conversation.title, dispatch]);
 
   useEffect(() => {
-    isSendingRef.current = isSending;
-  }, [isSending]);
+    dispatch({ type: "payload_changed", isActive: payload.conversation.isActive });
+  }, [payload.conversation.isActive, dispatch]);
 
   useEffect(() => {
-    streamTimelineRef.current = streamTimeline;
-  }, [streamTimeline]);
-
-  useEffect(() => {
-    compactionInProgressRef.current = compactionInProgress;
-  }, [compactionInProgress]);
-
-  function clearCompactionIndicator() {
-    if (compactionInProgressRef.current) {
-      setCompactionInProgress(false);
-    }
-  }
-
-  function recordRenderKeyRemaps(remap: Map<string, string>) {
-    for (const [localId, serverId] of remap.entries()) {
-      renderKeyByMessageIdRef.current.set(
-        serverId,
-        renderKeyByMessageIdRef.current.get(localId) ?? localId
-      );
-    }
-  }
-
-  const applySnapshotReconciliation = useStableHandler(function applySnapshotReconciliation(
-    snapshotMessages: Message[],
-    activeStreamMessageId: string | null
-  ) {
-    setMessages((current) => {
-      const reconciliation = reconcileSnapshotMessages(
-        current,
-        snapshotMessages,
-        activeStreamMessageId,
-        pendingLocalSubmissionsRef.current
-      );
-      const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
-        ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
-        : undefined;
-      if (remappedAnchorMessageId) {
-        pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
-      }
-      pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-      recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
-      return reconciliation.messages;
-    });
-  });
-
-  function resetStreamingState() {
-    clearCompactionIndicator();
-    finalizePendingRef.current = false;
-    setStreamMessageId(null);
-    updateStreamTimeline([]);
-    streamBuffer.reset();
-    setHasReceivedFirstToken(false);
-    thinkingStartTimeRef.current = null;
-    setThinkingDuration(undefined);
-    setIsStopPending(false);
-  }
-
-  useEffect(() => {
-    setConversationTitle(payload.conversation.title);
-  }, [payload.conversation.title]);
-
-  useEffect(() => {
-    setIsConversationActive(payload.conversation.isActive);
-  }, [payload.conversation.isActive]);
-
-  useEffect(() => {
-    setTitleGenerationStatus(payload.conversation.titleGenerationStatus);
-  }, [payload.conversation.titleGenerationStatus]);
+    dispatch({ type: "payload_changed", titleGenerationStatus: payload.conversation.titleGenerationStatus });
+  }, [payload.conversation.titleGenerationStatus, dispatch]);
 
   useEffect(() => {
     setProviderProfileId(
@@ -623,15 +498,15 @@ export function ChatView({
   }, [composerAreaHeight]);
 
   useEffect(() => {
-    const anchorMessageId = pendingAnchorMessageIdRef.current;
+    const anchorMessageId = docRef.current!.pendingAnchorMessageId;
     if (!anchorMessageId) return;
     const exists = visibleMessages.some((m) => m.id === anchorMessageId);
     if (!exists) return;
 
     requestAnimationFrame(() => {
-      const messageId = pendingAnchorMessageIdRef.current;
+      const messageId = docRef.current!.pendingAnchorMessageId;
       if (!messageId) return;
-      pendingAnchorMessageIdRef.current = null;
+      dispatch({ type: "anchor_scrolled" });
       const targetEl =
         document.querySelector(`[data-message-id="${messageId}"]`) ??
         document.querySelector(`[data-message-id="${anchorMessageId}"]`);
@@ -658,7 +533,7 @@ export function ChatView({
         targetEl?.scrollIntoView({ block: "start", behavior });
       }
     });
-  }, [visibleMessages]);
+  }, [visibleMessages, dispatch]);
 
   useEffect(() => {
     if (!expandAnchorMessageIdRef.current) return;
@@ -723,315 +598,6 @@ export function ChatView({
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
 
-  function handleDelta(event: ChatStreamEvent) {
-    if (event.type === "compaction_start") {
-      setCompactionInProgress(true);
-      return;
-    }
-
-    if (event.type === "compaction_end") {
-      setCompactionInProgress(false);
-      return;
-    }
-
-    if (event.type === "stream_retry") {
-      finalizePendingRef.current = false;
-      streamBuffer.reset();
-      updateStreamTimeline([]);
-      return;
-    }
-
-    if (event.type === "message_start") {
-      finishedStreamMessageIdsRef.current.delete(event.messageId);
-      rewind.cancel("A new reply started, so the rewind was undone");
-      setIsConversationActive(true);
-      setStreamMessageId(event.messageId);
-      setHasReceivedFirstToken(false);
-      finalizePendingRef.current = false;
-      streamBuffer.reset();
-      updateStreamTimeline([]);
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: true
-      });
-      setMessages((current) => {
-        if (current.some((message) => message.id === event.messageId)) {
-          return current;
-        }
-
-        return [
-          ...current,
-          {
-            id: event.messageId,
-            conversationId: payload.conversation.id,
-            role: "assistant",
-            content: "",
-            thinkingContent: "",
-            status: "streaming",
-            estimatedTokens: 0,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString()
-          }
-        ];
-      });
-      return;
-    }
-
-    if (event.type === "context_usage") {
-      setUsedTokens(event.contextTokens);
-      setCompactionLimit(event.compactionLimit);
-      if (typeof event.memoriesUsed === "number" && typeof event.memoriesTotal === "number") {
-        setMemoryUsage({ used: event.memoriesUsed, total: event.memoriesTotal });
-      }
-      setTokenUsage(payload.conversation.id, event.contextTokens);
-      return;
-    }
-
-    if (event.type === "thinking_delta") {
-      clearCompactionIndicator();
-      setHasReceivedFirstToken(true);
-      const thinkingSnapshot = streamBuffer.getSnapshot();
-      const startedAt = new Date().toISOString();
-      updateStreamTimeline((previous) =>
-        ensureStreamingThinkingPhase(
-          previous,
-          streamMessageIdRef.current ?? "streaming",
-          thinkingSnapshot.thinkingTarget.length,
-          startedAt
-        )
-      );
-      streamBuffer.appendThinking(event.text);
-      if (!thinkingStartTimeRef.current) {
-        thinkingStartTimeRef.current = Date.now();
-      }
-    }
-
-    if (event.type === "answer_delta") {
-      clearCompactionIndicator();
-      setHasReceivedFirstToken(true);
-      updateStreamTimeline((previous) =>
-        completeStreamingThinkingPhase(
-          previous,
-          streamBuffer.getSnapshot().thinkingTarget.length,
-          "completed",
-          new Date().toISOString()
-        )
-      );
-      streamBuffer.appendAnswer(event.text);
-      if (thinkingStartTimeRef.current) {
-        const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
-        setThinkingDuration((current) => current ?? duration);
-      }
-    }
-
-    if (event.type === "answer_reset") {
-      streamBuffer.setAnswer("", { immediate: true });
-    }
-
-    if (event.type === "system_notice") {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `ws_notice_${Date.now()}`,
-          conversationId: payload.conversation.id,
-          role: "system",
-          content: event.text,
-          thinkingContent: "",
-          status: "completed",
-          estimatedTokens: 0,
-          systemKind: event.kind,
-          compactedAt: null,
-          createdAt: new Date().toISOString()
-        }
-      ]);
-    }
-
-    if (event.type === "action_start") {
-      clearCompactionIndicator();
-      updateStreamTimeline((prev) => {
-        const timelineWithCompletedThinking = completeStreamingThinkingPhase(
-          prev,
-          streamBuffer.getSnapshot().thinkingTarget.length,
-          "completed",
-          new Date().toISOString()
-        );
-        const isExisting = timelineWithCompletedThinking.some(
-          (item) => item.timelineKind === "action" && item.id === event.action.id
-        );
-        if (isExisting) {
-          return appendStreamingAction(timelineWithCompletedThinking, event.action);
-        }
-
-        const previousTextLen = timelineWithCompletedThinking
-          .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
-          .reduce((sum, item) => sum + item.content.length, 0);
-
-        const newText = streamBuffer.getSnapshot().answerTarget.slice(previousTextLen);
-        const nextTimeline = [...timelineWithCompletedThinking];
-
-        if (newText.length > 0) {
-          nextTimeline.push({
-            id: `stream_text_${Date.now()}_${prev.length}`,
-            timelineKind: "text",
-            sortOrder: nextTimeline.length,
-            createdAt: new Date().toISOString(),
-            content: newText
-          });
-        }
-
-        return appendStreamingAction(nextTimeline, event.action);
-      });
-    }
-
-    if (event.type === "action_complete" || event.type === "action_error") {
-      clearCompactionIndicator();
-      setMessages((current) => replaceMessageAction(current, event.action));
-      updateStreamTimeline((previous) =>
-        updateStreamingAction(
-          completeStreamingThinkingPhase(
-            previous,
-            streamBuffer.getSnapshot().thinkingTarget.length,
-            "completed",
-            new Date().toISOString()
-          ),
-          event.action
-        )
-      );
-    }
-
-    if (event.type === "done") {
-      finishedStreamMessageIdsRef.current.add(event.messageId);
-      clearCompactionIndicator();
-      const wasStopped = isStopPending;
-      setIsStopPending(false);
-
-      updateStreamTimeline((previous) =>
-        completeStreamingThinkingPhase(
-          previous,
-          streamBuffer.getSnapshot().thinkingTarget.length,
-          wasStopped ? "stopped" : "completed",
-          new Date().toISOString()
-        )
-      );
-
-      const isForActiveStream = event.messageId === streamMessageIdRef.current;
-
-      if (isForActiveStream) {
-        setIsConversationActive(false);
-        dispatchConversationActivityUpdated({
-          conversationId: payload.conversation.id,
-          isActive: false
-        });
-      }
-
-      const streamedTimeline = streamTimelineRef.current;
-      const serverTimeline = event.message?.timeline ?? [];
-      const finalTimeline = serverTimeline.length > 0 ? serverTimeline : streamedTimeline;
-
-      const completedMessage = event.message;
-
-      if (completedMessage) {
-        const completedWithTimeline = {
-          ...completedMessage,
-          status: wasStopped ? ("stopped" as const) : ("completed" as const),
-          timeline: finalTimeline
-        } as Message;
-        setMessages((current) =>
-          current.some((m) => m.id === event.messageId)
-            ? current.map((m) => (m.id === event.messageId ? completedWithTimeline : m))
-            : [...current, completedWithTimeline]
-        );
-      } else if (isForActiveStream) {
-        const bufferSnapshot = streamBuffer.getSnapshot();
-        const finalAnswer = bufferSnapshot.answerTarget;
-        const finalThinking = bufferSnapshot.thinkingTarget;
-        setMessages((current) =>
-          current.map((m) =>
-            m.id === event.messageId
-              ? {
-                  ...m,
-                  content: finalAnswer,
-                  thinkingContent: finalThinking,
-                  status: wasStopped ? ("stopped" as const) : ("completed" as const),
-                  timeline: finalTimeline
-                }
-              : m
-          )
-        );
-      }
-
-      if (!wasStopped) {
-        setMessages((current) =>
-          current.filter(
-            (m) =>
-              !(
-                m.role === "assistant" &&
-                m.status === "error" &&
-                (m.timeline ?? []).length === 0 &&
-                !m.thinkingContent?.trim()
-              )
-          )
-        );
-      }
-
-      if (isForActiveStream) {
-        setIsSending(false);
-        if (wasStopped) {
-          finalizePendingRef.current = false;
-          setStreamMessageId(null);
-          updateStreamTimeline([]);
-          streamBuffer.reset();
-        } else {
-          finalizePendingRef.current = true;
-          streamBuffer.finalize();
-          streamBuffer.whenDrained(() => {
-            finalizePendingRef.current = false;
-            setStreamMessageId(null);
-            updateStreamTimeline([]);
-            streamBuffer.reset();
-          });
-        }
-      }
-    }
-
-    if (event.type === "error") {
-      clearCompactionIndicator();
-      setIsStopPending(false);
-      updateStreamTimeline((previous) =>
-        completeStreamingThinkingPhase(
-          previous,
-          streamBuffer.getSnapshot().thinkingTarget.length,
-          "error",
-          new Date().toISOString()
-        )
-      );
-      const activeStreamMessageId = streamMessageIdRef.current;
-
-      if (activeStreamMessageId) {
-        setIsConversationActive(false);
-        dispatchConversationActivityUpdated({
-          conversationId: payload.conversation.id,
-          isActive: false
-        });
-        const finalTimeline = streamTimelineRef.current;
-        setMessages((current) =>
-          current.map((m) =>
-            m.id === activeStreamMessageId
-              ? { ...m, status: "error" as const, content: event.message, timeline: finalTimeline }
-              : m
-          )
-        );
-        finalizePendingRef.current = false;
-        setStreamMessageId(null);
-        updateStreamTimeline([]);
-        streamBuffer.reset();
-        setIsSending(false);
-      }
-      setError("");
-    }
-  }
-
   const {
     send: wsSend,
     subscribe: wsSubscribe,
@@ -1040,200 +606,7 @@ export function ChatView({
     failed: wsFailed
   } = useWebSocket({
     onMessage(msg) {
-      switch (msg.type) {
-        case "ready":
-          setIsConversationActive(
-            msg.activeConversations.some(
-              (conversation) =>
-                conversation.id === payload.conversation.id &&
-                conversation.status === "streaming"
-            )
-          );
-          dispatchConversationActivityUpdated({
-            conversationId: payload.conversation.id,
-            isActive: msg.activeConversations.some(
-              (conversation) =>
-                conversation.id === payload.conversation.id &&
-                conversation.status === "streaming"
-            )
-          });
-          break;
-        case "snapshot": {
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          const snapshotMessages = msg.messages as Message[];
-          setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
-          setIsConversationActive(
-            snapshotMessages.some(
-              (message) => message.role === "assistant" && message.status === "streaming"
-            )
-          );
-          let activeStreamMessageId = streamMessageId;
-          if (activeStreamMessageId) {
-            const activeSnapshotMessage = snapshotMessages.find(
-              (message) => message.id === activeStreamMessageId
-            );
-
-            if (activeSnapshotMessage?.status === "streaming") {
-              syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
-            } else if ((activeSnapshotMessage || snapshotMessages.length > 0) && !finalizePendingRef.current) {
-              const endedStreamMessageId = activeStreamMessageId;
-              setStreamMessageId(null);
-              updateStreamTimeline([]);
-              streamBuffer.reset();
-              setHasReceivedFirstToken(false);
-              setIsSending(false);
-              if (!activeSnapshotMessage) {
-                setMessages((current) => current.filter((message) => message.id !== endedStreamMessageId));
-              }
-              activeStreamMessageId = null;
-            }
-          }
-          if (!activeStreamMessageId) {
-            const streamingMsg = snapshotMessages.find(
-              (message) => message.status === "streaming" && message.role === "assistant"
-            );
-            if (streamingMsg) {
-              const adoptedStream = adoptStreamingSnapshotState(streamingMsg.timeline);
-              setStreamMessageId(streamingMsg.id);
-              streamBuffer.setAnswer(adoptedStream.answer, { immediate: true });
-              streamBuffer.setThinking(streamingMsg.thinkingContent ?? "", { immediate: true });
-              updateStreamTimeline(adoptedStream.timeline);
-              setHasReceivedFirstToken(Boolean(adoptedStream.answer || streamingMsg.thinkingContent));
-              setIsSending(true);
-            }
-          }
-
-          applySnapshotReconciliation(snapshotMessages, activeStreamMessageId);
-          break;
-        }
-        case "user_message_persisted": {
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          const serverMessage = sanitizeMessages([msg.message as Message])[0];
-          if (!serverMessage) {
-            break;
-          }
-          const submission = pendingLocalSubmissionsRef.current.find(
-            (candidate) =>
-              candidate.serverMessageId === null &&
-              matchesPendingLocalSubmission(serverMessage, candidate)
-          );
-          if (submission) {
-            renderKeyByMessageIdRef.current.set(
-              serverMessage.id,
-              renderKeyByMessageIdRef.current.get(submission.localMessageId) ?? submission.localMessageId
-            );
-            if (pendingAnchorMessageIdRef.current === submission.localMessageId) {
-              pendingAnchorMessageIdRef.current = serverMessage.id;
-            }
-            pendingLocalSubmissionsRef.current = pendingLocalSubmissionsRef.current.filter(
-              (candidate) => candidate.localMessageId !== submission.localMessageId
-            );
-          }
-          setMessages((current) => {
-            if (current.some((m) => m.id === serverMessage.id)) {
-              return current;
-            }
-            if (submission && current.some((m) => m.id === submission.localMessageId)) {
-              return current.map((m) => (m.id === submission.localMessageId ? serverMessage : m));
-            }
-            return [...current, serverMessage];
-          });
-          break;
-        }
-        case "queue_updated":
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
-          break;
-        case "messages_deleted": {
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          const deletedMessageIds = new Set(msg.messageIds);
-          setMessages((current) => current.filter((message) => !deletedMessageIds.has(message.id)));
-          break;
-        }
-        case "conversation_cleared":
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          resetStreamingState();
-          setMessages([]);
-          setQueuedMessages([]);
-          setError("");
-          setIsConversationActive(false);
-          setIsSending(false);
-          setUsedTokens(null);
-          setTokenUsage(payload.conversation.id, null);
-          dispatchConversationActivityUpdated({
-            conversationId: payload.conversation.id,
-            isActive: false
-          });
-          break;
-        case "error":
-          if (isQueuedMessageOperationError(msg.message)) {
-            setError(msg.message);
-            break;
-          }
-
-          clearCompactionIndicator();
-          setIsConversationActive(false);
-          dispatchConversationActivityUpdated({
-            conversationId: payload.conversation.id,
-            isActive: false
-          });
-          const activeStreamMessageId = streamMessageIdRef.current;
-          updateStreamTimeline((previous) =>
-            completeStreamingThinkingPhase(
-              previous,
-              streamBuffer.getSnapshot().thinkingTarget.length,
-              "error",
-              new Date().toISOString()
-            )
-          );
-          const finalTimeline = streamTimelineRef.current;
-          if (activeStreamMessageId) {
-            setMessages((current) =>
-              current.map((m) =>
-                m.id === activeStreamMessageId
-                  ? { ...m, status: "error" as const, content: msg.message, timeline: finalTimeline }
-                  : m
-              )
-            );
-            setError("");
-          } else {
-            restorePendingSubmissions();
-            setError(msg.message);
-          }
-          finalizePendingRef.current = false;
-          setStreamMessageId(null);
-          updateStreamTimeline([]);
-          streamBuffer.reset();
-          setIsSending(false);
-          break;
-        case "delta":
-          if (msg.conversationId !== payload.conversation.id) {
-            break;
-          }
-          handleDelta(msg.event as ChatStreamEvent);
-          break;
-        case "conversation_title_updated":
-          if (msg.conversationId === payload.conversation.id) {
-            setConversationTitle(msg.title);
-            setTitleGenerationStatus("completed");
-            dispatchConversationTitleUpdated({
-              conversationId: msg.conversationId,
-              title: msg.title
-            });
-            stopTitlePolling();
-          }
-          break;
-      }
+      dispatch({ type: "server_message", message: msg });
     }
   });
 
@@ -1288,27 +661,8 @@ export function ChatView({
       return;
     }
 
-    restorePendingSubmissions();
-
-    setIsSending(false);
-    setError(
-      "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
-    );
-  }, [restorePendingSubmissions, wsFailed]);
-
-  function stopTitlePolling() {
-    if (titlePollTimeoutRef.current !== null) {
-      window.clearTimeout(titlePollTimeoutRef.current);
-      titlePollTimeoutRef.current = null;
-    }
-  }
-
-  function stopMessageSyncPolling() {
-    if (messageSyncTimeoutRef.current !== null) {
-      window.clearTimeout(messageSyncTimeoutRef.current);
-      messageSyncTimeoutRef.current = null;
-    }
-  }
+    dispatch({ type: "transport_failed", errorMessage: WS_UNAVAILABLE_MESSAGE });
+  }, [wsFailed, dispatch]);
 
   async function pollConversationTitle() {
     try {
@@ -1324,26 +678,13 @@ export function ChatView({
         conversation: Conversation;
       };
 
-      setConversationTitle((current) => {
-        if (current !== result.conversation.title) {
-          dispatchConversationTitleUpdated({
-            conversationId: result.conversation.id,
-            title: result.conversation.title
-          });
-        }
-
-        return result.conversation.title;
-      });
-      setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-
-      if (
-        result.conversation.titleGenerationStatus === "completed" ||
-        result.conversation.titleGenerationStatus === "failed"
-      ) {
-        stopTitlePolling();
-        return;
-      }
+      titlePollHaltedRef.current = false;
+      dispatch({ type: "title_synced", conversation: result.conversation });
     } catch {}
+
+    if (titlePollHaltedRef.current) {
+      return;
+    }
 
     titlePollAttemptsRef.current += 1;
 
@@ -1355,20 +696,6 @@ export function ChatView({
     titlePollTimeoutRef.current = window.setTimeout(() => {
       void pollConversationTitle();
     }, 1000);
-  }
-
-  function startTitlePolling() {
-    if (
-      titlePollTimeoutRef.current !== null ||
-      titleGenerationStatus !== "pending"
-    ) {
-      return;
-    }
-
-    titlePollAttemptsRef.current = 0;
-    titlePollTimeoutRef.current = window.setTimeout(() => {
-      void pollConversationTitle();
-    }, 400);
   }
 
   useEffect(() => stopTitlePolling, []);
@@ -1389,7 +716,7 @@ export function ChatView({
         return;
       }
 
-      if (messagesRef.current.length > 0) {
+      if (docRef.current!.messages.length > 0) {
         return;
       }
 
@@ -1426,10 +753,10 @@ export function ChatView({
   }, [payload.conversation.id, isTemporaryToggled]);
 
   useEffect(() => {
-    if (titleGenerationStatus === "completed" || titleGenerationStatus === "failed") {
+    if (doc.titleGenerationStatus === "completed" || doc.titleGenerationStatus === "failed") {
       stopTitlePolling();
     }
-  }, [titleGenerationStatus]);
+  }, [doc.titleGenerationStatus]);
 
   useEffect(() => {
     if (!needsMessageSync || wsConnected) {
@@ -1458,70 +785,15 @@ export function ChatView({
           return;
         }
 
-        const activeStreamMessageId = streamMessageIdRef.current;
-        const bufferSnapshot = streamBuffer.getSnapshot();
-        const hasLocalStreamState =
-          Boolean(activeStreamMessageId) ||
-          Boolean(bufferSnapshot.thinkingTarget) ||
-          Boolean(bufferSnapshot.answerTarget) ||
-          streamTimelineRef.current.length > 0;
-
-        applySnapshotReconciliation(result.messages, activeStreamMessageId);
-        setConversationTitle(result.conversation.title);
-        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-
-        const activeMessage = activeStreamMessageId
-          ? result.messages.find((message) => message.id === activeStreamMessageId)
-          : null;
-
-        if (activeMessage?.status === "streaming") {
-          syncActiveStreamingMessageFromSnapshot(activeMessage);
-        } else if (!activeStreamMessageId) {
-          const streamingMsg = result.messages.find(
-            (message) => message.role === "assistant" && message.status === "streaming"
-          );
-          if (streamingMsg) {
-            syncActiveStreamingMessageFromSnapshot(streamingMsg, { adopt: !hasLocalStreamState });
-          }
-        }
-
-        const shouldIgnoreInactiveResult =
-          !result.conversation.isActive &&
-          hasLocalStreamState &&
-          (!activeMessage || activeMessage.status === "streaming");
-
-        if (shouldIgnoreInactiveResult) {
-          messageSyncTimeoutRef.current = window.setTimeout(() => {
-            void syncConversation();
-          }, 1000);
-          return;
-        }
-
-        const awaitingTurnStart = isSendingRef.current && !activeStreamMessageId;
-        if (
-          !awaitingTurnStart &&
-          !finalizePendingRef.current &&
-          (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))
-        ) {
-          if (activeMessage && activeMessage.status !== "streaming") {
-            setMessages((current) =>
-              current.map((m) => (m.id === activeMessage.id ? activeMessage : m))
-            );
-          }
-          setStreamMessageId(null);
-          updateStreamTimeline([]);
-          streamBuffer.reset();
-          setHasReceivedFirstToken(false);
-          setIsSending(false);
-          if (!result.conversation.isActive) {
-            setIsConversationActive(false);
-          }
-          stopMessageSyncPolling();
-          return;
-        }
+        messageSyncHaltedRef.current = false;
+        dispatch({ type: "conversation_synced", conversation: result.conversation, messages: result.messages });
       } catch {}
 
       if (cancelled) {
+        return;
+      }
+
+      if (messageSyncHaltedRef.current) {
         return;
       }
 
@@ -1536,7 +808,7 @@ export function ChatView({
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, setStreamMessageId, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline, wsConnected]);
+  }, [dispatch, needsMessageSync, payload.conversation.id, wsConnected]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -1549,45 +821,16 @@ export function ChatView({
     selectedProfile &&
     selectedProfile.visionMode === "none";
 
-  function beginTurnRestart() {
-    resetStreamingState();
-    setIsSending(true);
-    return new Set(messagesRef.current.map((message) => message.id));
-  }
-
-  function applyTurnRestart(
-    result: { conversation?: Conversation; messages?: Message[] },
-    messageIdsBeforeRestart: Set<string>
-  ) {
-    if (result.messages) {
-      const snapshot = sanitizeMessages(result.messages);
-      const snapshotIds = new Set(snapshot.map((message) => message.id));
-      setMessages((current) => [
-        ...snapshot,
-        ...current.filter(
-          (message) => !messageIdsBeforeRestart.has(message.id) && !snapshotIds.has(message.id)
-        )
-      ]);
-    }
-
-    if (result.conversation) {
-      setConversationTitle(result.conversation.title);
-      setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-    }
-  }
-
   async function updateUserMessage(messageId: string, content: string) {
-    const previousMessage = messages.find((message) => message.id === messageId);
+    const previousMessage = docRef.current!.messages.find((message) => message.id === messageId);
 
     if (!previousMessage || (rewind.pendingRewind && !(await rewind.commit()))) {
       return;
     }
 
-    pendingAnchorMessageIdRef.current = messageId;
-
     setError("");
     setUpdatingMessageId(messageId);
-    const messageIdsBeforeRestart = beginTurnRestart();
+    dispatch({ type: "message_edit_started", messageId });
 
     try {
       const response = await fetch(`/api/messages/${messageId}/edit-restart`, {
@@ -1609,10 +852,18 @@ export function ChatView({
         throw new Error(message);
       }
 
-      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
+      const result = (await response.json()) as {
+        conversation?: Conversation;
+        messages?: Message[];
+      };
+
+      dispatch({ type: "turn_restart_succeeded", conversation: result.conversation, messages: result.messages });
     } catch (caughtError) {
-      setIsSending(false);
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
+      dispatch({
+        type: "turn_restart_failed",
+        error: caughtError instanceof Error ? caughtError.message : "Unable to update message",
+        clearSending: true
+      });
       throw caughtError;
     } finally {
       setUpdatingMessageId((current) => (current === messageId ? null : current));
@@ -1670,7 +921,7 @@ export function ChatView({
 
   function rewindMessage(messageId: string) {
     setError("");
-    const rewindsUserMessage = messagesRef.current.find((message) => message.id === messageId)?.role === "user";
+    const rewindsUserMessage = docRef.current!.messages.find((message) => message.id === messageId)?.role === "user";
     void rewind.start(messageId).then(() => {
       if (rewindsUserMessage && shouldAutofocusTextInput()) {
         inputRef.current?.focus({ preventScroll: true });
@@ -1685,7 +936,7 @@ export function ChatView({
 
     setError("");
     setRetryingMessageId(messageId);
-    const messageIdsBeforeRestart = beginTurnRestart();
+    dispatch({ type: "message_retry_started", messageId });
 
     try {
       const response = await fetch(`/api/messages/${messageId}/retry`, {
@@ -1703,12 +954,18 @@ export function ChatView({
         throw new Error(message);
       }
 
-      applyTurnRestart(await response.json(), messageIdsBeforeRestart);
+      const result = (await response.json()) as {
+        conversation?: Conversation;
+        messages?: Message[];
+      };
+
+      dispatch({ type: "turn_restart_succeeded", conversation: result.conversation, messages: result.messages });
     } catch (caughtError) {
-      setIsSending(false);
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Message retry failed"
-      );
+      dispatch({
+        type: "turn_restart_failed",
+        error: caughtError instanceof Error ? caughtError.message : "Message retry failed",
+        clearSending: true
+      });
     } finally {
       setRetryingMessageId((current) => (current === messageId ? null : current));
     }
@@ -1719,14 +976,14 @@ export function ChatView({
       return;
     }
 
-    if (streamMessageIdRef.current && !isStopPending) {
+    if (docRef.current!.streamMessageId && !docRef.current!.isStopPending) {
       stopActiveTurn();
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     setError("");
     setRegeneratingMessageId(messageId);
-    const messageIdsBeforeRestart = new Set(messagesRef.current.map((message) => message.id));
+    dispatch({ type: "message_regenerate_started", messageId });
 
     try {
       const response = await fetch(`/api/messages/${messageId}/regenerate`, {
@@ -1749,20 +1006,19 @@ export function ChatView({
         messages?: Message[];
       };
 
-      applyTurnRestart(result, messageIdsBeforeRestart);
-
-      if (result.conversation) {
-        dispatchConversationActivityUpdated({
-          conversationId: result.conversation.id,
-          isActive: true
-        });
-      }
-
-      setIsSending(true);
+      dispatch({
+        type: "turn_restart_succeeded",
+        conversation: result.conversation,
+        messages: result.messages,
+        active: Boolean(result.conversation),
+        sending: true
+      });
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Message regeneration failed"
-      );
+      dispatch({
+        type: "turn_restart_failed",
+        error: caughtError instanceof Error ? caughtError.message : "Message regeneration failed",
+        clearSending: false
+      });
     } finally {
       setRegeneratingMessageId((current) => (current === messageId ? null : current));
     }
@@ -1792,7 +1048,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to approve memory proposal");
       }
 
-      setMessages((current) => replaceMessageAction(current, result.action!));
+      dispatch({ type: "message_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error
@@ -1824,7 +1080,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to dismiss memory proposal");
       }
 
-      setMessages((current) => replaceMessageAction(current, result.action!));
+      dispatch({ type: "message_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error
@@ -1833,11 +1089,6 @@ export function ChatView({
       setError(errorMessage);
       throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
     }
-  }
-
-  function applyToolApprovalAction(action: MessageAction) {
-    setMessages((current) => replaceMessageAction(current, action));
-    updateStreamTimeline((previous) => updateStreamingAction(previous, action));
   }
 
   async function approveToolApproval(
@@ -1864,7 +1115,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to approve tool request");
       }
 
-      applyToolApprovalAction(result.action!);
+      dispatch({ type: "stream_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error ? caughtError.message : "Unable to approve tool request";
@@ -1894,7 +1145,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to deny tool request");
       }
 
-      applyToolApprovalAction(result.action!);
+      dispatch({ type: "stream_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error ? caughtError.message : "Unable to deny tool request";
@@ -1927,7 +1178,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to schedule automation");
       }
 
-      setMessages((current) => replaceMessageAction(current, result.action!));
+      dispatch({ type: "message_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error
@@ -1959,7 +1210,7 @@ export function ChatView({
         throw new Error(result.error ?? "Unable to ignore automation proposal");
       }
 
-      setMessages((current) => replaceMessageAction(current, result.action!));
+      dispatch({ type: "message_action_replaced", action: result.action });
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error
@@ -1993,7 +1244,7 @@ export function ChatView({
       throw new Error(result.error ?? fallbackError);
     }
 
-    setMessages((current) => replaceMessageAction(current, result.action!));
+    dispatch({ type: "message_action_replaced", action: result.action });
   }
 
   async function sendMessageDraft(actionId: string, fields?: Record<string, string>) {
@@ -2088,12 +1339,7 @@ export function ChatView({
 
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
-    const hasActiveTurn =
-      isConversationActive ||
-      Boolean(streamMessageIdRef.current && !finalizePendingRef.current) ||
-      messagesRef.current.some(
-        (message) => message.role === "assistant" && message.status === "streaming"
-      );
+    const hasActiveTurn = selectHasActiveTurn(docRef.current!);
 
     if (
       speechSnapshot.phase === "listening" ||
@@ -2106,9 +1352,7 @@ export function ChatView({
     }
 
     if (wsFailed) {
-      setError(
-        "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
-      );
+      setError(WS_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -2128,7 +1372,7 @@ export function ChatView({
       return;
     }
 
-    if ((!value && nextPendingAttachments.length === 0) || isSending) {
+    if ((!value && nextPendingAttachments.length === 0) || docRef.current!.isSending) {
       return;
     }
 
@@ -2174,8 +1418,8 @@ export function ChatView({
             const persisted = data.message;
             researchUserMessageIdRef.current = persisted.id;
             setPendingAttachments([]);
-            setMessages((current) => (current.some((m) => m.id === persisted.id) ? current : [...current, persisted]));
-            if (titleGenerationStatus === "pending") {
+            dispatch({ type: "research_message_persisted", message: persisted });
+            if (docRef.current!.titleGenerationStatus === "pending") {
               startTitlePolling();
             }
           }
@@ -2211,36 +1455,7 @@ export function ChatView({
     setInput("");
     dismissComposerKeyboardOnTouch();
     setPendingAttachments([]);
-    finalizePendingRef.current = false;
-    streamBuffer.reset();
-    setStreamMessageId(null);
-    updateStreamTimeline([]);
-    setHasReceivedFirstToken(false);
-    thinkingStartTimeRef.current = null;
-    setThinkingDuration(undefined);
-    setIsSending(true);
-
-    const optimisticUserMessage = {
-      id: `local_${Date.now()}`,
-      conversationId: payload.conversation.id,
-      role: "user" as const,
-      content: value,
-      thinkingContent: "",
-      status: "completed" as const,
-      estimatedTokens: 0,
-      systemKind: null,
-      compactedAt: null,
-      createdAt: new Date().toISOString(),
-      attachments: nextPendingAttachments
-    };
-    pendingLocalSubmissionsRef.current.push({
-      localMessageId: optimisticUserMessage.id,
-      content: value,
-      attachments: nextPendingAttachments,
-      serverMessageId: null
-    });
-    setMessages((current) => [...current, optimisticUserMessage]);
-    pendingAnchorMessageIdRef.current = optimisticUserMessage.id;
+    dispatch({ type: "submission_started", content: value, attachments: nextPendingAttachments });
 
     wsSend({
       type: "message",
@@ -2251,19 +1466,19 @@ export function ChatView({
       research: researchRequest
     });
     setIsResearchToggled(false);
-    setIsConversationActive(true);
 
-    if (titleGenerationStatus === "pending") {
+    if (docRef.current!.titleGenerationStatus === "pending") {
       startTitlePolling();
     }
   }
 
   function stopActiveTurn() {
-    if (!streamMessageIdRef.current || isStopPending) {
+    const current = docRef.current!;
+    if (!current.streamMessageId || current.isStopPending) {
       return;
     }
 
-    setIsStopPending(true);
+    dispatch({ type: "stop_requested" });
     wsSend({
       type: "stop",
       conversationId: payload.conversation.id
@@ -2277,9 +1492,7 @@ export function ChatView({
       return true;
     }
 
-    setError(
-      "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
-    );
+    setError(WS_UNAVAILABLE_MESSAGE);
     return false;
   }
 
@@ -2316,7 +1529,7 @@ export function ChatView({
     }
 
     setError("");
-    setSendNowIds((current) => new Set(current).add(queuedMessageId));
+    dispatch({ type: "queued_message_send_now_requested", queuedMessageId });
     wsSend({
       type: "send_queued_message_now",
       conversationId: payload.conversation.id,
@@ -2342,7 +1555,7 @@ export function ChatView({
     await removePendingAttachment(attachmentId);
   });
   const canForkMessages = payload.conversation.conversationOrigin !== "bot";
-  const canRewindMessages = !isConversationActive && !isSending;
+  const canRewindMessages = !doc.isActive && !doc.isSending;
   const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
   const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
   const onPreviewAttachmentStable = useStableHandler(previewController.openAttachmentPreview);
@@ -2361,7 +1574,7 @@ export function ChatView({
         <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
-              <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
+              <div className="font-medium text-[var(--text)] truncate text-sm">{doc.title}</div>
             </div>
             <div className="hidden md:flex items-center gap-1">
               {canShare ? (
@@ -2435,7 +1648,7 @@ export function ChatView({
             return null;
           })()}
           {visibleMessages.map((message, index) => {
-            const isStreamingMessage = message.id === streamMessageId;
+            const isStreamingMessage = message.id === doc.streamMessageId;
 
             const wasPresentOnInit = initialMessageIdsRef.current!.has(message.id);
             const hasBeenAnimated = animatedMessageIdsRef.current.has(message.id);
@@ -2446,7 +1659,7 @@ export function ChatView({
 
             return (
               <div
-                key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
+                key={doc.renderKeyByMessageId.get(message.id) ?? message.id}
                 data-message-id={message.id}
                 className={shouldAnimate ? "animate-slide-up" : undefined}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
@@ -2455,10 +1668,10 @@ export function ChatView({
                   active={isStreamingMessage}
                   buffer={streamBuffer}
                   message={message}
-                  timeline={isStreamingMessage ? streamTimeline : EMPTY_TIMELINE}
-                  hasReceivedFirstToken={isStreamingMessage ? hasReceivedFirstToken : false}
-                  compactionInProgress={isStreamingMessage ? compactionInProgress : false}
-                  thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
+                  timeline={isStreamingMessage ? doc.streamTimeline : EMPTY_TIMELINE}
+                  hasReceivedFirstToken={isStreamingMessage ? doc.hasReceivedFirstToken : false}
+                  compactionInProgress={isStreamingMessage ? doc.compactionInProgress : false}
+                  thinkingDuration={isStreamingMessage ? doc.thinkingDuration : undefined}
                   confirmExternalLinks={payload.settings.confirmExternalLinks}
                   toolCallDisplay={payload.settings.toolCallDisplay}
                   onPreviewAttachment={onPreviewAttachmentStable}
@@ -2522,11 +1735,11 @@ export function ChatView({
          <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pb-composer-safe pointer-events-auto">
           <div>
             <QueuedMessageBanner
-              items={queuedMessages}
+              items={doc.queuedMessages}
               onEdit={updateQueuedMessage}
               onDelete={deleteQueuedMessage}
               onSendNow={sendQueuedMessageNow}
-              redirectingIds={isConversationActive ? redirectingIds : undefined}
+              redirectingIds={doc.isActive ? redirectingIds : undefined}
             />
           </div>
           <div className="relative">
@@ -2542,7 +1755,7 @@ export function ChatView({
                 const pendingMessageId = researchUserMessageIdRef.current;
                 researchUserMessageIdRef.current = null;
                 if (pendingMessageId) {
-                  setMessages((current) => current.filter((m) => m.id !== pendingMessageId));
+                  dispatch({ type: "research_draft_discarded", messageId: pendingMessageId });
                   fetch(`/api/conversations/${payload.conversation.id}/research`, {
                     method: "DELETE",
                     headers: { "Content-Type": "application/json" },
@@ -2564,7 +1777,7 @@ export function ChatView({
                   void submit(draft.message, pendingAttachments, undefined, { plan });
                   return;
                 }
-                setIsConversationActive(true);
+                dispatch({ type: "research_turn_started" });
                 fetch(`/api/conversations/${payload.conversation.id}/research`, {
                   method: "PUT",
                   headers: { "Content-Type": "application/json" },
@@ -2572,12 +1785,12 @@ export function ChatView({
                 })
                   .then(async (response) => {
                     if (!response.ok) {
-                      setIsConversationActive(false);
+                      dispatch({ type: "research_turn_failed" });
                       setError("Unable to start the research turn");
                     }
                   })
                   .catch(() => {
-                    setIsConversationActive(false);
+                    dispatch({ type: "research_turn_failed" });
                     setError("Unable to start the research turn");
                   });
               }}
@@ -2587,7 +1800,7 @@ export function ChatView({
             input={input}
             onInputChange={setInput}
             onSubmit={submit}
-            isSending={isSending || updatingMessageId !== null}
+            isSending={doc.isSending || updatingMessageId !== null}
             pendingAttachments={pendingAttachments}
             isUploadingAttachments={isUploadingAttachments}
             onUploadFiles={uploadFiles}
@@ -2604,19 +1817,19 @@ export function ChatView({
             textareaRef={inputRef}
             references={composerReferences}
             onReferencesOpen={refreshComposerReferences}
-            usedTokens={usedTokens}
-            compactionLimit={compactionLimit}
-            memoriesUsed={memoryUsage?.used ?? null}
-            memoriesTotal={memoryUsage?.total ?? null}
+            usedTokens={doc.usedTokens}
+            compactionLimit={doc.compactionLimit}
+            memoriesUsed={doc.memoryUsage?.used ?? null}
+            memoriesTotal={doc.memoryUsage?.total ?? null}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-            hasMessages={messages.length > 0}
-            canStop={!!streamMessageId && !isStopPending && isConversationActive}
-            isStopPending={isStopPending}
+            hasMessages={doc.messages.length > 0}
+            canStop={!!doc.streamMessageId && !doc.isStopPending && doc.isActive}
+            isStopPending={doc.isStopPending}
             onStop={stopActiveTurn}
             speechPhase={speechSnapshot.phase}
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
-            queueingEnabled={isConversationActive}
+            queueingEnabled={doc.isActive}
             redirectsWhileBusy={redirectsWhileBusy}
             isResearch={isResearchToggled}
             onResearchChange={setIsResearchToggled}
@@ -2625,12 +1838,14 @@ export function ChatView({
               researchPlan.draft?.status === "loading" || researchPlan.draft?.status === "updating"
             }
             isTemporary={isTemporaryToggled}
-            showTemporaryToggle={messages.length === 0 && payload.conversation.conversationOrigin === "manual"}
+            showTemporaryToggle={doc.messages.length === 0 && payload.conversation.conversationOrigin === "manual"}
             onTemporaryChange={(value: boolean) => {
               setIsTemporaryToggled(value);
               fetch(`/api/conversations/${payload.conversation.id}`, {
                 method: "PATCH",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json"
+                },
                 body: JSON.stringify({ isTemporary: value })
               }).catch(() => {});
             }}
