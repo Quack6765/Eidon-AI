@@ -2,38 +2,23 @@ import {
   callAnthropicText,
   streamAnthropicResponse
 } from "@/lib/anthropic";
-import { setActiveTokenizer } from "@/lib/tokenization";
-import { withDateContextUserMessage, withToolResultImagesAsUserMessages } from "@/lib/provider-message-formatting";
-import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
-import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
+import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
+import { adapterStream, runAdapterText } from "@/lib/provider-adapters/kit";
 import Anthropic from "@anthropic-ai/sdk";
 import { providerHttpOptions } from "@/lib/provider-http";
 import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
-import type {
-  ProviderStreamInput,
-  ProviderStreamResult,
-  ProviderTextInput
-} from "@/lib/provider-adapters/types";
-import { LOW_EFFORT_PURPOSES } from "@/lib/provider-adapters/types";
+import type { RuntimeProviderProfile } from "@/lib/types";
+import type { ProviderTextInput } from "@/lib/provider-adapters/types";
 
-export async function callAnthropicAdapterText(input: ProviderTextInput) {
-  const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
-    ? {
-        ...input.settings,
-        reasoningEffort: (input.settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,
-        reasoningSummaryEnabled: false
-      }
-    : input.settings;
-  const text = stripThinkingDelimiters(
-    await callAnthropicText({
+export function callAnthropicAdapterText(input: ProviderTextInput) {
+  return runAdapterText(input, (settings) =>
+    callAnthropicText({
       settings,
       messages: withDateContextUserMessage([{ role: "user", content: input.prompt }]),
       conversationId: input.conversationId,
       abortSignal: input.abortSignal
     })
   );
-  if (!text.trim()) throw new Error("Provider returned an empty response");
-  return text;
 }
 
 export async function discoverAnthropicModels(settings: RuntimeProviderProfile) {
@@ -51,15 +36,13 @@ export async function discoverAnthropicModels(settings: RuntimeProviderProfile) 
   }));
 }
 
-export async function* streamAnthropicAdapterResponse(
-  input: ProviderStreamInput
-): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
-  setActiveTokenizer(input.settings.tokenizerModel ?? "gpt-tokenizer");
-  return yield* streamAnthropicResponse({
+export const streamAnthropicAdapterResponse = adapterStream(
+  { normalizePromptMessages: true, usageEvents: "vendor" },
+  (input) => streamAnthropicResponse({
     settings: input.settings,
-    promptMessages: withDateContextUserMessage(withToolResultImagesAsUserMessages(input.promptMessages)),
+    promptMessages: input.promptMessages,
     tools: input.tools,
     conversationId: input.conversationId,
     abortSignal: input.abortSignal
-  });
-}
+  })
+);
