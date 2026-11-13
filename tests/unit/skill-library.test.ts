@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  applySkillOperations,
   archiveLibrarySkill,
   buildSkillId,
   buildSkillMarkdown,
@@ -11,6 +13,7 @@ import {
   discoverLibrarySkillRefs,
   ensureLibraryReady,
   findLibrarySkill,
+  getLocksDir,
   getSkillLibraryDir,
   hardDeleteLibrarySkill,
   listArchivedSkills,
@@ -25,9 +28,11 @@ import {
   rewriteLibrarySkill,
   skillDirPath,
   validateSkillName,
+  withSkillLock,
   writeLibrarySupportFile
 } from "@/lib/skill-library";
 import { lintSkillDir } from "@/lib/skill-lint";
+import type { SkillOperation } from "@/lib/skill-operation";
 import {
   MAX_DESCRIPTION_LENGTH,
   MAX_SKILL_CONTENT_CHARS,
@@ -286,6 +291,80 @@ describe("skill-library", () => {
 
       expect(listLibrarySkills(owner).map((s) => s.name)).toEqual(["live"]);
       expect(listLibrarySkills(owner, { includeArchived: true })).toHaveLength(2);
+    });
+  });
+
+  describe("applySkillOperations", () => {
+    const apply = (operations: SkillOperation[], origin: "foreground" | "background-review" = "foreground") =>
+      applySkillOperations(owner, { operations, origin, loadedRefs: new Set<string>() });
+
+    it("resolves the skill directory the way callers used to re-derive it", () => {
+      expect(skillDirPath(owner, "devops/deploy")).toBe(join(getSkillLibraryDir(owner), "devops", "deploy"));
+      expect(skillDirPath(owner, "plain")).toBe(join(getSkillLibraryDir(owner), "plain"));
+    });
+
+    it("applies a whole batch and records a ledger entry per mutation", () => {
+      const outcome = apply([
+        { name: "batched", action: "create", content: skill("batched", "Alpha.") },
+        { name: "batched", action: "write_file", filePath: "references/notes.md", fileContent: "notes" },
+        { name: "batched", action: "patch", oldString: "Alpha.", newString: "Beta." }
+      ]);
+
+      expect(outcome).toEqual({
+        results: [
+          "Skill 'batched' created.",
+          "File 'references/notes.md' written to skill 'batched'.",
+          "Patched SKILL.md in skill 'batched' (1 replacement(s).)"
+        ]
+      });
+      expect(readFileSync(join(skillDirPath(owner, "batched"), "SKILL.md"), "utf8")).toContain("Beta.");
+      expect(readFileSync(join(skillDirPath(owner, "batched"), "references", "notes.md"), "utf8")).toBe("notes");
+      expect(readLedger(owner).filter((entry) => entry.skill === "batched").map((entry) => entry.action)).toEqual([
+        "create",
+        "write_file",
+        "patch"
+      ]);
+    });
+
+    it("rolls the whole batch back when one operation fails", () => {
+      createLibrarySkill(owner, { name: "stable", content: skill("stable", "Keep me.") });
+
+      const outcome = apply([
+        { name: "half-made", action: "create", content: skill("half-made") },
+        { name: "stable", action: "patch", oldString: "Keep me.", newString: "Changed." },
+        { name: "nope", action: "remove_file", filePath: "references/missing.md" }
+      ]);
+
+      expect(outcome).toHaveProperty("error");
+      expect(existsSync(join(skillDirPath(owner, "half-made"), "SKILL.md"))).toBe(false);
+      expect(findLibrarySkill(owner, "stable")?.skill.content).toContain("Keep me.");
+      expect(readLedger(owner).some((entry) => entry.skill === "half-made" && entry.action === "create")).toBe(true);
+    });
+
+    it("refuses to start while a lock on any touched skill is held, then proceeds once released", () => {
+      mkdirSync(getLocksDir(owner), { recursive: true });
+      const lockPath = join(getLocksDir(owner), `${createHash("sha256").update("pair-b").digest("hex")}.lock`);
+      writeFileSync(lockPath, String(Date.now()), "utf8");
+
+      const operations: SkillOperation[] = [
+        { name: "pair-a", action: "create", content: skill("pair-a") },
+        { name: "pair-b", action: "create", content: skill("pair-b") }
+      ];
+
+      expect(apply(operations)).toEqual({
+        error: 'Skill "pair-b" is being modified by another operation. Retry shortly.'
+      });
+      expect(findLibrarySkill(owner, "pair-a")).toBeNull();
+
+      rmSync(lockPath, { force: true });
+      expect(apply(operations)).toEqual({ results: ["Skill 'pair-a' created.", "Skill 'pair-b' created."] });
+    });
+
+    it("reenters a lock already held in the same process instead of refusing it", () => {
+      const outcome = withSkillLock(owner, "nested", () =>
+        apply([{ name: "nested", action: "create", content: skill("nested") }])
+      );
+      expect(outcome).toEqual({ results: ["Skill 'nested' created."] });
     });
   });
 });
