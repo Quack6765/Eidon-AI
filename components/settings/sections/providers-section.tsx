@@ -100,7 +100,6 @@ function buildDirtySnapshot(
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const router = useRouter();
   const toast = useToastState();
-  const [testResult, setTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
     settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
@@ -538,7 +537,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function runConnectionTest() {
-    setTestResult(null);
     setIsTesting(true);
     try {
       const response = await fetch("/api/settings/test", {
@@ -548,7 +546,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       });
       const result = (await response.json()) as { text?: string; error?: string };
       const text = result.text ?? result.error ?? "No result";
-      setTestResult({ text, isSuccess: response.ok && !result.error });
+      toast.dismissToast();
+      toast.showToast(response.ok && !result.error ? "success" : "error", text);
     } finally {
       setIsTesting(false);
     }
@@ -1227,13 +1226,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </label>
                   </div>
                 </SettingsAccordion>
-
-                {/* Messages */}
-                {testResult ? (
-                  <p className={`pt-2 text-sm ${testResult.isSuccess ? "text-emerald-400" : "text-red-300"}`}>
-                    {testResult.text}
-                  </p>
-                ) : null}
 
                 <UnsavedChangesDialog
                   open={unsavedDialogOpen}
